@@ -77,7 +77,7 @@ derive() {
     DEPLOY_MODE)        printf '%s' "$TOPO_DEPLOY_MODE" ;;
     MEM_PROFILE)        printf '%s' "$TOPO_MEM_PROFILE" ;;
     BIND_ADDR)          [[ $TOPO_DEPLOY_MODE == single ]] && printf '127.0.0.1' || printf '0.0.0.0' ;;
-    WAZUH_INDEXER_URL)  printf 'https://wazuh-indexer:9200' ;;  # internal to core, never published
+    WAZUH_INDEXER_URL)  printf 'https://wazuh.indexer:9200' ;;  # internal to core, never published; name in its certificate
     WAZUH_API_URL)      addr "$node" core  https://wazuh-manager:55000 https://HOST:55000 ;;
     WAZUH_MANAGER_ADDR) addr "$node" core  wazuh-manager               HOST ;;
     N8N_WEBHOOK_URL)    addr "$node" core  http://n8n:5678             http://HOST:5678 ;;

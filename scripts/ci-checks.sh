@@ -23,7 +23,10 @@ trap cleanup EXIT
 snapshot() {
   [[ -n $SNAP ]] && return 0
   SNAP=$(mktemp -d)
-  (cd "$REPO_ROOT" && git ls-files -co --exclude-standard -z | xargs -0 -r tar -cf - --) | tar -xf - -C "$SNAP"
+  # Deleted-but-unstaged files are still listed by git; skip them.
+  (cd "$REPO_ROOT" && git ls-files -co --exclude-standard -z \
+    | while IFS= read -r -d '' f; do [[ -e $f ]] && printf '%s\0' "$f"; done \
+    | tar -cf - --null -T -) | tar -xf - -C "$SNAP"
 }
 
 # List snapshot files matching a find expression, relative to the snapshot.
@@ -116,7 +119,7 @@ for f in sys.argv[1:]:
 check_secrets() {
   echo "== secret scan (gitleaks)"
   local out
-  if out=$(docker run --rm -v "$SNAP:/scan:ro" "$GITLEAKS_IMAGE" dir /scan --no-banner --redact 2>&1); then
+  if out=$(docker run --rm -v "$SNAP:/scan:ro" "$GITLEAKS_IMAGE" dir /scan --no-banner --redact --verbose --no-color 2>&1); then
     pass "gitleaks: working tree"
   else
     fail "gitleaks: working tree"
@@ -125,7 +128,7 @@ check_secrets() {
   if git -C "$REPO_ROOT" rev-parse --verify -q HEAD >/dev/null; then
     if out=$(docker run --rm -v "$REPO_ROOT:/repo:ro" -e GIT_CONFIG_COUNT=1 \
         -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0='*' \
-        "$GITLEAKS_IMAGE" git /repo --no-banner --redact 2>&1); then
+        "$GITLEAKS_IMAGE" git /repo --no-banner --redact --verbose --no-color 2>&1); then
       pass "gitleaks: git history"
     else
       fail "gitleaks: git history"

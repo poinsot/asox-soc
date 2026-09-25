@@ -133,8 +133,8 @@ fi
 echo "== Ports (${NODES[*]})"
 instance=${TOPO_SOC_INSTANCE:-asox}
 listening=$(ss -Htuln 2>/dev/null || true)
-containers=""
-docker info >/dev/null 2>&1 && containers=$(docker ps --format '{{.Names}} {{.Ports}}')
+have_docker=0
+docker info >/dev/null 2>&1 && have_docker=1
 for node in "${NODES[@]}"; do
   for pp in ${NODE_PORTS[$node]}; do
     port=${pp%/*} proto=${pp#*/}
@@ -142,7 +142,8 @@ for node in "${NODES[@]}"; do
       pass "port $pp ($node): free"
       continue
     fi
-    owner=$(awk -v pat=":$port->[0-9]+/$proto" '$0 ~ pat {print $1; exit}' <<<"$containers")
+    owner=""
+    (( have_docker )) && owner=$(docker ps --filter "publish=$pp" --format '{{.Names}}' | head -n 1)
     if [[ -n $owner && $owner == "$instance-"* ]]; then
       pass "port $pp ($node): in use by this instance ($owner)"
     elif [[ -n $owner ]]; then

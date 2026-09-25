@@ -8,6 +8,11 @@
 #   services:
 #     <service>:
 #       networks: [default, soc-net]
+services:
+  # The lab agent (lab node) enrolls and reports through wazuh-manager.
+  wazuh-manager:
+    networks: [default, soc-net]
+
 networks:
   soc-net:
     external: true

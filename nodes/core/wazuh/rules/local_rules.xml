@@ -1,0 +1,19 @@
+<!--
+  ASOX SOC local rules (owner: Wazuh). Copied into /var/ossec/etc/rules/ at
+  every manager start: edit, then restart the manager.
+  Custom rule IDs: 100000-120999.
+-->
+<group name="asox,test,">
+
+  <!--
+    Phase 1 test rule: deterministic, matches only the marker below. Used by
+    lab/trigger.sh and contracts-check.sh (C1, C8). Level 10 so it passes the
+    C1 forwarding threshold (WAZUH_ALERT_MIN_LEVEL, default 7).
+    Example event: "asox-test: ASOX_TEST_EVENT id=<unique-id>"
+  -->
+  <rule id="100100" level="10">
+    <match>ASOX_TEST_EVENT</match>
+    <description>ASOX test rule: synthetic test event received</description>
+  </rule>
+
+</group>

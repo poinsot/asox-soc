@@ -1,3 +1,111 @@
 # Component: Wazuh (owner: Wazuh) — "Recolector y Clasificador"
-# Services: wazuh-manager, wazuh-indexer. Defined in build step 1.1.
-services: {}
+# Adapted from wazuh-docker v4.14.8 single-node, without the dashboard (D4).
+# Certificates and the indexer's internal_users.yml are generated per machine
+# into ../certs by scripts/gen-certs.sh.
+services:
+  wazuh-indexer:
+    image: ${WAZUH_INDEXER_IMAGE}
+    hostname: wazuh-indexer
+    restart: unless-stopped
+    networks:
+      default:
+        # DNS name in the indexer certificate (see config/certs.yml).
+        aliases: [wazuh.indexer]
+    mem_limit: ${INDEXER_MEM}
+    environment:
+      OPENSEARCH_JAVA_OPTS: -Xms${INDEXER_HEAP} -Xmx${INDEXER_HEAP}
+    ulimits:
+      memlock: { soft: -1, hard: -1 }
+      nofile: { soft: 65536, hard: 65536 }
+    volumes:
+      - wazuh-indexer-data:/var/lib/wazuh-indexer
+      - ../certs/root-ca.pem:/usr/share/wazuh-indexer/config/certs/root-ca.pem:ro
+      - ../certs/wazuh-indexer-key.pem:/usr/share/wazuh-indexer/config/certs/wazuh.indexer.key:ro
+      - ../certs/wazuh-indexer.pem:/usr/share/wazuh-indexer/config/certs/wazuh.indexer.pem:ro
+      - ../certs/admin.pem:/usr/share/wazuh-indexer/config/certs/admin.pem:ro
+      - ../certs/admin-key.pem:/usr/share/wazuh-indexer/config/certs/admin-key.pem:ro
+      - ../certs/internal_users.yml:/usr/share/wazuh-indexer/config/opensearch-security/internal_users.yml:ro
+      - ./config/wazuh-indexer.yml:/usr/share/wazuh-indexer/config/opensearch.yml:ro
+    # Internal to core: never published (PROJECT.md 3.1).
+    healthcheck:
+      # Authenticates with the admin client certificate (no password needed).
+      test:
+        - CMD-SHELL
+        - >-
+          curl -sf --cacert /usr/share/wazuh-indexer/config/certs/root-ca.pem
+          --cert /usr/share/wazuh-indexer/config/certs/admin.pem
+          --key /usr/share/wazuh-indexer/config/certs/admin-key.pem
+          "https://wazuh.indexer:9200/_cluster/health" | grep -Eq '"status":"(green|yellow)"'
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 60s
+
+  wazuh-manager:
+    image: ${WAZUH_MANAGER_IMAGE}
+    hostname: wazuh-manager
+    restart: unless-stopped
+    mem_limit: ${WAZUH_MANAGER_MEM}
+    depends_on:
+      wazuh-indexer:
+        condition: service_healthy
+    ulimits:
+      memlock: { soft: -1, hard: -1 }
+      nofile: { soft: 655360, hard: 655360 }
+    ports:
+      - "${BIND_ADDR}:1514:1514"
+      - "${BIND_ADDR}:1515:1515"
+      - "${BIND_ADDR}:514:514/udp"
+      - "${BIND_ADDR}:55000:55000"
+    environment:
+      INDEXER_URL: ${WAZUH_INDEXER_URL}
+      INDEXER_USERNAME: ${INDEXER_ADMIN_USER}
+      INDEXER_PASSWORD: ${INDEXER_ADMIN_PASSWORD}
+      FILEBEAT_SSL_VERIFICATION_MODE: full
+      SSL_CERTIFICATE_AUTHORITIES: /etc/ssl/root-ca.pem
+      SSL_CERTIFICATE: /etc/ssl/filebeat.pem
+      SSL_KEY: /etc/ssl/filebeat.key
+      # Admin API user; the image disables the default wazuh / wazuh-wui logins
+      # other than this one.
+      API_USERNAME: ${WAZUH_API_ADMIN_USER}
+      API_PASSWORD: ${WAZUH_API_ADMIN_PASSWORD}
+    volumes:
+      - wazuh_api_configuration:/var/ossec/api/configuration
+      - wazuh_etc:/var/ossec/etc
+      - wazuh_logs:/var/ossec/logs
+      - wazuh_queue:/var/ossec/queue
+      - wazuh_var_multigroups:/var/ossec/var/multigroups
+      - wazuh_integrations:/var/ossec/integrations
+      - wazuh_active_response:/var/ossec/active-response/bin
+      - wazuh_agentless:/var/ossec/agentless
+      - wazuh_wodles:/var/ossec/wodles
+      - filebeat_etc:/etc/filebeat
+      - filebeat_var:/var/lib/filebeat
+      - ../certs/root-ca.pem:/etc/ssl/root-ca.pem:ro
+      - ../certs/wazuh-manager.pem:/etc/ssl/filebeat.pem:ro
+      - ../certs/wazuh-manager-key.pem:/etc/ssl/filebeat.key:ro
+      # Files under /wazuh-config-mount are copied into /var/ossec at every start.
+      - ./config/ossec.conf:/wazuh-config-mount/etc/ossec.conf:ro
+      - ./rules:/wazuh-config-mount/etc/rules:ro
+      - ./decoders:/wazuh-config-mount/etc/decoders:ro
+    healthcheck:
+      # The API answers (401 without credentials) once the manager is up.
+      test: ["CMD-SHELL", "curl -sk -o /dev/null https://localhost:55000/"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 90s
+
+volumes:
+  wazuh-indexer-data:
+  wazuh_api_configuration:
+  wazuh_etc:
+  wazuh_logs:
+  wazuh_queue:
+  wazuh_var_multigroups:
+  wazuh_integrations:
+  wazuh_active_response:
+  wazuh_agentless:
+  wazuh_wodles:
+  filebeat_etc:
+  filebeat_var:

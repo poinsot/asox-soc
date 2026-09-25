@@ -94,13 +94,7 @@ cmd_init() {
 
   local n
   for n in "${nodes[@]}"; do
-    if [[ $n == core ]]; then
-      if [[ -f "$(node_dir core)/certs/root-ca.pem" ]]; then
-        skip "gen-certs.sh: Wazuh certificates already exist"
-      else
-        run_step gen-certs.sh
-      fi
-    fi
+    [[ $n == core ]] && run_step gen-certs.sh   # idempotent: keeps existing files
   done
 
   ensure_soc_net

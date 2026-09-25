@@ -1,0 +1,11 @@
+# Nodes for the Wazuh certificate generator (scripts/gen-certs.sh).
+# name = certificate CN and file name; ip = the DNS name in the certificate,
+# which clients verify. The tool only accepts dotted DNS names, so the
+# indexer is reached as wazuh.indexer (a network alias of wazuh-indexer).
+nodes:
+  indexer:
+    - name: wazuh-indexer
+      ip: wazuh.indexer
+  server:
+    - name: wazuh-manager
+      ip: wazuh.manager
