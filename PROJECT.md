@@ -313,7 +313,7 @@ The baseline is built on a **32 GB host**, but teammates may develop on smaller 
 | Profile | Intended hosts | WSL memory | Full stack (approx.) |
 |---|---|---|---|
 | `standard` | 16 GB+ (the baseline build machine: 32 GB) | 10–16 GB | ~10.2 GB |
-| `low` | 8 GB | 6 GB (+8 GB swap) | ~6.4 GB, at the limit; use run modes |
+| `low` | 8 GB | 6 GB (+8 GB swap) | ~6.4 GB: `full` is best effort (swap acceptable); every dev mode must fit in 6 GB (D39) |
 
 These are estimates; `scripts/mem-report.sh` records real usage per profile.
 
@@ -353,6 +353,8 @@ On the 32 GB build machine with WSL at 16 GB, the full stack runs in `standard` 
 | `soc.sh reset <nodes...>` | Delete a node's volumes and generated secrets (including the Wazuh certificates for `core`), to start clean. Asks for confirmation. |
 
 The repo contains no secrets, certificates, API keys or data, so a fresh clone always needs `init` before `up`.
+
+**Low-profile target (D39):** on `low` with a 6 GB WSL allocation, every dev mode (`core`, `cases`, `cases-intel`, `core-cases`) must start, pass its healthchecks and relevant contracts, and fit in memory. Running `full` on `low` is best effort (swap acceptable).
 
 On the 32 GB build machine, `full` can stay running throughout the build. Run modes exist mainly for teammates on smaller machines (RAM shown for `standard` / `low`).
 
@@ -428,7 +430,7 @@ Work in order. Each step ends with its check passing, then a local commit. Follo
 | 1.4 | core | n8n: stub workflows, `custom-n8n` integration, Wazuh credential, export/import scripts | C1 and C2 pass |
 | 1.5 | cases | Cassandra, Elasticsearch, TheHive, Cortex (Docker socket + job directory); bootstrap orgs, users, keys; TheHive → Cortex connector | TheHive and Cortex healthy; C5 passes; Cortex can start a test container |
 | 1.6 | cases-intel | MISP, bootstrap, seed event; MISP analyzer enabled in Cortex (certificate check per 4.1) and its image pulled | C7 passes |
-| 1.7 | full | n8n credentials for TheHive and Cortex; TheHive webhook; `healthcheck.sh`, `contracts-check.sh`, `mem-report.sh` | In `standard`: `healthcheck.sh` all green, C1–C8 all pass. Then switch to `low`, restart, and repeat: all green, C1–C8 pass, total usage ≤ ~6.5 GB. Both memory reports saved in `docs/` |
+| 1.7 | full | n8n credentials for TheHive and Cortex; TheHive webhook; `healthcheck.sh`, `contracts-check.sh`, `mem-report.sh` | In `standard`: `healthcheck.sh` all green, C1–C8 all pass. Then switch to `low` and, for each dev mode (`core`, `cases`, `cases-intel`, `core-cases`), start it alone: healthchecks green, its relevant contracts pass, usage fits a 6 GB WSL allocation (D39). `full` on `low` is best effort (swap acceptable). Memory reports saved in `docs/` |
 | 1.8 | full | Distribution simulation (14.3); `backup.sh` / `restore.sh` | Contracts pass in distributed mode. Backup round-trip: create a marker case in TheHive → `backup.sh cases --with-secrets` (reset deletes the secrets too) → `soc.sh reset cases` → `restore.sh cases` → marker case present, `healthcheck.sh` green and C3/C5 still pass |
 | 1.9 | — | Team handoff, prepared locally by Claude Code, in this order: (1) component READMEs with seeded backlogs (11.3) and `CONTRIBUTING.md` (light rules 11.1, export rules 11.2, onboarding 11.6); (2) **fresh-clone test**; (3) only if it passes, tag `v1.0-baseline` and create the five owner branches from the tag. **Then the integrator** pushes `main`, the tag and the branches to the private `asox-soc` repo on GitHub, and adds teammates as collaborators | **Fresh-clone test:** with the build instance stopped (`soc.sh down`), `git clone ~/asox-soc ~/asox-soc-fresh`, set `SOC_INSTANCE=fresh` in its `topology.env`, and `soc.sh init full` reaches a green `healthcheck.sh` (the different instance name guarantees it can't reuse the build instance's volumes); then `soc.sh reset` the fresh instance, delete `~/asox-soc-fresh`, and restart the build instance. Tag and branches exist locally; after the integrator's push, CI is green on GitHub; section 17 updated |
 
@@ -805,6 +807,7 @@ These are the **design** decisions made while planning. Implementation choices m
 | D36 | n8n webhooks require a shared token: header `X-ASOX-Token: ${N8N_WEBHOOK_TOKEN}` (n8n Header Auth), generated per machine like the other secrets. Wazuh's `custom-n8n` integration sends it (C1); TheHive's webhook will too (C4, step 1.7). Contract checks verify that requests without it are rejected | Webhooks trigger playbooks that will change systems (C9); in distributed mode port 5678 is reachable on the LAN, so anyone could otherwise inject fake alerts |
 | D37 | n8n workflows read service URLs from n8n's environment (`$env.WAZUH_API_URL`, ...), so `N8N_BLOCK_ENV_ACCESS_IN_NODE=false`; the environment holds no secrets: API credentials are n8n credentials, and the encryption key is a Compose secret file | Exported workflows stay portable across machines and modes without hardcoded hosts; n8n's env access is all-or-nothing, so secrets must not be in the environment at all |
 | D38 | n8n memory raised to 0.6 / 0.5 GB (limits 640 / 448 MB) with an explicit Node.js heap (384 / 256 MB) | n8n 2.40 peaks at ~730 MB while starting (and ran out of heap at the planned 400 MB limit), then settles at ~350 MB; the explicit heap makes it start within the limit. The `low` profile total rises to ~6.4 GB, close to the ~6.5 GB target of step 1.7 |
+| D39 | Low-profile acceptance is per dev mode: `core`, `cases`, `cases-intel` and `core-cases` must each start, pass their healthchecks and relevant contracts, and fit a 6 GB WSL allocation; `full` on `low` is best effort (swap acceptable). Replaces "full stack ≤ ~6.5 GB" | Measured memory (Grafana, n8n) pushed the `low` full stack to ~6.4 GB; teammates on 8 GB machines work in one dev mode at a time (11.6), so that is what must fit |
 
 ---
 

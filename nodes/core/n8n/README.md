@@ -40,7 +40,7 @@ Every webhook uses **Header Auth** with the credential **"ASOX webhook token"**:
 
   TheHive and Cortex credentials are added in step 1.7. A workflow that needs a **new** credential: ask the integrator to add it to `bootstrap.sh` (a credential created only in your UI gets a random ID and breaks on teammates' machines).
 - **Service URLs** are available to workflows as environment variables: `{{ $env.WAZUH_API_URL }}`, `{{ $env.THEHIVE_URL }}`, `{{ $env.CORTEX_URL }}`, `{{ $env.N8N_WEBHOOK_URL }}`. Never hardcode a host or IP (PROJECT.md section 4).
-- n8n's environment must **never contain secrets**, because every workflow can read it. Secrets live in credentials; the encryption key is passed as a Compose secret file (docs/decisions.md A42).
+- **Rule: never put secrets in the n8n container's environment** (`environment:` in `compose.yml`), because every workflow can read it (`$env`). Secrets go in n8n credentials or in secret files (Compose secrets, read through `*_FILE` variables, like the encryption key; docs/decisions.md A42).
 - The Wazuh API and the Wazuh indexer use self-signed/internal certificates in the lab: enable "Ignore SSL issues" on HTTP Request nodes that call them (PROJECT.md 4.1).
 
 ## Keeping workflows as code
