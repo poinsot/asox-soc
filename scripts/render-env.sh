@@ -6,6 +6,10 @@
 #     paths) are recomputed from topology.env on every run;
 #   - __secret__    : a random secret is generated once, then kept;
 #   - __bootstrap__ : left empty until bootstrap.sh fills it, then kept;
+#   - __from:<node>__ : copied from the same key in nodes/<node>/.env when
+#                     that file exists on this machine; otherwise the value
+#                     already in .env is kept (pasted by hand in distributed
+#                     mode), with a warning while it is empty;
 #   - anything else : copied from .env.example (e.g. pinned image tags).
 # Keys already in .env but no longer in .env.example are kept, with a warning.
 #
@@ -94,6 +98,17 @@ derive() {
   esac
 }
 
+# Value of <key> for <node> taken from nodes/<src>/.env (rendered earlier in
+# this run, since ALL_NODES lists sources first), else the current value.
+from_node() {
+  local node=$1 key=$2 src=$3 current=$4 v=""
+  is_node "$src" || die "$node: .env.example: unknown node in __from:${src}__ for $key"
+  [[ -f "$(node_dir "$src")/.env" ]] && v=$(env_get "$(node_dir "$src")/.env" "$key")
+  [[ -n $v ]] || v=$current
+  [[ -n $v ]] || warn "$node: $key is empty; copy it from nodes/$src/.env on the $src machine" >&2
+  printf '%s' "$v"
+}
+
 gen_secret() {
   # 32 chars: upper, lower, digit and a dash, which satisfies the Wazuh
   # password policy and needs no quoting in .env, YAML or URLs.
@@ -144,6 +159,8 @@ render_node() {
           if [[ -n ${old[$key]:-} ]]; then val=${old[$key]}; else val=$(gen_secret); generated=$((generated + 1)); fi
         elif [[ $val == __bootstrap__ ]]; then
           val=${old[$key]:-}
+        elif [[ $val =~ ^__from:([a-z]+)__$ ]]; then
+          val=$(from_node "$node" "$key" "${BASH_REMATCH[1]}" "${old[$key]:-}")
         fi
         printf '%s=%s\n' "$key" "$val"
       else

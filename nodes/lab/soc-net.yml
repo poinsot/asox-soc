@@ -8,6 +8,11 @@
 #   services:
 #     <service>:
 #       networks: [default, soc-net]
+services:
+  # Reaches wazuh-manager (core node) by alias.
+  lab-agent:
+    networks: [default, soc-net]
+
 networks:
   soc-net:
     external: true

@@ -8,6 +8,8 @@
 set -euo pipefail
 # shellcheck source=scripts/lib/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
+# shellcheck source=scripts/lib/wazuh.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/wazuh.sh"
 
 usage() { sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//'; }
 
@@ -28,39 +30,6 @@ N8N_POLICIES=(
 
 # Indexer role for Grafana (C8): read wazuh-alerts-* only.
 GRAFANA_ROLE=asox_grafana_ro
-
-core_env() { env_get "$(node_dir core)/.env" "$1"; }
-
-# Wazuh API call from inside the manager container (works in every mode,
-# whatever the published address). Prints the JSON response.
-wazuh_api() {
-  local method=$1 path=$2 data=${3:-}
-  local -a args=(-sk -X "$method" -H "Authorization: Bearer $WAZUH_TOKEN" "https://localhost:55000$path")
-  if [[ -n $data ]]; then
-    printf '%s' "$data" | compose core exec -T wazuh-manager curl "${args[@]}" -H 'Content-Type: application/json' --data-binary @-
-  else
-    compose core exec -T wazuh-manager curl "${args[@]}"
-  fi
-}
-
-wazuh_token() {
-  local user=$1 password=$2
-  compose core exec -T wazuh-manager curl -sk -u "$user:$password" -X POST \
-    "https://localhost:55000/security/user/authenticate?raw=true"
-}
-
-# Indexer call from inside the indexer container, as the indexer admin.
-indexer_api() {
-  local method=$1 path=$2 data=${3:-}
-  local -a args=(-s --cacert /usr/share/wazuh-indexer/config/certs/root-ca.pem
-    -u "$(core_env INDEXER_ADMIN_USER):$(core_env INDEXER_ADMIN_PASSWORD)"
-    -X "$method" "$(core_env WAZUH_INDEXER_URL)$path")
-  if [[ -n $data ]]; then
-    printf '%s' "$data" | compose core exec -T wazuh-indexer curl "${args[@]}" -H 'Content-Type: application/json' --data-binary @-
-  else
-    compose core exec -T wazuh-indexer curl "${args[@]}"
-  fi
-}
 
 # Fail with the API response unless it reports no failed items.
 wazuh_ok() {

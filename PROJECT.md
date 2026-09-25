@@ -681,11 +681,14 @@ asox-soc/
 │       ├── docker-compose.yml
 │       ├── .env.example        # integrator-owned, like every node's .env.example
 │       ├── soc-net.yml
-│       ├── Dockerfile
-│       └── trigger.sh
+│       ├── Dockerfile          # Wazuh agent image (pinned base + agent version)
+│       ├── entrypoint.sh       # renders the agent config, enrolls, runs the agent
+│       ├── healthcheck.sh
+│       └── trigger.sh          # writes a test event; prints its ID
 ├── scripts/
 │   ├── lib/
-│   │   └── common.sh           # shared helpers sourced by the other scripts
+│   │   ├── common.sh           # shared helpers sourced by the other scripts
+│   │   └── wazuh.sh            # Wazuh API / indexer helpers (bootstrap, reset)
 │   ├── preflight.sh
 │   ├── render-env.sh
 │   ├── gen-certs.sh
@@ -812,7 +815,7 @@ These are the **design** decisions made while planning. Implementation choices m
 |---|---|---|
 | 1.0 | Done (2026-09-25) | Skeleton, `render-env.sh`, `preflight.sh`, `soc.sh`, `ci-checks.sh` + CI workflow, `windows/` scripts. Images pinned (docs/decisions.md); Cortex 4.1.0 + ES 8 instead of 3.x (A1, approved). Component compose files are stubs until their steps. `windows/*.ps1` written but not run (Administrator, distributed mode only). |
 | 1.1 | Done (2026-09-25) | Wazuh manager + indexer 4.14.8 (no dashboard), `gen-certs.sh` (certificates + indexer admin hash), test rule 100100, `bootstrap.sh core` (`n8n-api` read-only role, `grafana-ro`), `wazuh-query.sh`. Indexer green, API up, alerts queryable; `soc.sh reset core` + `init core` passes from scratch. Indexer reached as `wazuh.indexer` (certificate name, A15). Post-1.1: agent enrollment password (D33), manager restart workaround and stricter healthcheck (A26, A27). |
-| 1.2 | Not started | |
+| 1.2 | Done (2026-09-25) | Lab agent image (Ubuntu 24.04 + wazuh-agent 4.14.8) enrolled with the enrollment password, `trigger.sh`. Agent `active`; test-rule alert from `lab-agent` found by `wazuh-query.sh`, also right after `init`, after `down`/`up` and after a restart. `soc.sh reset lab` removes the old registration so the agent can re-enroll (A30). |
 | 1.3 | Not started | |
 | 1.4 | Not started | |
 | 1.5 | Not started | |

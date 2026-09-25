@@ -16,6 +16,8 @@
 set -euo pipefail
 # shellcheck source=scripts/lib/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
+# shellcheck source=scripts/lib/wazuh.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/wazuh.sh"
 
 SCRIPTS="$REPO_ROOT/scripts"
 UP_TIMEOUT=${SOC_UP_TIMEOUT:-900}
@@ -200,6 +202,7 @@ cmd_reset() {
   echo "  - the generated .env (secrets and API keys)"
   [[ " ${nodes[*]} " == *" core "* ]] && echo "  - the Wazuh certificates (agents must re-enroll)"
   [[ " ${nodes[*]} " == *" cases "* ]] && echo "  - the Cortex job directory"
+  [[ " ${nodes[*]} " == *" lab "* && " ${nodes[*]} " != *" core "* ]] && echo "  - the lab agent's registration on the manager"
   if (( ! yes )); then
     local reply
     read -r -p "Type 'reset' to continue: " reply
@@ -209,6 +212,11 @@ cmd_reset() {
   local n dir
   for n in "${nodes[@]}"; do
     dir=$(node_dir "$n")
+    # A fresh lab agent can only enroll once the manager forgets the old one
+    # (resetting core forgets every agent anyway).
+    if [[ $n == lab && " ${nodes[*]} " != *" core "* ]]; then
+      forget_lab_agent "$(env_get "$dir/.env" LAB_AGENT_NAME)"
+    fi
     if have_env "$n"; then
       compose "$n" down --volumes --remove-orphans
       rm -f "$dir/.env"
@@ -219,6 +227,20 @@ cmd_reset() {
     esac
     pass "$n: reset"
   done
+}
+
+forget_lab_agent() {
+  local name=${1:-lab-agent} id
+  if wazuh_manager_running && wazuh_admin_login; then
+    if id=$(wazuh_remove_agent "$name"); then
+      if [[ -n $id ]]; then pass "removed agent $name (ID $id) from the manager"
+      else skip "agent $name is not registered on the manager"; fi
+      return 0
+    fi
+  fi
+  warn "could not remove agent $name from the manager (core not running here?)."
+  warn "Before the lab agent enrolls again, on the core machine run:"
+  warn "  docker exec <instance>-core-wazuh-manager-1 /var/ossec/bin/manage_agents -r <agent-id>"
 }
 
 # Empty a generated directory, keeping its .gitkeep. Falls back to a

@@ -1,5 +1,32 @@
 # Node: lab — test Wazuh agent (owner: Wazuh). Optional; generates events
-# without real endpoints. The lab-agent service is defined in build step 1.2.
+# without real endpoints, and is the reference for enrolling real ones.
 name: ${SOC_INSTANCE:?missing .env, run scripts/render-env.sh}-lab
 
-services: {}
+services:
+  lab-agent:
+    build:
+      context: .
+      args:
+        LAB_BASE_IMAGE: ${LAB_BASE_IMAGE}
+        WAZUH_AGENT_VERSION: ${WAZUH_AGENT_VERSION}
+    image: asox-lab-agent:${WAZUH_AGENT_VERSION}
+    hostname: ${LAB_AGENT_NAME}
+    restart: unless-stopped
+    mem_limit: ${LAB_AGENT_MEM}
+    environment:
+      WAZUH_MANAGER_ADDR: ${WAZUH_MANAGER_ADDR}
+      WAZUH_AGENT_NAME: ${LAB_AGENT_NAME}
+      WAZUH_ENROLLMENT_PASSWORD: ${WAZUH_ENROLLMENT_PASSWORD:?missing in .env, run scripts/render-env.sh}
+    volumes:
+      # Keeps client.keys (the enrollment) across restarts and recreation.
+      - lab-agent-etc:/var/ossec/etc
+    healthcheck:
+      # Connected, and done reloading after the first shared configuration.
+      test: ["CMD", "/opt/asox/healthcheck.sh"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 60s
+
+volumes:
+  lab-agent-etc:
