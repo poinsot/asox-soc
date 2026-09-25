@@ -54,6 +54,20 @@ env_get() {
   sed -n "s/^${key}=//p" "$file" | tail -n 1
 }
 
+# Set KEY=VALUE in a .env file (replacing the line, or appending it), keeping
+# the file private. Used by bootstrap.sh for __bootstrap__ values.
+env_set() {
+  local file=$1 key=$2 value=$3 tmp
+  tmp=$(mktemp "$(dirname "$file")/.env.XXXXXX")
+  chmod 600 "$tmp"
+  awk -v k="$key" -v v="$value" '
+    BEGIN { done = 0 }
+    index($0, k "=") == 1 { print k "=" v; done = 1; next }
+    { print }
+    END { if (!done) print k "=" v }' "$file" > "$tmp"
+  mv "$tmp" "$file"
+}
+
 # Load topology.env into TOPO_* variables and validate it.
 load_topology() {
   [[ -f $TOPOLOGY_FILE ]] || die "topology.env not found; copy topology.env.example to topology.env and edit it"

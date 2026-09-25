@@ -22,3 +22,7 @@ backups/
 *.swp
 .DS_Store
 Thumbs.db
+
+# Python bytecode
+__pycache__/
+*.pyc

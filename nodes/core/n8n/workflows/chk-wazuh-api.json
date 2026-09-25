@@ -1,0 +1,210 @@
+{
+  "id": "asoxChkWazuhApi1",
+  "name": "chk-wazuh-api",
+  "active": true,
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## chk-wazuh-api (contract check C2)\n**Trigger:** POST /webhook/chk-wazuh-api from scripts/contracts-check.sh, header `X-ASOX-Token` required.\n**Actions taken:** logs in to the Wazuh API with the \"Wazuh API (n8n-api)\" credential, lists agents, then tries an active-response call with a harmless unknown command, which the read-only role must reject (HTTP 403).\n**Systems changed:** none.\n**Approval:** not applicable.\n**Owner:** n8n (check maintained with the integrator).",
+        "height": 260,
+        "width": 420
+      },
+      "id": "6ee6863c-7888-5538-8d92-db46a0a5ba7c",
+      "name": "About this workflow",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -40,
+        -320
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "chk-wazuh-api",
+        "authentication": "headerAuth",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "5dc7fa5c-12ea-5484-a6ae-09cac7b416b7",
+      "name": "Contract check request",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "5f2b1c4e-7a1d-4c1e-9f7a-3b2c1d0e9a03",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "asoxWebhookToken",
+          "name": "ASOX webhook token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.WAZUH_API_URL }}/security/user/authenticate?raw=true",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "options": {
+          "allowUnauthorizedCerts": true,
+          "response": {
+            "response": {
+              "responseFormat": "text",
+              "outputPropertyName": "token"
+            }
+          }
+        }
+      },
+      "id": "91f9a43e-7eee-5f34-bd7d-e1dd793eb989",
+      "name": "Authenticate",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        260,
+        0
+      ],
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "asoxWazuhApiRo01",
+          "name": "Wazuh API (n8n-api)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.WAZUH_API_URL }}/agents?limit=500&select=id,name,status",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Authenticate').item.json.token }}"
+            }
+          ]
+        },
+        "options": {
+          "allowUnauthorizedCerts": true
+        }
+      },
+      "id": "06470721-1125-5abb-b8e8-0d287398c0bd",
+      "name": "List agents",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        520,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "={{ $env.WAZUH_API_URL }}/active-response?agents_list=000",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Authenticate').item.json.token }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\"command\": \"!asox-contract-probe\", \"arguments\": []}",
+        "options": {
+          "allowUnauthorizedCerts": true,
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "ee6915e1-92fb-51e0-8312-b8668ca1dc80",
+      "name": "Try active response",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        780,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { \"authenticated\": true, \"agents\": $('List agents').item.json.data.total_affected_items, \"active_response_status\": $json.statusCode } }}",
+        "options": {}
+      },
+      "id": "2016fc8e-9c5d-525d-833f-30bc196fca80",
+      "name": "Report",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1040,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Contract check request": {
+      "main": [
+        [
+          {
+            "node": "Authenticate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Authenticate": {
+      "main": [
+        [
+          {
+            "node": "List agents",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "List agents": {
+      "main": [
+        [
+          {
+            "node": "Try active response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Try active response": {
+      "main": [
+        [
+          {
+            "node": "Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataSuccessExecution": "all",
+    "saveDataErrorExecution": "all",
+    "saveManualExecutions": true
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "nodeGroups": [],
+  "tags": [],
+  "pinData": {}
+}

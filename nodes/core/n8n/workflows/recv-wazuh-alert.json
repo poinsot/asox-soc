@@ -1,0 +1,124 @@
+{
+  "id": "asoxRecvWazuhAlr",
+  "name": "recv-wazuh-alert",
+  "active": true,
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## recv-wazuh-alert (stub, contract C1)\n**Trigger:** POST /webhook/wazuh-alert from the Wazuh `custom-n8n` integration (alerts with level >= WAZUH_ALERT_MIN_LEVEL), header `X-ASOX-Token` required.\n**Inputs:** raw Wazuh alert JSON (body).\n**Actions taken:** none (records the alert summary only).\n**Systems changed:** none.\n**Approval:** not applicable.\n**Owner:** n8n.\nThe Router de Playbooks attaches here (backlog).",
+        "height": 260,
+        "width": 420
+      },
+      "id": "946348bc-2992-5222-8ec3-7241af85b226",
+      "name": "About this workflow",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -40,
+        -320
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "wazuh-alert",
+        "authentication": "headerAuth",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "0d1f6031-d3b1-5132-9dd2-5485fa70a09a",
+      "name": "Wazuh alert",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "5f2b1c4e-7a1d-4c1e-9f7a-3b2c1d0e9a01",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "asoxWebhookToken",
+          "name": "ASOX webhook token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "b2180ad9-96b6-5f2b-b1e0-e04076bd2ffb",
+              "name": "wazuh_alert_id",
+              "value": "={{ $json.body.id }}",
+              "type": "string"
+            },
+            {
+              "id": "e2f89279-8980-5778-a2aa-df38d0b3819a",
+              "name": "rule_id",
+              "value": "={{ $json.body.rule.id }}",
+              "type": "string"
+            },
+            {
+              "id": "9c56439d-b29e-579f-99a2-e575a56abe2d",
+              "name": "rule_level",
+              "value": "={{ $json.body.rule.level }}",
+              "type": "number"
+            },
+            {
+              "id": "a9905577-fe3d-5cb2-bf51-095b1b9f5434",
+              "name": "rule_description",
+              "value": "={{ $json.body.rule.description }}",
+              "type": "string"
+            },
+            {
+              "id": "7aebd726-2138-5548-bf87-d032e87dd101",
+              "name": "agent_name",
+              "value": "={{ $json.body.agent.name }}",
+              "type": "string"
+            },
+            {
+              "id": "8aa2aff9-ef38-55ff-803c-aeaa4799d72c",
+              "name": "timestamp",
+              "value": "={{ $json.body.timestamp }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "ec0dd8b9-8120-51c1-9591-f3e39251afec",
+      "name": "Alert summary",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        260,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Wazuh alert": {
+      "main": [
+        [
+          {
+            "node": "Alert summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataSuccessExecution": "all",
+    "saveDataErrorExecution": "all",
+    "saveManualExecutions": true
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "nodeGroups": [],
+  "tags": [],
+  "pinData": {}
+}

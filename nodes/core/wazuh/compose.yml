@@ -71,6 +71,10 @@ services:
       API_PASSWORD: ${WAZUH_API_ADMIN_PASSWORD}
       # Written to authd.pass by config/entrypoint-scripts at every start.
       WAZUH_ENROLLMENT_PASSWORD: ${WAZUH_ENROLLMENT_PASSWORD:?missing in .env, run scripts/render-env.sh}
+      # custom-n8n integration (C1), configured by config/entrypoint-scripts.
+      N8N_WEBHOOK_URL: ${N8N_WEBHOOK_URL}
+      N8N_WEBHOOK_TOKEN: ${N8N_WEBHOOK_TOKEN:?missing in .env, run scripts/render-env.sh}
+      WAZUH_ALERT_MIN_LEVEL: ${WAZUH_ALERT_MIN_LEVEL}
     volumes:
       - wazuh_api_configuration:/var/ossec/api/configuration
       - wazuh_etc:/var/ossec/etc
@@ -90,6 +94,7 @@ services:
       - ./config/ossec.conf:/wazuh-config-mount/etc/ossec.conf:ro
       - ./rules:/wazuh-config-mount/etc/rules:ro
       - ./decoders:/wazuh-config-mount/etc/decoders:ro
+      - ./integrations:/wazuh-config-mount/integrations:ro
       # Scripts run by the image before Wazuh starts.
       - ./config/entrypoint-scripts:/entrypoint-scripts:ro
     healthcheck:

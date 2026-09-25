@@ -4,12 +4,17 @@
 #
 # Usage: scripts/bootstrap.sh <node>
 #   core : Wazuh API user n8n-api with a read-only role (C2);
-#          indexer user grafana-ro, read-only on wazuh-alerts-* (C8)
+#          indexer user grafana-ro, read-only on wazuh-alerts-* (C8);
+#          n8n owner, n8n credentials, and the workflows from
+#          nodes/core/n8n/workflows/ that n8n doesn't have yet
 set -euo pipefail
 # shellcheck source=scripts/lib/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
 # shellcheck source=scripts/lib/wazuh.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/wazuh.sh"
+# shellcheck source=scripts/lib/n8n.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/n8n.sh"
+trap n8n_cleanup EXIT
 
 usage() { sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//'; }
 
@@ -161,10 +166,77 @@ bootstrap_indexer() {
   fi
 }
 
+# n8n credentials, with fixed IDs so that exported workflows (which reference
+# credentials by ID and name) work on every machine. Values come from .env.
+n8n_credentials_json() {
+  jq -nc \
+    --arg token "$(core_env N8N_WEBHOOK_TOKEN)" \
+    --arg wuser "$(core_env WAZUH_N8N_API_USER)" --arg wpass "$(core_env WAZUH_N8N_API_PASSWORD)" '[
+    {id: "asoxWebhookToken", name: "ASOX webhook token", type: "httpHeaderAuth",
+     data: {name: "X-ASOX-Token", value: $token}},
+    {id: "asoxWazuhApiRo01", name: "Wazuh API (n8n-api)", type: "httpBasicAuth",
+     data: {user: $wuser, password: $wpass}}
+  ]'
+}
+
+bootstrap_n8n() {
+  local body
+  if n8n_owner_exists; then
+    n8n_login || { fail "n8n: owner exists but the login from nodes/core/.env is refused"; return; }
+    pass "n8n: owner $(core_env N8N_OWNER_EMAIL) can log in"
+  else
+    body=$(jq -nc --arg e "$(core_env N8N_OWNER_EMAIL)" --arg p "$(core_env N8N_OWNER_PASSWORD)" \
+      '{email: $e, firstName: "SOC", lastName: "Admin", password: $p}')
+    if curl -sf -H 'Content-Type: application/json' "$N8N_URL/rest/owner/setup" -d "$body" >/dev/null && n8n_login; then
+      pass "n8n: owner $(core_env N8N_OWNER_EMAIL) created"
+    else
+      fail "n8n: owner setup failed"; return
+    fi
+  fi
+
+  # API key for the scripts (public API; the UI login is rate-limited).
+  if n8n_api_ok; then
+    pass "n8n: API key for scripts works"
+  else
+    local key
+    key=$(n8n_create_api_key)
+    if [[ -n $key ]]; then
+      env_set "$(node_dir core)/.env" N8N_API_KEY "$key"
+      if n8n_api_ok; then pass "n8n: API key for scripts created (stored in nodes/core/.env)"
+      else fail "n8n: new API key does not work"; return; fi
+    else
+      fail "n8n: could not create an API key"; return
+    fi
+  fi
+
+  # Credential data goes through stdin, never to a file on the host.
+  if n8n_credentials_json | n8n_cli -- import:credentials --input=/dev/stdin >/dev/null 2>&1; then
+    pass "n8n: credentials \"ASOX webhook token\", \"Wazuh API (n8n-api)\""
+  else
+    fail "n8n: credential import failed"; return
+  fi
+
+  # Only workflows n8n doesn't have: never overwrite a teammate's UI work
+  # (scripts/n8n-import.sh does that on request).
+  local existing f
+  local -a missing=()
+  existing=$(n8n_workflow_ids)
+  for f in "$N8N_WORKFLOW_DIR"/*.json; do
+    [[ -f $f ]] || continue
+    grep -qx "$(jq -r '.id' "$f")" <<<"$existing" || missing+=("$f")
+  done
+  if (( ${#missing[@]} > 0 )); then
+    n8n_import_workflows "${missing[@]}"
+  else
+    pass "n8n: all workflows from nodes/core/n8n/workflows/ already present"
+  fi
+}
+
 bootstrap_core() {
   echo "== bootstrap core"
   bootstrap_wazuh_api
   bootstrap_indexer
+  bootstrap_n8n
 }
 
 # ---------------------------------------------------------------- main ---
