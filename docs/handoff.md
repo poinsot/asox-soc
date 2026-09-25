@@ -5,7 +5,7 @@ Read after PROJECT.md, before starting work (CLAUDE.md). Update at the end of ea
 ## Current state (2026-09-25)
 
 - **Last completed step: 1.4** (commit `ffbe03b`), plus doc adjustments ("docs: post-1.4 adjustments and handoff"). Next: **step 1.5** (`cases` node).
-- **Running:** `core` (wazuh-indexer, wazuh-manager, grafana, n8n) and `lab` (lab-agent), `standard` profile, single-host, instance `asox`. `cases` and `intel` have no services yet.
+- **Running:** nothing. All nodes were stopped with `scripts/soc.sh down` (volumes, certificates and `.env` files kept). Start with `scripts/soc.sh up core` (brings back core + lab as they were: `standard` profile, single-host, instance `asox`). `cases` and `intel` have no services yet.
 - **Nothing half-done.** `contracts-check.sh`: C1, C2, C8 pass; C3–C7 report SKIP with their build step.
 - The integrator reviews after each step; approved so far: Cortex 4.1 + ES 8 (D27), Grafana 12.4 (D34), n8n memory (D38), low-profile criterion per dev mode (D39).
 
