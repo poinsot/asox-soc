@@ -117,6 +117,7 @@ flowchart LR
 - Service URLs are environment variables: `WAZUH_API_URL`, `WAZUH_INDEXER_URL`, `N8N_WEBHOOK_URL`, `THEHIVE_URL`, `CORTEX_URL`, `MISP_URL`, plus `WAZUH_MANAGER_ADDR` for agent enrollment (the `wazuh-manager` alias in single-host mode, `CORE_HOST` in distributed mode).
 - Values come from one file, `topology.env`, rendered into each node's `.env` by `scripts/render-env.sh`.
 - **Intra-node** URLs default to the node's private network aliases (e.g. `http://elasticsearch:9200`).
+- **The Wazuh indexer is addressed as `wazuh.indexer`**, not by its service name: `WAZUH_INDEXER_URL=https://wazuh.indexer:9200` in every mode. `wazuh.indexer` is a network alias of the `wazuh-indexer` service and the DNS name in its TLS certificate; the official Wazuh certificate tool only accepts dotted names, so the certificate can't be issued for `wazuh-indexer`. The indexer is internal to `core`, so the URL never changes with `DEPLOY_MODE` (D32).
 - **Single-host mode:** all nodes also join a shared external Docker network `soc-net`, and cross-node URLs point to container aliases (e.g. `http://thehive:9000`). The attachment lives in a small per-node override file, `nodes/<node>/soc-net.yml`, which `soc.sh` adds only when `DEPLOY_MODE=single`.
 - **Multi-host (distributed) mode:** cross-node URLs point to the host IP of the machine running that node (e.g. `http://192.168.1.11:9000`) through the published ports in 3.1.
 
@@ -144,7 +145,7 @@ Three services use HTTPS with certificates that browsers and clients don't trust
 
 | Service | Certificate | Clients and how they trust it |
 |---|---|---|
-| Wazuh Indexer (9200) | Signed by the local root CA from `gen-certs.sh` (`nodes/core/certs/root-ca.pem`) | Grafana (C8): the datasource is provisioned with that root CA. Filebeat (inside the manager) is already configured by `wazuh-docker`. |
+| Wazuh Indexer (9200) | Signed by the local root CA from `gen-certs.sh` (`nodes/core/certs/root-ca.pem`), issued for the DNS name `wazuh.indexer` (D32) | Clients verify the certificate, so they must connect to `${WAZUH_INDEXER_URL}` (`https://wazuh.indexer:9200`), never to `wazuh-indexer` or an IP. Grafana (C8): the datasource is provisioned with that URL and the root CA. Filebeat (inside the manager) is configured the same way. |
 | Wazuh API (55000) | Self-signed by the manager | n8n (C2): the credential skips certificate verification (lab only). |
 | MISP (9443) | Self-signed, served by the `misp-nginx` container of `misp-docker` | Cortex MISP analyzer (C7): certificate check disabled in the analyzer configuration (lab only). |
 
@@ -165,7 +166,7 @@ Contracts are the interfaces between components. Phase 1 makes each one **connec
 | C5 | TheHive → Cortex | Native Cortex connector with a Cortex API key | TheHive reports the Cortex server as connected and lists the enabled analyzers | TheHive, Cortex + MISP |
 | C6 | n8n → Cortex | Cortex API with a dedicated API key | n8n credential test: list analyzers | n8n, Cortex + MISP |
 | C7 | Cortex → MISP | MISP analyzer configured with `MISP_URL` and a MISP API key | Run the MISP analyzer on the seed IOC `203.0.113.66`; the report contains the seed event (analyzer container starts and exits cleanly) | Cortex + MISP |
-| C8 | Grafana → Wazuh Indexer | OpenSearch datasource, read-only user `grafana-ro`, index pattern `wazuh-alerts-*` | Grafana datasource health check passes, and a query returns the C1 test alert | Grafana, Wazuh |
+| C8 | Grafana → Wazuh Indexer | OpenSearch datasource at `${WAZUH_INDEXER_URL}` (`https://wazuh.indexer:9200`, the certificate name; 4.1), read-only user `grafana-ro`, index pattern `wazuh-alerts-*` | Grafana datasource health check passes, and a query returns the C1 test alert | Grafana, Wazuh |
 | C9 *(planned, Phase 2)* | n8n → endpoints | Response actions through the Wazuh active-response API (`PUT /active-response`), always from an n8n playbook, with analyst approval unless the playbook is marked `auto_approve`. Requires extending `n8n-api`'s role, which is a contract change. | None in Phase 1 | n8n, Wazuh |
 
 C9 is listed now so both owners design toward it. It is implemented in Phase 2.
@@ -183,14 +184,15 @@ Each component section lists its long-term **role** and what Phase 1 delivers as
 - **Role:** collect events from agents and syslog, decode them, classify with rules, store alerts in the indexer, and forward relevant alerts to n8n.
 - **Baseline:**
   - Official `wazuh-docker` single-node deployment **without the dashboard service**.
-  - Certificates for the indexer and Filebeat, generated per `core` host by `gen-certs.sh`.
+  - Certificates for the indexer (DNS name `wazuh.indexer`, D32) and Filebeat, generated per `core` host by `gen-certs.sh`.
   - Indexer heap set by the memory profile (section 8).
   - Syslog listener on 514/udp enabled (ready for Snort and pfSense later). Manager modules left at defaults.
+  - Agent enrollment requires a password, `WAZUH_ENROLLMENT_PASSWORD`, generated per machine in `nodes/core/.env` (D33).
   - `local_rules.xml` with one deterministic **test rule**.
   - The `custom-n8n` integration (C1).
   - API user `n8n-api` with a read-only role (C2) and indexer read-only user `grafana-ro` (C8).
   - `wazuh-query.sh` for command-line alert queries.
-- **Lab agent:** one containerized Wazuh agent enrolled via `${WAZUH_MANAGER_ADDR}`, plus `lab/trigger.sh` to produce test alerts. It's also the reference for how real endpoints will enroll.
+- **Lab agent:** one containerized Wazuh agent enrolled via `${WAZUH_MANAGER_ADDR}` with the enrollment password, plus `lab/trigger.sh` to produce test alerts. It's also the reference for how real endpoints will enroll.
 
 ### 6.2 n8n (`core`) — SOAR, "Orchestrador"
 
@@ -217,7 +219,7 @@ Each component section lists its long-term **role** and what Phase 1 delivers as
 - **Role:** analytic dashboards and SOC metrics, and the replacement for the Wazuh dashboard for viewing alerts.
 - **Baseline:**
   - Grafana with the OpenSearch datasource plugin installed at startup via `GF_INSTALL_PLUGINS`, version pinned (internet available, D6).
-  - A provisioned datasource to the Wazuh indexer (C8), trusting the Wazuh root CA (4.1).
+  - A provisioned datasource to the Wazuh indexer at `${WAZUH_INDEXER_URL}` (C8), trusting the Wazuh root CA (4.1).
   - One **starter dashboard** "SOC Overview" with alerts over time and a recent-alerts table. Dashboard provisioning sets `allowUiUpdates: true`, so the owner can edit provisioned dashboards in the UI and then export them.
   - `scripts/grafana-export.sh` to save dashboards edited in the UI back into `nodes/core/grafana/provisioning/dashboards/`.
 
@@ -510,7 +512,7 @@ Some components are configured in a UI and store their state in a database, so c
 
 | Component | Backlog after the baseline |
 |---|---|
-| **Wazuh** | Detection rules and decoders for the environment; false-positive tuning; alert level threshold; agent groups and policies; enrollment guide for real endpoints; decoders for pfSense and router logs; MITRE ATT&CK mapping; CDB lists fed from MISP IOCs (with Cortex + MISP owner) |
+| **Wazuh** | Restrict syslog sources (`allowed-ips` on 514/udp, currently any) before `core` is exposed on a LAN; detection rules and decoders for the environment; false-positive tuning; alert level threshold; agent groups and policies; enrollment guide for real endpoints; decoders for pfSense and router logs; MITRE ATT&CK mapping; CDB lists fed from MISP IOCs (with Cortex + MISP owner) |
 | **n8n (SOAR)** | Router de Playbooks; playbooks per alert type (e.g. SSH brute force, malware hash, IDS alert, generic) following the playbook conventions (6.2); `lib-` sub-workflows for enrichment and TheHive updates; alert deduplication before TheHive; error handling and retries; analyst approval flow (in TheHive first, Slack in Phase 3); response actions via C9 (Phase 2, with the Wazuh owner) |
 | **TheHive** | Case templates and tasks; custom fields; severity/TLP/PAP mapping; alert-to-case rules; users and roles for the team; triage procedures; export/import scripts for configuration |
 | **Grafana** | Real SOC metrics (alert volume, top rules and agents, MTTD/MTTR with TheHive data); dashboards per audience (analyst, management); Grafana alerting |
@@ -717,7 +719,7 @@ Each component `README.md` contains: purpose, owner, how to run it (run mode), t
 ## 13. Future phases (context only)
 
 - **Network visibility:** Snort on a **separate machine**, alongside a Wazuh agent that forwards Snort alerts to `core` (or via syslog to 514/udp). Routers mirror traffic to that machine. pfSense sends syslog to `core`.
-- **Endpoints:** real servers and desktops enrolled against `${CORE_HOST}`, following the lab agent's steps.
+- **Endpoints:** real servers and desktops enrolled against `${CORE_HOST}` with the enrollment password, following the lab agent's steps.
 - **Response:** contract C9. n8n playbooks call the Wazuh active-response API, with analyst approval; `n8n-api`'s role is extended through a contract change.
 - **ASOX:** orchestrator agent with memory and sub-agents (Análisis, Incidentes, Threat Intel) that uses n8n workflows as tools, deployed as its own `ai` node.
 - **Slack bot:** Socket Mode; the chat interface to ASOX and the approval buttons.
@@ -789,6 +791,8 @@ These are the **design** decisions made while planning. Implementation choices m
 | D29 | Shared shell helpers in `scripts/lib/common.sh` | One implementation of the node list, run modes, `topology.env` parsing, compose invocation and PASS/FAIL output for every script |
 | D30 | CI checks implemented once in `scripts/ci-checks.sh`, called by GitHub Actions and run locally with the same pinned Docker images | Owners get the same result locally as in CI; checks run on the files git would commit, so local secrets are never scanned |
 | D31 | The `lab` node has its own `.env.example` (rendered to `.env` like the other nodes) | Each node must run on its own (section 12); the lab agent needs `SOC_INSTANCE`, `WAZUH_MANAGER_ADDR` and its memory limit |
+| D32 | The Wazuh indexer is addressed as `wazuh.indexer` (network alias of `wazuh-indexer`), the DNS name in its certificate | The official Wazuh certificate tool only accepts dotted DNS names; clients verify the certificate, so `WAZUH_INDEXER_URL` must use that name (same as upstream `wazuh-docker`) |
+| D33 | Agent enrollment requires a password (`WAZUH_ENROLLMENT_PASSWORD`), generated per machine like the other secrets and written to `authd.pass` at every manager start; the lab agent uses it (step 1.2) | Without it, anything that can reach port 1515 can enroll as an agent and inject events once `core` is exposed on a LAN; syslog source restriction stays in the Wazuh backlog |
 
 ---
 
@@ -807,7 +811,7 @@ These are the **design** decisions made while planning. Implementation choices m
 | Step | Status | Notes |
 |---|---|---|
 | 1.0 | Done (2026-09-25) | Skeleton, `render-env.sh`, `preflight.sh`, `soc.sh`, `ci-checks.sh` + CI workflow, `windows/` scripts. Images pinned (docs/decisions.md); Cortex 4.1.0 + ES 8 instead of 3.x (A1, approved). Component compose files are stubs until their steps. `windows/*.ps1` written but not run (Administrator, distributed mode only). |
-| 1.1 | Done (2026-09-25) | Wazuh manager + indexer 4.14.8 (no dashboard), `gen-certs.sh` (certificates + indexer admin hash), test rule 100100, `bootstrap.sh core` (`n8n-api` read-only role, `grafana-ro`), `wazuh-query.sh`. Indexer green, API up, alerts queryable; `soc.sh reset core` + `init core` passes from scratch. Indexer reached as `wazuh.indexer` (certificate name, A15). |
+| 1.1 | Done (2026-09-25) | Wazuh manager + indexer 4.14.8 (no dashboard), `gen-certs.sh` (certificates + indexer admin hash), test rule 100100, `bootstrap.sh core` (`n8n-api` read-only role, `grafana-ro`), `wazuh-query.sh`. Indexer green, API up, alerts queryable; `soc.sh reset core` + `init core` passes from scratch. Indexer reached as `wazuh.indexer` (certificate name, A15). Post-1.1: agent enrollment password (D33), manager restart workaround and stricter healthcheck (A26, A27). |
 | 1.2 | Not started | |
 | 1.3 | Not started | |
 | 1.4 | Not started | |

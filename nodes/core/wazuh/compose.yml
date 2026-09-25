@@ -69,6 +69,8 @@ services:
       # other than this one.
       API_USERNAME: ${WAZUH_API_ADMIN_USER}
       API_PASSWORD: ${WAZUH_API_ADMIN_PASSWORD}
+      # Written to authd.pass by config/entrypoint-scripts at every start.
+      WAZUH_ENROLLMENT_PASSWORD: ${WAZUH_ENROLLMENT_PASSWORD:?missing in .env, run scripts/render-env.sh}
     volumes:
       - wazuh_api_configuration:/var/ossec/api/configuration
       - wazuh_etc:/var/ossec/etc
@@ -88,9 +90,18 @@ services:
       - ./config/ossec.conf:/wazuh-config-mount/etc/ossec.conf:ro
       - ./rules:/wazuh-config-mount/etc/rules:ro
       - ./decoders:/wazuh-config-mount/etc/decoders:ro
+      # Scripts run by the image before Wazuh starts.
+      - ./config/entrypoint-scripts:/entrypoint-scripts:ro
     healthcheck:
-      # The API answers (401 without credentials) once the manager is up.
-      test: ["CMD-SHELL", "curl -sk -o /dev/null https://localhost:55000/"]
+      # The API answers (401 without credentials) and the daemons that
+      # receive, analyse and enroll agents are running.
+      test:
+        - CMD-SHELL
+        - >-
+          curl -sk -o /dev/null https://localhost:55000/ &&
+          s=$$(/var/ossec/bin/wazuh-control status || true) &&
+          for d in wazuh-analysisd wazuh-remoted wazuh-authd wazuh-db wazuh-modulesd wazuh-apid;
+          do echo "$$s" | grep -q "$$d is running" || exit 1; done
       interval: 15s
       timeout: 10s
       retries: 20
