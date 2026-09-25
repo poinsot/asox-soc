@@ -1,0 +1,3 @@
+# Shared storage for TheHive and Cortex (integrator-owned).
+# Services: cassandra, elasticsearch. Defined in build step 1.5.
+services: {}

@@ -1,0 +1,3 @@
+# Component: n8n (owner: n8n) — SOAR, "Orchestrador"
+# Services: n8n (SQLite), postgres under the optional profile "pg". Defined in build step 1.4.
+services: {}

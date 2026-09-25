@@ -1,0 +1,9 @@
+# Node: intel — MISP
+# Integrator-owned. Each component lives in its own compose file, included
+# below, so owners never edit this file (PROJECT.md section 12).
+# Included files read this node's .env (rendered by scripts/render-env.sh).
+name: ${SOC_INSTANCE:?missing .env, run scripts/render-env.sh}-intel
+
+include:
+  - path: misp/compose.yml
+    env_file: .env

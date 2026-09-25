@@ -1,0 +1,14 @@
+# Copy to %UserProfile%\.wslconfig on the Windows side, then run: wsl --shutdown
+# (PROJECT.md section 7.1). Pick memory/swap for this machine's RAM:
+#   32 GB host (baseline build machine): memory=16GB, swap=4GB
+#   16 GB host:                          memory=10GB, swap=4GB
+#    8 GB host (MEM_PROFILE=low only):   memory=6GB,  swap=8GB
+[wsl2]
+memory=16GB
+swap=4GB
+processors=4
+# Windows 11 22H2+: published ports are reachable on the Windows LAN IP.
+# On Windows 10 remove this line and use windows/portproxy.ps1 instead.
+networkingMode=mirrored
+# Required by the Wazuh Indexer and Elasticsearch.
+kernelCommandLine = sysctl.vm.max_map_count=262144

@@ -1,0 +1,11 @@
+# LF everywhere (D26): CRLF breaks bash scripts and some configs.
+* text=auto eol=lf
+
+# PowerShell scripts run on the Windows side.
+windows/*.ps1 text eol=crlf
+
+# Binary files
+*.png binary
+*.jpg binary
+*.gz binary
+*.tar binary

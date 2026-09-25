@@ -1,0 +1,14 @@
+# Single-host mode only: scripts/soc.sh adds this file when DEPLOY_MODE=single,
+# so this node's services can reach other nodes by alias over the shared
+# external network soc-net. In distributed mode it is left out and nodes talk
+# through published ports.
+#
+# Attach a service by listing BOTH networks (an explicit list replaces the
+# implicit default network):
+#   services:
+#     <service>:
+#       networks: [default, soc-net]
+networks:
+  soc-net:
+    external: true
+    name: soc-net

@@ -1,0 +1,3 @@
+# Component: Cortex + MISP (owner: Cortex + MISP) — "Inteligencia de amenazas"
+# Services: misp-core, misp-nginx, misp-modules, mariadb, redis. Defined in build step 1.6.
+services: {}

@@ -1,0 +1,3 @@
+# Component: Cortex + MISP (owner: Cortex + MISP) — "Inteligencia de amenazas"
+# Services: cortex (analyzer containers are started at runtime). Defined in build step 1.5.
+services: {}

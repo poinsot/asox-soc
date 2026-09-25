@@ -1,0 +1,3 @@
+# Component: Wazuh (owner: Wazuh) — "Recolector y Clasificador"
+# Services: wazuh-manager, wazuh-indexer. Defined in build step 1.1.
+services: {}

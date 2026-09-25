@@ -1,0 +1,5 @@
+# Node: lab — test Wazuh agent (owner: Wazuh). Optional; generates events
+# without real endpoints. The lab-agent service is defined in build step 1.2.
+name: ${SOC_INSTANCE:?missing .env, run scripts/render-env.sh}-lab
+
+services: {}

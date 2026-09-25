@@ -1,0 +1,3 @@
+# Component: Grafana (owner: Grafana) — "Dashboard analitico"
+# Services: grafana. Defined in build step 1.3.
+services: {}

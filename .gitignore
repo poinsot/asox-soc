@@ -1,0 +1,24 @@
+# Machine-specific configuration and generated secrets (never commit)
+topology.env
+.env
+nodes/*/.env
+
+# Generated certificates (Wazuh, per core host)
+nodes/core/certs/*
+!nodes/core/certs/.gitkeep
+*.pem
+*.key
+
+# Cortex analyzer job directory (host side)
+nodes/cases/cortex/jobs/*
+!nodes/cases/cortex/jobs/.gitkeep
+
+# Backups (may contain data and credentials)
+backups/
+
+# Editors / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db

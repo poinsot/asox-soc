@@ -1,0 +1,26 @@
+# Lightweight checks only; the stack itself never runs in CI (PROJECT.md 11.5).
+# Every check is scripts/ci-checks.sh, so owners can run the same thing locally:
+#   scripts/ci-checks.sh all
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    name: ${{ matrix.check }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        check: [compose, shellcheck, json, xml, secrets]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0   # gitleaks scans the full history
+      - name: Run ${{ matrix.check }} check
+        run: scripts/ci-checks.sh ${{ matrix.check }}
