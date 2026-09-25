@@ -166,7 +166,7 @@ Contracts are the interfaces between components. Phase 1 makes each one **connec
 | C5 | TheHive → Cortex | Native Cortex connector with a Cortex API key | TheHive reports the Cortex server as connected and lists the enabled analyzers | TheHive, Cortex + MISP |
 | C6 | n8n → Cortex | Cortex API with a dedicated API key | n8n credential test: list analyzers | n8n, Cortex + MISP |
 | C7 | Cortex → MISP | MISP analyzer configured with `MISP_URL` and a MISP API key | Run the MISP analyzer on the seed IOC `203.0.113.66`; the report contains the seed event (analyzer container starts and exits cleanly) | Cortex + MISP |
-| C8 | Grafana → Wazuh Indexer | OpenSearch datasource at `${WAZUH_INDEXER_URL}` (`https://wazuh.indexer:9200`, the certificate name; 4.1), read-only user `grafana-ro`, index pattern `wazuh-alerts-*` | Grafana datasource health check passes, and a query returns the C1 test alert | Grafana, Wazuh |
+| C8 | Grafana → Wazuh Indexer | OpenSearch datasource at `${WAZUH_INDEXER_URL}` (`https://wazuh.indexer:9200`, the certificate name; 4.1), read-only user `grafana-ro` (read access to `wazuh-alerts-*`), daily index pattern `[wazuh-alerts-4.x-]YYYY.MM.DD` (needed by the plugin's health check; D35) | Grafana datasource health check passes, and a query returns the C1 test alert | Grafana, Wazuh |
 | C9 *(planned, Phase 2)* | n8n → endpoints | Response actions through the Wazuh active-response API (`PUT /active-response`), always from an n8n playbook, with analyst approval unless the playbook is marked `auto_approve`. Requires extending `n8n-api`'s role, which is a contract change. | None in Phase 1 | n8n, Wazuh |
 
 C9 is listed now so both owners design toward it. It is implemented in Phase 2.
@@ -218,7 +218,7 @@ Each component section lists its long-term **role** and what Phase 1 delivers as
 
 - **Role:** analytic dashboards and SOC metrics, and the replacement for the Wazuh dashboard for viewing alerts.
 - **Baseline:**
-  - Grafana with the OpenSearch datasource plugin installed at startup via `GF_INSTALL_PLUGINS`, version pinned (internet available, D6).
+  - Grafana 12.4 (not 13, which leaks memory per browser session; D34) with the OpenSearch datasource plugin installed at startup via `GF_INSTALL_PLUGINS`, version pinned (internet available, D6). Grafana's own plugin "preinstall" is disabled, because it downloads extra plugins at unpinned versions.
   - A provisioned datasource to the Wazuh indexer at `${WAZUH_INDEXER_URL}` (C8), trusting the Wazuh root CA (4.1).
   - One **starter dashboard** "SOC Overview" with alerts over time and a recent-alerts table. Dashboard provisioning sets `allowUiUpdates: true`, so the owner can edit provisioned dashboards in the UI and then export them.
   - `scripts/grafana-export.sh` to save dashboards edited in the UI back into `nodes/core/grafana/provisioning/dashboards/`.
@@ -309,8 +309,8 @@ The baseline is built on a **32 GB host**, but teammates may develop on smaller 
 
 | Profile | Intended hosts | WSL memory | Full stack (approx.) |
 |---|---|---|---|
-| `standard` | 16 GB+ (the baseline build machine: 32 GB) | 10–16 GB | ~9.9 GB |
-| `low` | 8 GB | 6 GB (+8 GB swap) | ~6.1 GB, at the limit; use run modes |
+| `standard` | 16 GB+ (the baseline build machine: 32 GB) | 10–16 GB | ~10.0 GB |
+| `low` | 8 GB | 6 GB (+8 GB swap) | ~6.2 GB, at the limit; use run modes |
 
 These are estimates; `scripts/mem-report.sh` records real usage per profile.
 
@@ -319,8 +319,8 @@ These are estimates; `scripts/mem-report.sh` records real usage per profile.
 | core | wazuh-indexer | 1 GB | 2.0 GB | 512 MB | 1.0 GB |
 | core | wazuh-manager | — | 0.6 GB | — | 0.5 GB |
 | core | n8n (SQLite) | — | 0.4 GB | — | 0.3 GB |
-| core | grafana | — | 0.2 GB | — | 0.1 GB |
-| | **core subtotal** | | **3.2 GB** | | **1.9 GB** |
+| core | grafana | — | 0.3 GB | — | 0.2 GB |
+| | **core subtotal** | | **3.3 GB** | | **2.0 GB** |
 | cases | cassandra | 1 GB | 1.6 GB | 512 MB | 0.9 GB |
 | cases | elasticsearch (shared) | 1 GB | 1.6 GB | 512 MB | 0.9 GB |
 | cases | thehive | 1 GB | 1.3 GB | 512 MB | 0.7 GB |
@@ -332,7 +332,7 @@ These are estimates; `scripts/mem-report.sh` records real usage per profile.
 | intel | misp-modules | — | 0.3 GB | — | 0.3 GB |
 | | **intel subtotal** | | **1.4 GB** | | **1.2 GB** |
 | lab | wazuh-agent | — | 0.1 GB | — | 0.1 GB |
-| | **Total** (analyzer jobs not included) | | **~9.9 GB** | | **~6.1 GB** |
+| | **Total** (analyzer jobs not included) | | **~10.0 GB** | | **~6.2 GB** |
 
 On the 32 GB build machine with WSL at 16 GB, the full stack runs in `standard` with ~6 GB of headroom for Claude Code, build tools and analyzer jobs. Every container sets `mem_limit`.
 
@@ -355,11 +355,11 @@ On the 32 GB build machine, `full` can stay running throughout the build. Run mo
 
 | Mode | Nodes | Approx. RAM (standard / low) | Typical use |
 |---|---|---|---|
-| `core` | core, lab | 3.3 / 2.0 GB | Wazuh and Grafana development |
+| `core` | core, lab | 3.4 / 2.1 GB | Wazuh and Grafana development |
 | `cases` | cases | 5.2 / 2.9 GB | TheHive development (C7 unavailable) |
 | `cases-intel` | cases, intel | 6.6 / 4.1 GB | Cortex + MISP development; TheHive with enrichment |
-| `core-cases` | core, cases, lab | 8.5 / 4.9 GB | n8n development against TheHive and Cortex (C7 unavailable) |
-| `full` | all | 9.9 / 6.1 GB | Contract checks, integration testing |
+| `core-cases` | core, cases, lab | 8.6 / 5.0 GB | n8n development against TheHive and Cortex (C7 unavailable) |
+| `full` | all | 10.0 / 6.2 GB | Contract checks, integration testing |
 
 ---
 
@@ -582,9 +582,9 @@ At a **checkpoint** (every ~2 weeks, or when something works), follow rule 4 in 
 
 | Owner | `init` mode | Works in | Test loop | Contracts | Coordinates with |
 |---|---|---|---|---|---|
-| **Wazuh** | `core` (~3.3 GB) | Files in `nodes/core/wazuh/` (no Wazuh dashboard) | Edit rule → restart manager → `lab/trigger.sh` → `wazuh-query.sh` or Grafana | C1, C2, C8, later C9 | n8n (alert fields playbooks rely on) |
-| **n8n (SOAR)** | `core-cases` (~8.5 GB; small machines use the shared instance for integration work) | n8n UI `localhost:5678` (stub workflows and credentials pre-created) | Edit playbook → `lab/trigger.sh` → check execution and TheHive alert → `n8n-export.sh` | C1–C4, C6, later C9 | Wazuh (alert input), TheHive (alert/case format) |
-| **Grafana** | `core` (~3.3 GB) | Grafana UI `localhost:3000` (datasource and starter dashboard pre-provisioned; lab agent provides data) | Edit dashboard → `lab/trigger.sh` if more data is needed → `grafana-export.sh` | C8 | n8n and TheHive, later (case metrics such as response times) |
+| **Wazuh** | `core` (~3.4 GB) | Files in `nodes/core/wazuh/` (no Wazuh dashboard) | Edit rule → restart manager → `lab/trigger.sh` → `wazuh-query.sh` or Grafana | C1, C2, C8, later C9 | n8n (alert fields playbooks rely on) |
+| **n8n (SOAR)** | `core-cases` (~8.6 GB; small machines use the shared instance for integration work) | n8n UI `localhost:5678` (stub workflows and credentials pre-created) | Edit playbook → `lab/trigger.sh` → check execution and TheHive alert → `n8n-export.sh` | C1–C4, C6, later C9 | Wazuh (alert input), TheHive (alert/case format) |
+| **Grafana** | `core` (~3.4 GB) | Grafana UI `localhost:3000` (datasource and starter dashboard pre-provisioned; lab agent provides data) | Edit dashboard → `lab/trigger.sh` if more data is needed → `grafana-export.sh` | C8 | n8n and TheHive, later (case metrics such as response times) |
 | **TheHive** | `cases` (~5.2 GB) | TheHive UI `localhost:9000` (org, users and Cortex connector pre-created) | Configure → create test alerts via the API (Wazuh isn't running in this mode) → check alert and case flow | C3, C4, C5 | n8n (alert format), Cortex + MISP (analyzers shown to analysts) |
 | **Cortex + MISP** | `cases-intel` (~6.6 GB) | Cortex `localhost:9001` (MISP analyzer enabled); MISP `https://localhost:9443` (self-signed certificate warning is expected) | Add intel in MISP → run analyzers on test observables → check reports | C5, C6, C7 | Wazuh, later (MISP IOCs into Wazuh CDB lists) |
 
@@ -796,6 +796,8 @@ These are the **design** decisions made while planning. Implementation choices m
 | D31 | The `lab` node has its own `.env.example` (rendered to `.env` like the other nodes) | Each node must run on its own (section 12); the lab agent needs `SOC_INSTANCE`, `WAZUH_MANAGER_ADDR` and its memory limit |
 | D32 | The Wazuh indexer is addressed as `wazuh.indexer` (network alias of `wazuh-indexer`), the DNS name in its certificate | The official Wazuh certificate tool only accepts dotted DNS names; clients verify the certificate, so `WAZUH_INDEXER_URL` must use that name (same as upstream `wazuh-docker`) |
 | D33 | Agent enrollment requires a password (`WAZUH_ENROLLMENT_PASSWORD`), generated per machine like the other secrets and written to `authd.pass` at every manager start; the lab agent uses it (step 1.2) | Without it, anything that can reach port 1515 can enroll as an agent and inject events once `core` is exposed on a LAN; syslog source restriction stays in the Wazuh backlog |
+| D34 | Grafana pinned to 12.4 (latest 12.x) instead of 13 | Measured on 13.2.2: each browser session left ~100 MiB of retained heap that was never freed (74 → 532 MiB live after five sessions), so any memory limit is eventually hit; 12.4.11 stays flat at ~175 MiB. Grafana's RAM in section 8 was also raised from 0.2 / 0.1 GB to 0.3 / 0.2 GB after measuring |
+| D35 | The Grafana datasource uses the daily index pattern `[wazuh-alerts-4.x-]YYYY.MM.DD` (interval Daily) instead of `wazuh-alerts-*` | The OpenSearch plugin's health check can't pass with a wildcard pattern (it looks up the pattern itself as an index name); the daily pattern matches Wazuh's index naming and limits queries to the days in the time range |
 
 ---
 
@@ -816,7 +818,7 @@ These are the **design** decisions made while planning. Implementation choices m
 | 1.0 | Done (2026-09-25) | Skeleton, `render-env.sh`, `preflight.sh`, `soc.sh`, `ci-checks.sh` + CI workflow, `windows/` scripts. Images pinned (docs/decisions.md); Cortex 4.1.0 + ES 8 instead of 3.x (A1, approved). Component compose files are stubs until their steps. `windows/*.ps1` written but not run (Administrator, distributed mode only). |
 | 1.1 | Done (2026-09-25) | Wazuh manager + indexer 4.14.8 (no dashboard), `gen-certs.sh` (certificates + indexer admin hash), test rule 100100, `bootstrap.sh core` (`n8n-api` read-only role, `grafana-ro`), `wazuh-query.sh`. Indexer green, API up, alerts queryable; `soc.sh reset core` + `init core` passes from scratch. Indexer reached as `wazuh.indexer` (certificate name, A15). Post-1.1: agent enrollment password (D33), manager restart workaround and stricter healthcheck (A26, A27). |
 | 1.2 | Done (2026-09-25) | Lab agent image (Ubuntu 24.04 + wazuh-agent 4.14.8) enrolled with the enrollment password, `trigger.sh`. Agent `active`; test-rule alert from `lab-agent` found by `wazuh-query.sh`, also right after `init`, after `down`/`up` and after a restart. `soc.sh reset lab` removes the old registration so the agent can re-enroll (A30). |
-| 1.3 | Not started | |
+| 1.3 | Done (2026-09-25) | Grafana 12.4.11 (D34) with the pinned OpenSearch plugin only, datasource to `wazuh.indexer` with the root CA (daily index pattern, D35), starter dashboard "SOC Overview" (alerts over time, recent alerts, minimum-level filter), `grafana-export.sh` (round trip tested). `contracts-check.sh` started: C8 passes, the other contracts report SKIP until their steps. |
 | 1.4 | Not started | |
 | 1.5 | Not started | |
 | 1.6 | Not started | |

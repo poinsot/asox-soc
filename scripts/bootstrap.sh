@@ -126,10 +126,10 @@ bootstrap_indexer() {
 
   resp=$(indexer_api PUT "/_plugins/_security/api/roles/$GRAFANA_ROLE" '{
     "description": "ASOX: Grafana read-only access to Wazuh alerts (C8)",
-    "cluster_permissions": ["cluster_composite_ops_ro"],
+    "cluster_permissions": ["cluster_composite_ops_ro", "cluster:monitor/main", "cluster:monitor/health"],
     "index_permissions": [{
       "index_patterns": ["wazuh-alerts-*"],
-      "allowed_actions": ["read", "indices:admin/mappings/get", "indices:admin/resolve/index"]
+      "allowed_actions": ["read", "indices:admin/get", "indices:admin/mappings/get", "indices:admin/resolve/index"]
     }]
   }')
   jq -e '.status == "OK" or .status == "CREATED"' >/dev/null <<<"$resp" \

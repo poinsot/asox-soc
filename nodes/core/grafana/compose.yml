@@ -1,3 +1,45 @@
 # Component: Grafana (owner: Grafana) — "Dashboard analitico"
-# Services: grafana. Defined in build step 1.3.
-services: {}
+# Datasource and dashboards are provisioned from ./provisioning; dashboards
+# edited in the UI are saved back with scripts/grafana-export.sh.
+services:
+  grafana:
+    image: ${GRAFANA_IMAGE}
+    restart: unless-stopped
+    mem_limit: ${GRAFANA_MEM}
+    ports:
+      - "${BIND_ADDR}:3000:3000"
+    environment:
+      # Only the pinned OpenSearch plugin, installed by the image's run.sh
+      # before the server starts (docs/decisions.md A35). Grafana's own
+      # "preinstall" mechanism always adds its default app plugins at
+      # unpinned versions, so it is disabled. GF_INSTALL_PLUGINS is deprecated
+      # and only runs with GF_INSTALL_PLUGINS_FORCE=true.
+      GF_INSTALL_PLUGINS: grafana-opensearch-datasource ${GRAFANA_OPENSEARCH_PLUGIN_VERSION}
+      GF_INSTALL_PLUGINS_FORCE: "true"
+      GF_PLUGINS_PREINSTALL_DISABLED: "true"
+      # Applied when the Grafana database is created (first start) only.
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: "false"
+      GF_NEWS_NEWS_FEED_ENABLED: "false"
+      # Read by provisioning/datasources/wazuh-indexer.yml (C8).
+      WAZUH_INDEXER_URL: ${WAZUH_INDEXER_URL}
+      GRAFANA_INDEXER_USER: ${GRAFANA_INDEXER_USER}
+      GRAFANA_INDEXER_PASSWORD: ${GRAFANA_INDEXER_PASSWORD}
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./provisioning:/etc/grafana/provisioning:ro
+      # Wazuh root CA, to verify the indexer's certificate (PROJECT.md 4.1).
+      - ../certs/root-ca.pem:/etc/grafana/certs/wazuh-root-ca.pem:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/health | grep -q '\"database\": *\"ok\"'"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 60s
+
+volumes:
+  grafana-data:

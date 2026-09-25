@@ -1,0 +1,15 @@
+# Dashboards provisioned from this folder's *.json into the "ASOX" folder.
+# allowUiUpdates lets the owner edit them in the UI, then save them back to
+# this folder with scripts/grafana-export.sh (UI edits are otherwise lost
+# when the file changes).
+apiVersion: 1
+
+providers:
+  - name: asox
+    folder: ASOX
+    type: file
+    allowUiUpdates: true
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    options:
+      path: /etc/grafana/provisioning/dashboards

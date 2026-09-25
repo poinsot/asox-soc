@@ -1,0 +1,32 @@
+# Wazuh indexer datasource (contract C8), read-only user grafana-ro.
+# Values come from the container environment (nodes/core/.env). The URL must
+# use the name in the indexer's certificate: wazuh.indexer (PROJECT.md 4.1).
+apiVersion: 1
+
+datasources:
+  - name: Wazuh indexer
+    uid: wazuh-indexer
+    type: grafana-opensearch-datasource
+    access: proxy
+    url: ${WAZUH_INDEXER_URL}
+    basicAuth: true
+    basicAuthUser: ${GRAFANA_INDEXER_USER}
+    isDefault: true
+    editable: false
+    jsonData:
+      flavor: opensearch
+      version: 2.19.6
+      # Wazuh writes one index per day (UTC): wazuh-alerts-4.x-YYYY.MM.DD.
+      # A daily pattern (not wazuh-alerts-*) is needed for the plugin's health
+      # check, and limits queries to the days in the time range.
+      database: "[wazuh-alerts-4.x-]YYYY.MM.DD"
+      interval: Daily
+      timeField: timestamp
+      maxConcurrentShardRequests: 5
+      logMessageField: full_log
+      logLevelField: rule.level
+      tlsAuthWithCACert: true
+      serverName: wazuh.indexer
+    secureJsonData:
+      basicAuthPassword: ${GRAFANA_INDEXER_PASSWORD}
+      tlsCACert: $__file{/etc/grafana/certs/wazuh-root-ca.pem}
