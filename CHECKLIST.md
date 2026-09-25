@@ -158,7 +158,7 @@ Reference: https://code.claude.com/docs/en/setup
   - `registry-1.docker.io` (Docker Hub): Wazuh, TheHive, Cortex, Cassandra, n8n, Grafana, MariaDB, Redis
   - `docker.elastic.co`: Elasticsearch
   - `ghcr.io`: MISP images
-- [ ] **Other download sources reachable**: `github.com` (repo, wazuh-docker reference), the Cortex analyzer catalog host (as configured in Cortex), `packages.wazuh.com` (Wazuh agent package for the lab image), `grafana.com` (Grafana plugins), `claude.ai` and `downloads.claude.ai` (Claude Code).
+- [ ] **Other download sources reachable**: `github.com` (repo, wazuh-docker reference), the Cortex analyzer catalog host (`catalogs.download.strangebee.com` by default), `packages.wazuh.com` (Wazuh agent package for the lab image), `grafana.com` (Grafana plugins), `claude.ai` and `downloads.claude.ai` (Claude Code).
 - [ ] **Required host ports free.**
   Verify: `ss -tulpn | grep -E ':(514|1514|1515|55000|5678|3000|9000|9001|9443)\b'` returns nothing
 - [ ] *(Distributed mode)* **Machines on the same LAN with fixed IPs** (static or DHCP reservation), since `topology.env` depends on them.
@@ -178,15 +178,16 @@ Claude Code chooses and pins the exact stable tags in step 1.0 and records them 
 
 **cases node**
 - [ ] `strangebee/thehive` (5.x)
-- [ ] `thehiveproject/cortex` (3.x)
+- [ ] `thehiveproject/cortex` (4.1; `PROJECT.md` D27)
 - [ ] `cassandra` (version required by the chosen TheHive release)
-- [ ] `docker.elastic.co/elasticsearch/elasticsearch` (version required by the chosen TheHive/Cortex releases)
-- [ ] **Cortex analyzer images** (at least the MISP analyzer). Cortex 3 runs analyzers as separate Docker containers, so:
+- [ ] `docker.elastic.co/elasticsearch/elasticsearch` (8.x, required by Cortex 4)
+- [ ] **Cortex analyzer images** (at least the MISP analyzer). Cortex runs analyzers as separate Docker containers, so:
   - the Cortex container needs access to the Docker socket (or an equivalent job runner setup);
   - each enabled analyzer image is pulled ahead of time by `bootstrap.sh`, so the first analysis isn't slow.
 
 **intel node**
 - [ ] `ghcr.io/misp/misp-docker/misp-core`
+- [ ] `ghcr.io/misp/misp-docker/misp-nginx` (HTTPS front end; `PROJECT.md` D28)
 - [ ] `ghcr.io/misp/misp-docker/misp-modules`
 - [ ] `mariadb`
 - [ ] `redis` (or `valkey`, as used by the chosen misp-docker release)

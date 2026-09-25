@@ -54,7 +54,7 @@ The project has two views of the same services:
 | **n8n (SOAR)** | n8n | `core` | [OPEN] |
 | **Grafana** | grafana | `core` | [OPEN] |
 | **TheHive** | thehive, cassandra, elasticsearch (shared storage) | `cases` | [OPEN] |
-| **Cortex + MISP** | cortex, analyzer containers (in `cases`); misp-core, misp-modules, mariadb, redis (in `intel`) | `cases` + `intel` | [OPEN] |
+| **Cortex + MISP** | cortex, analyzer containers (in `cases`); misp-core, misp-nginx, misp-modules, mariadb, redis (in `intel`) | `cases` + `intel` | [OPEN] |
 | *(test only)* lab | one Wazuh agent container | `lab` | Wazuh owner |
 
 ### 3.1 Nodes
@@ -96,7 +96,8 @@ flowchart LR
     end
 
     subgraph INTEL[node: intel]
-        MISP[MISP] --> MDB[(MariaDB)]
+        MN[misp-nginx<br/>HTTPS front end] --> MISP[misp-core]
+        MISP --> MDB[(MariaDB)]
         MISP --> RD[(Redis)]
         MISP --> MM[misp-modules]
     end
@@ -104,7 +105,7 @@ flowchart LR
     N8N -->|C3 TheHive API| TH
     TH -->|C4 webhooks| N8N
     N8N -->|C6 Cortex API| CX
-    AN -->|C7 MISP API| MISP
+    AN -->|C7 MISP API| MN
 ```
 
 ---
@@ -145,7 +146,7 @@ Three services use HTTPS with certificates that browsers and clients don't trust
 |---|---|---|
 | Wazuh Indexer (9200) | Signed by the local root CA from `gen-certs.sh` (`nodes/core/certs/root-ca.pem`) | Grafana (C8): the datasource is provisioned with that root CA. Filebeat (inside the manager) is already configured by `wazuh-docker`. |
 | Wazuh API (55000) | Self-signed by the manager | n8n (C2): the credential skips certificate verification (lab only). |
-| MISP (9443) | Self-signed by the `misp-docker` image | Cortex MISP analyzer (C7): certificate check disabled in the analyzer configuration (lab only). |
+| MISP (9443) | Self-signed, served by the `misp-nginx` container of `misp-docker` | Cortex MISP analyzer (C7): certificate check disabled in the analyzer configuration (lab only). |
 
 TheHive, Cortex, n8n and Grafana use plain HTTP in Phase 1, which is acceptable on a lab network. **[ASSUMPTION]** Scripts that call HTTPS endpoints (`healthcheck.sh`, `contracts-check.sh`, `wazuh-query.sh`) use the root CA where available and `curl -k` otherwise. Proper certificates everywhere are a hardening task for later (D25).
 
@@ -236,19 +237,19 @@ Each component section lists its long-term **role** and what Phase 1 delivers as
 - **Role:** Cortex analyzes observables with analyzers. MISP stores threat intel (events, IOCs, tags, galaxies) and can share it.
 - **Responders:** allowed only as **analyst-triggered** actions from TheHive that don't change systems, such as notifying someone or exporting IOCs to MISP. Any action that changes systems (blocking, isolating) is implemented as an n8n playbook instead (D12).
 - **Cortex baseline:**
-  - Cortex 3 using the shared Elasticsearch. For Cortex, Elasticsearch is the **only** database: users, API keys, analyzer configuration and job history.
+  - Cortex 4.1 using the shared Elasticsearch, which must be 8.x (Cortex 4 supports only Elasticsearch 8; D27). For Cortex, Elasticsearch is the **only** database: users, API keys, analyzer configuration and job history.
   - Bootstrap creates the Cortex org and users, and API keys for TheHive (C5) and n8n (C6).
 - **Analyzers (required):**
-  - **How they run:** Cortex runs each analyzer as a short-lived Docker container (the `docker` job runner).
+  - **How they run:** Cortex runs each analyzer as a short-lived Docker container (the `docker` job runner). Cortex 4.1 still supports it; its default runner list is `[kubernetes, docker, process]`, so the Cortex configuration sets `job.runners = [docker]` explicitly.
   - **Docker socket:** the Cortex container mounts `/var/run/docker.sock`. Security note: this is equivalent to root on the host. It is acceptable for the lab; revisit before production.
   - **Job directory:** Cortex and its analyzer containers exchange files through a job directory. Analyzer containers are started by the **host's** Docker daemon, so Cortex must know that directory's path **as seen from inside its container** and **as seen from the host**. Cortex supports this with two separate settings, so the paths don't need to match:
     - `render-env.sh` sets `CORTEX_JOBS_HOST_DIR` to the absolute host path of `nodes/cases/cortex/jobs`. This differs per machine (e.g. `/home/<user>/asox-soc/...` in WSL).
     - The compose file mounts `${CORTEX_JOBS_HOST_DIR}:/tmp/cortex-jobs`.
-    - Cortex's `job.directory` = `/tmp/cortex-jobs` (inside the container) and `job.dockerDirectory` = `${CORTEX_JOBS_HOST_DIR}` (on the host). These match the `--job-directory` and `--docker-job-directory` options in StrangeBee's Docker docs; Claude Code verifies the exact key names against the pinned Cortex version.
-  - **Catalog and images:** Cortex loads analyzer definitions from the official online catalog. `bootstrap.sh` pre-pulls the enabled analyzer images.
+    - Cortex's `job.directory` = `/tmp/cortex-jobs` (inside the container) and `job.dockerDirectory` = `${CORTEX_JOBS_HOST_DIR}` (on the host). Verified against Cortex 4.1.0: the image's entrypoint sets these two keys from the environment variables `job_directory` and `docker_job_directory` (equivalent to its `--job-directory` / `--docker-job-directory` options), which is how StrangeBee's reference compose sets them. The entrypoint's generated configuration includes `/etc/cortex/application.conf` last, so a mounted `application.conf` must not set these keys too, or it overrides the environment variables.
+  - **Catalog and images:** Cortex loads analyzer definitions from the official online catalog (`https://catalogs.download.strangebee.com/latest/json/analyzers.json` by default in 4.1). `bootstrap.sh` pre-pulls the enabled analyzer images.
   - **Phase 1 analyzers:** the **MISP analyzer** only (C7). Others are the owner's backlog.
 - **MISP baseline:**
-  - Official `misp-docker` images (misp-core, misp-modules, MariaDB, Redis).
+  - Official `misp-docker` images: misp-core (MISP application), misp-nginx (the HTTPS front end on 8443, published as 9443, which `MISP_URL` points to; D28), misp-modules, MariaDB and Redis (Valkey image).
   - Bootstrap creates the SOC org and an API key for Cortex.
   - One **seed event** with the test IOC `203.0.113.66` (a documentation range, so it's harmless) for C7.
   - No feeds enabled yet.
@@ -306,8 +307,8 @@ The baseline is built on a **32 GB host**, but teammates may develop on smaller 
 
 | Profile | Intended hosts | WSL memory | Full stack (approx.) |
 |---|---|---|---|
-| `standard` | 16 GB+ (the baseline build machine: 32 GB) | 10–16 GB | ~9.7 GB |
-| `low` | 8 GB | 6 GB (+8 GB swap) | ~6.0 GB, at the limit; use run modes |
+| `standard` | 16 GB+ (the baseline build machine: 32 GB) | 10–16 GB | ~9.9 GB |
+| `low` | 8 GB | 6 GB (+8 GB swap) | ~6.1 GB, at the limit; use run modes |
 
 These are estimates; `scripts/mem-report.sh` records real usage per profile.
 
@@ -325,10 +326,11 @@ These are estimates; `scripts/mem-report.sh` records real usage per profile.
 | cases | analyzer jobs | transient | +0.1–0.3 GB | transient | +0.1–0.3 GB |
 | | **cases subtotal** | | **5.2 GB** | | **2.9 GB** |
 | intel | misp-core + mariadb + redis | — | 1.0 GB | — | 0.8 GB |
+| intel | misp-nginx | — | 0.1 GB | — | 0.1 GB |
 | intel | misp-modules | — | 0.3 GB | — | 0.3 GB |
-| | **intel subtotal** | | **1.3 GB** | | **1.1 GB** |
+| | **intel subtotal** | | **1.4 GB** | | **1.2 GB** |
 | lab | wazuh-agent | — | 0.1 GB | — | 0.1 GB |
-| | **Total** (analyzer jobs not included) | | **~9.7 GB** | | **~6.0 GB** |
+| | **Total** (analyzer jobs not included) | | **~9.9 GB** | | **~6.1 GB** |
 
 On the 32 GB build machine with WSL at 16 GB, the full stack runs in `standard` with ~6 GB of headroom for Claude Code, build tools and analyzer jobs. Every container sets `mem_limit`.
 
@@ -353,9 +355,9 @@ On the 32 GB build machine, `full` can stay running throughout the build. Run mo
 |---|---|---|---|
 | `core` | core, lab | 3.3 / 2.0 GB | Wazuh and Grafana development |
 | `cases` | cases | 5.2 / 2.9 GB | TheHive development (C7 unavailable) |
-| `cases-intel` | cases, intel | 6.5 / 4.0 GB | Cortex + MISP development; TheHive with enrichment |
+| `cases-intel` | cases, intel | 6.6 / 4.1 GB | Cortex + MISP development; TheHive with enrichment |
 | `core-cases` | core, cases, lab | 8.5 / 4.9 GB | n8n development against TheHive and Cortex (C7 unavailable) |
-| `full` | all | 9.7 / 6.0 GB | Contract checks, integration testing |
+| `full` | all | 9.9 / 6.1 GB | Contract checks, integration testing |
 
 ---
 
@@ -582,7 +584,7 @@ At a **checkpoint** (every ~2 weeks, or when something works), follow rule 4 in 
 | **n8n (SOAR)** | `core-cases` (~8.5 GB; small machines use the shared instance for integration work) | n8n UI `localhost:5678` (stub workflows and credentials pre-created) | Edit playbook → `lab/trigger.sh` → check execution and TheHive alert → `n8n-export.sh` | C1–C4, C6, later C9 | Wazuh (alert input), TheHive (alert/case format) |
 | **Grafana** | `core` (~3.3 GB) | Grafana UI `localhost:3000` (datasource and starter dashboard pre-provisioned; lab agent provides data) | Edit dashboard → `lab/trigger.sh` if more data is needed → `grafana-export.sh` | C8 | n8n and TheHive, later (case metrics such as response times) |
 | **TheHive** | `cases` (~5.2 GB) | TheHive UI `localhost:9000` (org, users and Cortex connector pre-created) | Configure → create test alerts via the API (Wazuh isn't running in this mode) → check alert and case flow | C3, C4, C5 | n8n (alert format), Cortex + MISP (analyzers shown to analysts) |
-| **Cortex + MISP** | `cases-intel` (~6.5 GB) | Cortex `localhost:9001` (MISP analyzer enabled); MISP `https://localhost:9443` (self-signed certificate warning is expected) | Add intel in MISP → run analyzers on test observables → check reports | C5, C6, C7 | Wazuh, later (MISP IOCs into Wazuh CDB lists) |
+| **Cortex + MISP** | `cases-intel` (~6.6 GB) | Cortex `localhost:9001` (MISP analyzer enabled); MISP `https://localhost:9443` (self-signed certificate warning is expected) | Add intel in MISP → run analyzers on test observables → check reports | C5, C6, C7 | Wazuh, later (MISP IOCs into Wazuh CDB lists) |
 
 RAM figures are for `standard`; see section 8 for `low`. Modes that include `core` also generate the Wazuh certificates during `init`; nobody creates certificates by hand.
 
@@ -613,7 +615,7 @@ Each node's root compose file only `include`s per-component compose files. That 
 | `cases/storage.yml` | cassandra, elasticsearch |
 | `cases/thehive/compose.yml` | thehive |
 | `cases/cortex/compose.yml` | cortex (analyzer containers are started at runtime, not defined here) |
-| `intel/misp/compose.yml` | misp-core, misp-modules, **mariadb**, **redis** |
+| `intel/misp/compose.yml` | misp-core, misp-nginx, misp-modules, **mariadb**, **redis** |
 | `lab/docker-compose.yml` | lab-agent |
 
 ```
@@ -670,15 +672,18 @@ asox-soc/
 │   │   ├── soc-net.yml
 │   │   ├── .env.example
 │   │   └── misp/               # owner: Cortex + MISP
-│   │       ├── compose.yml     # misp-core, misp-modules, mariadb, redis
+│   │       ├── compose.yml     # misp-core, misp-nginx, misp-modules, mariadb, redis
 │   │       ├── README.md
 │   │       └── seed/
 │   └── lab/                    # owner: Wazuh
 │       ├── docker-compose.yml
+│       ├── .env.example        # integrator-owned, like every node's .env.example
 │       ├── soc-net.yml
 │       ├── Dockerfile
 │       └── trigger.sh
 ├── scripts/
+│   ├── lib/
+│   │   └── common.sh           # shared helpers sourced by the other scripts
 │   ├── preflight.sh
 │   ├── render-env.sh
 │   ├── gen-certs.sh
@@ -691,7 +696,8 @@ asox-soc/
 │   ├── grafana-export.sh
 │   ├── mem-report.sh
 │   ├── backup.sh               # per node, volumes (+ optional secrets)
-│   └── restore.sh
+│   ├── restore.sh
+│   └── ci-checks.sh            # CI checks (11.5), run by GitHub Actions and locally
 ├── windows/
 │   ├── wslconfig.example
 │   ├── firewall-rules.ps1
@@ -778,6 +784,11 @@ These are the **design** decisions made while planning. Implementation choices m
 | D24 | Claude Code commits locally and never pushes during the baseline build; the integrator pushes. During component work, each owner decides for their own Claude Code use | The integrator keeps control of what reaches GitHub |
 | D25 | Internal TLS: Wazuh root CA trusted by Grafana; certificate verification skipped for the Wazuh API (n8n) and MISP (Cortex analyzer); other services on plain HTTP | Working contracts in a lab without building a full internal PKI; hardening later |
 | D26 | LF line endings enforced by `.gitattributes` | Windows tools can introduce CRLF, which breaks bash scripts and some configs |
+| D27 | Cortex 4.1 with Elasticsearch 8 (with TheHive 5.7 and Cassandra 4.1, StrangeBee's reference pairing) instead of Cortex 3 | Cortex 3.2.1, the last 3.x, supports only Elasticsearch 7, which is end of life; Cortex 4 supports only Elasticsearch 8. The analyzer Docker runner and the job directory settings are unchanged (6.5) |
+| D28 | The `intel` node also runs `misp-nginx`, and `MISP_URL` points to it | Current `misp-docker` releases serve HTTPS from a separate nginx container in front of `misp-core`; adds ~0.1 GB (section 8) |
+| D29 | Shared shell helpers in `scripts/lib/common.sh` | One implementation of the node list, run modes, `topology.env` parsing, compose invocation and PASS/FAIL output for every script |
+| D30 | CI checks implemented once in `scripts/ci-checks.sh`, called by GitHub Actions and run locally with the same pinned Docker images | Owners get the same result locally as in CI; checks run on the files git would commit, so local secrets are never scanned |
+| D31 | The `lab` node has its own `.env.example` (rendered to `.env` like the other nodes) | Each node must run on its own (section 12); the lab agent needs `SOC_INSTANCE`, `WAZUH_MANAGER_ADDR` and its memory limit |
 
 ---
 
