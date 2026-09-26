@@ -6,7 +6,9 @@
 # Usage: scripts/healthcheck.sh [--cross-node] [mode|nodes...]
 #   Without arguments: every initialised node with a running container.
 #   --cross-node : also check, from each node, the other nodes' URLs it
-#                  depends on (the addresses in its .env).
+#                  depends on (the addresses in its .env). In single-host
+#                  mode, a dependency on a node that isn't running (a dev
+#                  mode without it) is skipped.
 # One PASS/FAIL line per check (WARN never fails); exit code 1 on failure.
 # Commands run inside containers expand their own variables ('$VAR').
 # shellcheck disable=SC2016
@@ -22,7 +24,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib/cases.sh"
 # shellcheck source=scripts/lib/misp.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/misp.sh"
 
-usage() { sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; }
 
 CROSS=0
 ARGS=()
@@ -163,12 +165,23 @@ check_lab() {
 
 # ---------------------------------------------------------- cross-node ---
 
-# <node> <service> <label> <url>: GET from inside <service> answers (any HTTP status).
+# <node> <target>: true (and prints SKIP) when, in single-host mode, the
+# <target> node isn't running here, i.e. the current run mode leaves it out.
+# In distributed mode the target is on another machine and is always checked.
+target_absent() {
+  local node=$1 target=$2 label=$3
+  [[ $(env_get "$(node_dir "$node")/.env" DEPLOY_MODE) == single ]] || return 1
+  [[ -f "$(node_dir "$target")/.env" && -n $(running_services "$target") ]] && return 1
+  skip "$node -> $label: node $target not running (not part of this mode)"
+}
+
+# <node> <service> <target node> <label> <url>: GET from inside <service> answers (any HTTP status).
 reach() {
-  local node=$1 svc=$2 label=$3 url=$4 code
+  local node=$1 svc=$2 target=$3 label=$4 url=$5 code
   if ! running_services "$node" | grep -qx "$svc"; then
     skip "$node -> $label: $svc not running here"; return 0
   fi
+  target_absent "$node" "$target" "$label" && return 0
   code=$(compose "$node" exec -T "$svc" sh -c \
     'if command -v curl >/dev/null; then curl -sk -o /dev/null -w "%{http_code}" --max-time 10 "$1";
      else wget -q -S --no-check-certificate -T 10 -O /dev/null "$1" 2>&1 | awk "/HTTP\\//{c=\$2} END{print c}"; fi' _ "$url" || true)
@@ -181,15 +194,17 @@ check_cross() {
   env="$(node_dir "$node")/.env"
   case $node in
     core)
-      reach core n8n "TheHive (C3)" "$(env_get "$env" THEHIVE_URL)/api/status"
-      reach core n8n "Cortex (C6)" "$(env_get "$env" CORTEX_URL)/api/status"
+      reach core n8n cases "TheHive (C3)" "$(env_get "$env" THEHIVE_URL)/api/status"
+      reach core n8n cases "Cortex (C6)" "$(env_get "$env" CORTEX_URL)/api/status"
       ;;
     cases)
-      reach cases thehive "n8n (C4)" "$(env_get "$env" N8N_WEBHOOK_URL)/healthz"
+      reach cases thehive core "n8n (C4)" "$(env_get "$env" N8N_WEBHOOK_URL)/healthz"
       # Analyzers reach MISP from their own network (CORTEX_ANALYZER_NETWORK).
       url="$(env_get "$env" MISP_URL)/users/login"
       net=$(env_get "$env" CORTEX_ANALYZER_NETWORK)
-      if docker run --rm --network "$net" "$RUNNER_TEST_IMAGE" \
+      if target_absent cases intel "MISP (C7)"; then
+        :
+      elif docker run --rm --network "$net" "$RUNNER_TEST_IMAGE" \
           wget -q --no-check-certificate -T 10 -O /dev/null "$url" >/dev/null 2>&1; then
         pass "cases -> MISP (C7): $url answers from network $net (analyzer containers)"
       else
@@ -197,7 +212,9 @@ check_cross() {
       fi
       ;;
     lab)
-      if running_services lab | grep -qx lab-agent \
+      if target_absent lab core "Wazuh manager"; then
+        :
+      elif running_services lab | grep -qx lab-agent \
           && compose lab exec -T lab-agent bash -c 'timeout 5 bash -c "</dev/tcp/$WAZUH_MANAGER_ADDR/1515"' 2>/dev/null; then
         pass "lab -> Wazuh manager: $(env_get "$env" WAZUH_MANAGER_ADDR):1515 answers"
       else

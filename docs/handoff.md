@@ -4,12 +4,18 @@ Read after PROJECT.md, before starting work (CLAUDE.md). Update at the end of ea
 
 ## Current state (2026-09-26)
 
-- **Step 1.7 Part 1 done** (standard profile). Commit: "step 1.7 (part 1): ..." (see `git log`). **Next: step 1.7 Part 2** (low profile, below), which needs the integrator to change `.wslconfig` first.
-- **Running: nothing.** All nodes are stopped (`soc.sh down`); volumes, images, certificates and `.env` files are kept. Restart with `scripts/soc.sh up full` (instance `asox`).
-- Part 1 results in `full` on `standard`: `soc.sh init full` clean, `healthcheck.sh --cross-node` all green, **C1–C8 all pass**, memory report `docs/mem-report-standard.md`.
-- The integrator reviews after each step; approved so far: Cortex 4.1 + ES 8 (D27), Grafana 12.4 (D34), n8n memory (D38, revised by D40), D39 as revised in 1.5, D40, D41, and in 1.7: **D42** (TheHive `bootstrap@asox.local` Service account, org-admin, key renewed/used/revoked per run; analyst gets org-admin; bootstrap never uses the analyst's password) and the C4 fallback **D43** (`Authorization: Bearer`, planned in A41).
+- **Step 1.7 done** (Part 1 `standard`, Part 2 `low`; see PROJECT.md section 17 and docs/decisions.md A70). **Next: step 1.8** (distribution simulation, `backup.sh` / `restore.sh`).
+- **Before 1.8, the integrator restores `.wslconfig` to `memory=16GB`, `swap=4GB`** (then `wsl --shutdown`), and `topology.env` goes back to `MEM_PROFILE=standard` + `scripts/render-env.sh` (it is still `low`, matching the current 6 GB VM).
+- **Running: nothing.** All nodes stopped (`soc.sh down`); volumes, images, certificates and `.env` files kept. The containers were last created with the `low` limits: the next `soc.sh up` after re-rendering with `standard` recreates them.
+- **Testing budget (integrator, 2026-09-26):** memory measurements = startup peak + 5 min steady state per mode (`mem-report.sh --sample` ≈ init time + 300 s), longer only if a value is still rising. Re-run a full reset+init or the whole contract suite only when a change touches that area; otherwise only the relevant checks. The fresh-clone test (1.9) and the backup round trip (1.8) stay as planned.
+- The integrator reviews after each step; approved so far: Cortex 4.1 + ES 8 (D27), Grafana 12.4 (D34), n8n memory (D38, revised by D40), D39 as revised in 1.5, D40, D41, D42, D43.
 - **Owners** (PROJECT.md section 3, 11.1): Wazuh Daniel (@dmelgar1110), n8n Inigo (@poinsot, also the integrator, on the 32 GB machine), Grafana Jesus (@JC-535), TheHive Park (@Jinhyuk-P), Cortex + MISP Diego (@DiegoGuerraA00835430). The integrator adds collaborators at step 1.9.
 - **TheHive trial of the build instance ends 2026-10-11.** The integrator is requesting a Community license. Until it's activated, don't `soc.sh reset cases` (new instance, license lost, D41); once activated, back up `cases` with `--with-secrets` as soon as `backup.sh` exists (1.8). `soc.sh info cases` shows the license state. **Once the license is active, check C4 still passes** (webhooks need the capability `notification.webhook`; `healthcheck.sh` warns if it's missing, A64).
+
+## Step 1.7 results on `low` (A70)
+
+- 6 GB WSL VM: `core`, `cases`, `cases-intel` each fit (VM peaks ~3.1 / ~4.6 / ~5.3 GB including Claude Code ~0.4 GB and VS Code ~0.6 GB); their contracts pass; no OOM kills. `core-cases` passes near the limit. **`full` on `low` stalled the VM** (the first Part 2 session hung there): never start it on a 6 GB VM.
+- Low limits raised: grafana 250m, cortex 550m, wazuh-indexer 1150m.
 
 ## What Part 1 built (step 1.7)
 
@@ -17,14 +23,6 @@ Read after PROJECT.md, before starting work (CLAUDE.md). Update at the end of ea
 - TheHive webhook (C4): global endpoint `n8n` (bearer auth = the token) + SOC notification rule "n8n (C4)" (AnyEvent), written by `bootstrap.sh cases` (A64, A65). TheHive webhooks can't send custom headers, and `application.conf` notification defaults are ignored (only stored org config counts).
 - `healthcheck.sh` (A67), `mem-report.sh` (A68), `contracts-check.sh` complete (no more SKIP).
 - PROJECT.md section 4 documents `__from:<node>__` (incl. the manual copy in distributed mode).
-
-## Step 1.7 Part 2
-
-**Part 2 (after the integrator restarts WSL with memory=6GB, swap=8GB)**
-1. Check `free -h` shows ~6 GB RAM / 8 GB swap. Set `MEM_PROFILE=low` in `topology.env`, run `scripts/render-env.sh`.
-2. D39 checks, each dev mode started alone (`soc.sh down` the others): `core`, `cases`, `cases-intel`: healthchecks green, relevant contracts pass (core: C1, C2, C8; cases: C5; cases-intel: C5, C7), no OOM kills, fits the 6 GB allocation (measured usage, not the sum of limits). `core-cases` and `full` on `low` are best effort (record the result). Per mode, as done for standard in Part 1: `soc.sh down`; start `scripts/mem-report.sh --sample 1200 --out docs/mem-report-low-<mode>.md <mode>` as a tracked background task (it finds containers as they start); `scripts/soc.sh init <mode>` (recreates the containers with the low limits, bootstraps, runs `healthcheck.sh`); `contracts-check.sh --only <its contracts>`; `healthcheck.sh --cross-node <mode>`; idle until the sampler ends; also note `free -m` (the report includes it).
-3. Save the low memory reports in `docs/`; update section 17 (1.7 done) and the handoff; commit.
-4. **Remind the integrator to restore `.wslconfig` to `memory=16GB`, `swap=4GB`** (then `wsl --shutdown`), and set `MEM_PROFILE=standard` back in `topology.env`.
 
 ## Pending notes for later steps
 
@@ -49,5 +47,6 @@ Read after PROJECT.md, before starting work (CLAUDE.md). Update at the end of ea
 - **Secret scan:** gitleaks flags literal credentials in `curl -u` / `-H`; use variables.
 - **Shell:** the harness blocks leading `sleep N` (use `timeout N bash -c 'until ...; do sleep 3; done'`); background samplers need a tracked background task (`nohup &` dies with the shell); `pkill -f` can match its own shell.
 - **Local CI:** `scripts/ci-checks.sh all` before each commit.
+- **`ps` in a pipe truncates `cgroup`** unless given a width (`cgroup:256`); `soc.sh down` removes containers, so exit codes / `memory.events` are gone afterwards: look for OOM kills in `journalctl -b -1 -k` instead. Don't edit a script while a background run of it is still going (bash reads it as it runs).
 - **TheHive notifications (A64):** rules live in the organisation's stored config (only an org-admin of SOC can write them: `bootstrap@asox.local`, key revoked after each run); `application.conf` defaults are ignored; changes take up to 5 min (cache). Webhook endpoints ignore `headers`: only `auth` (bearer) is sent.
 - **n8n executions store webhook request headers**, including the webhook token; executions are visible to the n8n owner only (lab; same as C1).

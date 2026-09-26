@@ -325,23 +325,23 @@ The baseline is built on a **32 GB host**, but teammates may develop on smaller 
 | Profile | Intended hosts | WSL memory | Full stack (sum of limits) |
 |---|---|---|---|
 | `standard` | 16 GB+ (the baseline build machine: 32 GB) | 10–16 GB | ~12.4 GB |
-| `low` | 8 GB | 6 GB (+8 GB swap) | ~8.9 GB: `full`, `core-cases` are best effort (swap acceptable); `core`, `cases`, `cases-intel` must fit in 6 GB (D39) |
+| `low` | 8 GB | 6 GB (+8 GB swap) | ~9.05 GB: `core`, `cases`, `cases-intel` fit in 6 GB (D39); `core-cases` is best effort (it runs, close to the limit); `full` doesn't fit (step 1.7) |
 
-**How limits are sized (D40):** each container's `mem_limit` is its measured anonymous memory peak × 1.15 + 64 MiB for page cache, rounded up to 50 MiB. Measure through a realistic cycle (fresh start, bootstrap, some API activity, idle) from the cgroup's `memory.stat` (`anon`, `file`), not from `docker stats`, which includes reclaimable cache. Swap is capped at the limit (`memswap_limit` = `mem_limit`), so an undersized limit fails visibly (OOM kill, or a Java/Node "out of memory" in the logs) instead of swapping while healthchecks stay green. Measurements: `docs/decisions.md` A56, A63, A69 and `docs/mem-report-*.md` (`scripts/mem-report.sh`). Real usage is below the limits: e.g. the `cases` node uses ~5.4 GB (`standard`) and ~3.3 GB (`low`); `cases-intel` on `low` ~4.0 GB of container memory.
+**How limits are sized (D40):** each container's `mem_limit` is its measured anonymous memory peak × 1.15 + 64 MiB for page cache, rounded up to 50 MiB. Measure through a realistic cycle (fresh start, bootstrap, some API activity, idle) from the cgroup's `memory.stat` (`anon`, `file`), not from `docker stats`, which includes reclaimable cache. Swap is capped at the limit (`memswap_limit` = `mem_limit`), so an undersized limit fails visibly (OOM kill, or a Java/Node "out of memory" in the logs) instead of swapping while healthchecks stay green. Measurements: `docs/decisions.md` A56, A63, A69 and `docs/mem-report-*.md` (`scripts/mem-report.sh`). Real usage is below the limits: e.g. the `cases` node uses ~5.4 GB (`standard`) and ~3.1 GB (`low`); `cases-intel` on `low` ~3.9 GB of container memory.
 
 | Node | Service | `standard` heap | `standard` limit | `low` heap | `low` limit |
 |---|---|---|---|---|---|
-| core | wazuh-indexer | 1 GB | 2.0 GB | 512 MB | 1.1 GB |
+| core | wazuh-indexer | 1 GB | 2.0 GB | 512 MB | 1.15 GB |
 | core | wazuh-manager | — | 0.7 GB | — | 0.7 GB |
 | core | n8n (SQLite) | 384 MB | 0.75 GB | 320 MB | 0.65 GB |
-| core | grafana | — | 0.25 GB | — | 0.2 GB |
-| | **core subtotal** | | **3.7 GB** | | **2.65 GB** |
+| core | grafana | — | 0.25 GB | — | 0.25 GB |
+| | **core subtotal** | | **3.7 GB** | | **2.75 GB** |
 | cases | cassandra | 1 GB | 1.6 GB | 512 MB | 1.0 GB |
 | cases | elasticsearch (shared) | 1 GB | 2.4 GB | 512 MB | 1.45 GB |
 | cases | thehive | 1 GB | 1.9 GB | 512 MB | 1.3 GB |
-| cases | cortex | 512 MB | 0.65 GB | 256 MB | 0.5 GB |
+| cases | cortex | 512 MB | 0.65 GB | 256 MB | 0.55 GB |
 | cases | analyzer jobs | transient | +0.25 GB per job | transient | +0.25 GB per job |
-| | **cases subtotal** | | **6.55 GB** | | **4.25 GB** |
+| | **cases subtotal** | | **6.55 GB** | | **4.3 GB** |
 | intel | misp-core | — | 0.9 GB | — | 0.9 GB |
 | intel | mariadb | 256 MB buffer pool | 0.55 GB | 128 MB buffer pool | 0.4 GB |
 | intel | redis | — | 0.1 GB | — | 0.1 GB |
@@ -349,7 +349,7 @@ The baseline is built on a **32 GB host**, but teammates may develop on smaller 
 | intel | misp-modules | — | 0.4 GB | — | 0.4 GB |
 | | **intel subtotal** | | **2.05 GB** | | **1.9 GB** |
 | lab | wazuh-agent | — | 0.1 GB | — | 0.1 GB |
-| | **Total** (analyzer jobs not included) | | **~12.4 GB** | | **~8.9 GB** |
+| | **Total** (analyzer jobs not included) | | **~12.4 GB** | | **~9.05 GB** |
 
 On the 32 GB build machine with WSL at 16 GB, the full stack runs in `standard` with ~3.5 GB of headroom (more in practice, since usage is below the limits) for Claude Code, build tools and analyzer jobs. On a 16 GB host (WSL 10 GB), `full` in `standard` exceeds WSL memory if every service reaches its limit; use a dev mode there, or `low`. Every container sets `mem_limit` and `memswap_limit`.
 
@@ -374,13 +374,13 @@ On the 32 GB build machine, `full` can stay running throughout the build. Run mo
 
 | Mode | Nodes | Sum of limits (standard / low) | Typical use |
 |---|---|---|---|
-| `core` | core, lab | 3.8 / 2.75 GB | Wazuh and Grafana development |
-| `cases` | cases | 6.55 / 4.25 GB | TheHive development (C7 unavailable) |
-| `cases-intel` | cases, intel | 8.6 / 6.15 GB (measured use on `low`: ~4.0 GB) | Cortex + MISP development; TheHive with enrichment |
-| `core-cases` | core, cases, lab | 10.35 / 7.0 GB (`low`: best effort) | n8n development against TheHive and Cortex (C7 unavailable) |
-| `full` | all | 12.4 / 8.9 GB (`low`: best effort) | Contract checks, integration testing |
+| `core` | core, lab | 3.8 / 2.85 GB | Wazuh and Grafana development |
+| `cases` | cases | 6.55 / 4.3 GB | TheHive development (C7 unavailable) |
+| `cases-intel` | cases, intel | 8.6 / 6.2 GB (measured use on `low`: ~3.9 GB) | Cortex + MISP development; TheHive with enrichment |
+| `core-cases` | core, cases, lab | 10.35 / 7.15 GB (`low`: best effort) | n8n development against TheHive and Cortex (C7 unavailable) |
+| `full` | all | 12.4 / 9.05 GB (`low`: doesn't fit 6 GB) | Contract checks, integration testing |
 
-Measured usage is below these sums (the `cases` node alone: ~5.4 / ~3.3 GB; `cases-intel` on `low`: ~4.0 GB). A mode fits a WSL allocation when its measured usage plus WSL's own baseline does, not the sum of limits (D39, D40).
+Measured usage is below these sums (the `cases` node alone: ~5.4 / ~3.1 GB; `cases-intel` on `low`: ~3.9 GB). A mode fits a WSL allocation when its measured usage plus WSL's own baseline does, not the sum of limits (D39, D40). Measured on `low` in a 6 GB WSL VM (step 1.7), whole VM including Docker, VS Code and Claude Code (~0.4 GB): `core` peaks at ~3.1 GB, `cases` at ~4.6 GB, `cases-intel` at ~5.3 GB (no container swap; ~0.15 GB of VM swap). `core-cases` ran with every contract passing but ~0.35 GB swapped and ~0.2 GB available. `init full` on `low` pushed the VM into sustained memory pressure until it stopped responding, so on an 8 GB machine `full` is not an option: use a 16 GB+ machine or the shared instance.
 
 ---
 
@@ -856,6 +856,6 @@ These are the **design** decisions made while planning. Implementation choices m
 | 1.4 | Done (2026-09-25) | n8n 2.40.7 (SQLite; `pg` profile available), owner and credentials by `bootstrap.sh`, stub workflows `recv-wazuh-alert` / `recv-thehive-event` and check workflow `chk-wazuh-api`, webhooks protected by a shared token (D36), `custom-n8n` integration, execution pruning, `n8n-export.sh` / `n8n-import.sh` (round trip stable). C1 (incl. token rejection) and C2 pass; C8 still passes. n8n needs more memory than planned (D38). |
 | 1.5 | Done (2026-09-25) | Cassandra 4.1.12, Elasticsearch 8.19.21, TheHive 5.7.6, Cortex 4.1.0 (StrangeBee reference without nginx). `bootstrap.sh cases`: Cortex org `SOC`, org admin, API users and keys for TheHive and n8n; TheHive admin password, org `SOC`, analyst, n8n Service account and key, Cortex connector. C5 passes; Cortex starts containers through the host socket, sharing its job directory; a real analyzer job ran on `soc-net` (analyzers reach MISP without a D16 exception, A49). Cortex runs non-root so its entrypoint can't chown the host's Docker socket (A50). TheHive: 14-day trial, then a Community license is needed (A53). Memory limits re-sized from measured need, swap capped everywhere (D40, A56); D39 narrowed to `core`, `cases`, `cases-intel`. Owners recorded. |
 | 1.6 | Done (2026-09-25) | MISP 2.5.47 (`misp-docker`: core, nginx, modules, MariaDB 10.11.19, Valkey 7.2.14; no mail relay, no misp-guard), self-signed certificate per machine (`gen-certs.sh intel`). `bootstrap.sh intel`: admin API key, Read Only user for Cortex and its key, published seed event (`nodes/intel/misp/seed/`). `bootstrap.sh cases` enables Cortex's MISP analyzer (`MISP_2_1`, certificate check off, image pulled). C7 passes (forced new job; the analyzer container on `soc-net` reaches `misp-nginx` and finds the seed event); all contracts built so far (C1, C2, C5, C7, C8) pass in `full`. `soc.sh init` bootstraps intel → cases → core with a render before each. Intel limits measured (D40, A63); `cases-intel` on `low` uses ~4.0 GB. |
-| 1.7 | In progress: part 1 (`standard`) done 2026-09-26; part 2 (`low`) pending | n8n credentials for TheHive and Cortex (keys via `__from:cases__`) and check workflows `chk-thehive-api` / `chk-cortex-api`; n8n joins `soc-net`. TheHive webhook (C4): endpoint + SOC notification rule written by the Service account `bootstrap@asox.local`, whose key is revoked after each run; the analyst is org-admin (D42); the token goes as `Authorization: Bearer`, since TheHive's webhooks can't send custom headers (D43, A64). `healthcheck.sh` (incl. `--cross-node`, license warning), `mem-report.sh`, `contracts-check.sh` complete. `__from:<node>__` documented in section 4. In `full` on `standard`: `soc.sh init full` clean, `healthcheck.sh` all green, **C1–C8 pass**, no OOM kills; `docs/mem-report-standard.md`; `CORTEX_MEM` 600m → 650m (A69). Part 2: the D39 checks on `low` after the integrator sets `.wslconfig` to 6 GB / 8 GB swap. |
+| 1.7 | Done (2026-09-26) | n8n credentials for TheHive and Cortex (keys via `__from:cases__`) and check workflows `chk-thehive-api` / `chk-cortex-api`; n8n joins `soc-net`. TheHive webhook (C4): endpoint + SOC notification rule written by the Service account `bootstrap@asox.local`, whose key is revoked after each run; the analyst is org-admin (D42); the token goes as `Authorization: Bearer`, since TheHive's webhooks can't send custom headers (D43, A64). `healthcheck.sh` (incl. `--cross-node`, license warning), `mem-report.sh`, `contracts-check.sh` complete. `__from:<node>__` documented in section 4. In `full` on `standard`: `soc.sh init full` clean, `healthcheck.sh` all green, **C1–C8 pass**, no OOM kills; `docs/mem-report-standard.md`; `CORTEX_MEM` 600m → 650m (A69). Part 2, `low` in a 6 GB WSL VM, each dev mode alone (A70): `core` (C1, C2, C8), `cases` (C5) and `cases-intel` (C5, C7) pass with healthchecks green, no OOM kills and no container swap; whole-VM peaks ~3.1 / ~4.6 / ~5.3 GB including Claude Code and VS Code; `docs/mem-report-low-*.md`. Low limits raised to D40: grafana 250m, cortex 550m, wazuh-indexer 1150m. Best effort: `core-cases` passes C1–C6 and C8 near the limit; `full` stalled the VM (memory pressure, no OOM kill) and doesn't fit 6 GB. `healthcheck.sh --cross-node` skips nodes a dev mode leaves out; `mem-report.sh` reports VM peaks and processes outside containers. |
 | 1.8 | Not started | |
 | 1.9 | Not started | |

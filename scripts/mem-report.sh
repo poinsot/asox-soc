@@ -2,7 +2,9 @@
 # Memory report of the running containers (PROJECT.md section 8, D40), from
 # each container's cgroup: anonymous memory (what limits are sized from),
 # page cache ("file", reclaimable), peak, limit, swap and OOM kills, with
-# node and overall totals and the WSL VM's own usage.
+# node and overall totals and the WSL VM's own usage: total used, swap and
+# the largest processes outside containers (Docker, WSL, editors, Claude Code),
+# with their peaks while sampling.
 #
 # Usage: scripts/mem-report.sh [--sample SECONDS] [--interval N] [--out FILE] [mode|nodes...]
 #   Without nodes: every initialised node with a running container.
@@ -16,7 +18,7 @@ set -euo pipefail
 # shellcheck source=scripts/lib/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
 
-usage() { sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//'; }
 
 SAMPLE=0 INTERVAL=2 OUT=""
 ARGS=()
@@ -79,8 +81,27 @@ containers() {
 
 # Highest anon seen per node|service (across recreations).
 declare -A PEAK=()
+# WSL VM: highest used (MemTotal - MemAvailable) and swap used, in KiB, and
+# highest RSS (KiB) per command outside containers (no docker-<id>.scope).
+VM_PEAK=0 SWAP_PEAK=0
+declare -A OUT_PEAK=()
+vm_used() {
+  awk '/^MemTotal:/ {t=$2} /^MemAvailable:/ {a=$2} /^SwapTotal:/ {st=$2} /^SwapFree:/ {sf=$2}
+       END {print t - a, st - sf}' /proc/meminfo
+}
+# "rss command" per command outside containers (RSS summed over its processes).
+outside() {
+  ps -eo rss=,cgroup:256=,comm= | awk '$2 !~ /docker-[0-9a-f]+\.scope/ { r[$3] += $1 }
+    END { for (c in r) print r[c], c }'
+}
 sample() {
-  local n svc dir a
+  local n svc dir a used swap rss cmd
+  read -r used swap < <(vm_used)
+  (( used > VM_PEAK )) && VM_PEAK=$used
+  (( swap > SWAP_PEAK )) && SWAP_PEAK=$swap
+  while read -r rss cmd; do
+    (( rss > ${OUT_PEAK[$cmd]:-0} )) && OUT_PEAK[$cmd]=$rss
+  done < <(outside)
   while IFS='|' read -r n svc dir; do
     a=$(stat_of "$dir" anon 2>/dev/null) || continue   # container just stopped
     [[ -n $a ]] || continue
@@ -149,6 +170,22 @@ report() {
   printf '\nOOM kills: %d. Container swap: %s MiB.\n\n' "$t_oom" "$(mib "$t_swap")"
   # shellcheck disable=SC2016  # Markdown backticks
   printf 'WSL VM (`free -m`, includes WSL, Docker and everything else running):\n\n```\n%s\n```\n' "$(free -m)"
+  local used swap out_now=0 rss cmd
+  read -r used swap < <(vm_used)
+  (( used > VM_PEAK )) && VM_PEAK=$used
+  (( swap > SWAP_PEAK )) && SWAP_PEAK=$swap
+  while read -r rss cmd; do out_now=$(( out_now + rss )); done < <(outside)
+  printf '\nWSL VM used (total - available): now %s MiB, peak %s MiB. Swap used: now %s MiB, peak %s MiB.\n' \
+    "$(mib $(( used * 1024 )))" "$(mib $(( VM_PEAK * 1024 )))" "$(mib $(( swap * 1024 )))" "$(mib $(( SWAP_PEAK * 1024 )))"
+  printf '\nOutside containers (RSS, now %s MiB in total), largest by peak:\n\n| Process | RSS now | RSS peak |\n|---|--:|--:|\n' \
+    "$(mib $(( out_now * 1024 )))"
+  declare -A now=()
+  while read -r rss cmd; do now[$cmd]=$rss; done < <(outside)
+  for cmd in "${!now[@]}"; do (( now[$cmd] > ${OUT_PEAK[$cmd]:-0} )) && OUT_PEAK[$cmd]=${now[$cmd]}; done
+  for cmd in "${!OUT_PEAK[@]}"; do printf '%s %s\n' "${OUT_PEAK[$cmd]}" "$cmd"; done | sort -rn | head -6 |
+    while read -r rss cmd; do
+      printf '| %s | %s | %s |\n' "$cmd" "$(mib $(( ${now[$cmd]:-0} * 1024 )))" "$(mib $(( rss * 1024 )))"
+    done
 }
 
 if [[ -n $OUT ]]; then
