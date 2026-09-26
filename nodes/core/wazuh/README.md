@@ -81,6 +81,17 @@ A containerized Wazuh agent (`lab-agent`), enrolled exactly like a real endpoint
 - **Enrollment** happens once; the agent's keys are kept in a volume. A fresh agent with the same name is refused while the manager still knows the old one, so `scripts/soc.sh reset lab` first removes that registration (when core runs on the same machine). For a real endpoint that is reinstalled, remove its old registration the same way: `docker exec <instance>-core-wazuh-manager-1 /var/ossec/bin/manage_agents -r <agent-id>`.
 - **Healthy** means connected *and* ready to collect: right after enrolling, the agent reloads once when it receives the manager's shared configuration, and events written before that are lost.
 
+## Contracts and exporting changes
+
+| Contract | Role | Status (build step) |
+|---|---|---|
+| C1 Wazuh → n8n | Sends alerts with level ≥ `WAZUH_ALERT_MIN_LEVEL` through `custom-n8n`, with the webhook token | Passes (1.4) |
+| C2 n8n → Wazuh API | Provides the read-only user `n8n-api` | Passes (1.4) |
+| C8 Grafana → Wazuh indexer | Provides the read-only user `grafana-ro` (`wazuh-alerts-*`) | Passes (1.3) |
+| C9 n8n → endpoints (Phase 2) | Active response through the API; extends `n8n-api`'s role (contract change) | Planned |
+
+Check: `scripts/contracts-check.sh --only C1,C2,C8`. **Exporting changes:** Wazuh is configured by files (`config/`, `rules/`, `decoders/`, `integrations/`): edit, restart the manager, commit (section "How configuration reaches the manager"). Changing a contract needs the other owner's agreement first (PROJECT.md 5).
+
 ## Local patches and deprecations (re-check on upgrade)
 
 Everything here works around upstream behaviour or depends on details of the pinned versions (`wazuh/wazuh-manager` / `wazuh/wazuh-indexer` 4.14.8, `wazuh/wazuh-certs-generator` 0.0.4, agent package 4.14.8). On every version bump, re-check each item and update this list. Wazuh 5.0 (beta when pinned) changes enough that every item needs checking.

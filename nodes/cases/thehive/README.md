@@ -45,11 +45,22 @@ Re-activating for a new instance ID uses the same portal page ("Activate or View
 
 ### Requesting and applying a license
 
-1. **Request (once per person):** register on the StrangeBee license portal (`portal.apps.strangebee.com`) with a professional email, confirm the email, wait until StrangeBee validates the account, then log in and choose **Request a Community license** → **Get a Community license**.
+1. **Request (once per person):** register on the StrangeBee license portal (`portal.apps.strangebee.com`) with a professional email, confirm the email, wait until StrangeBee validates the account, then log in and choose **Request a Community license** → **Get a Community license**. When requesting it, **ask StrangeBee whether the license can be re-activated on a new instance** after a reset (a reset changes the instance ID).
 2. **Copy the challenge** from your instance: log in to TheHive as the platform admin (`scripts/soc.sh info`, user `admin@thehive.local`), open **Platform management** → **License** → **Update the current license** → **Copy this challenge**.
 3. **Generate the key:** on the portal, **Licenses** tab → **Activate** (or **View details**) on your Community license → paste the challenge into **License key activation challenge** → **Activate license** → **Copy the key to clipboard**.
 4. **Apply it:** back in TheHive's drawer, paste the key into **License** → **Activate the license key**.
 5. **Check:** `scripts/soc.sh info cases` shows the license line (plan, kind, expiry). `scripts/bootstrap.sh cases` (also run by `soc.sh init`) prints a `WARN` when TheHive is read-only or its trial has 3 days or less left (`THEHIVE_LICENSE_WARN_DAYS`).
+6. **Back it up right away:** `scripts/backup.sh cases --with-secrets` (available from build step 1.8). From then on, to get a clean or repaired TheHive, **restore that backup instead of running `soc.sh reset cases`**: a reset creates a new instance and loses the license (PROJECT.md D41), while a restore keeps it.
+
+## Contracts and exporting changes
+
+| Contract | Role | Status (build step) |
+|---|---|---|
+| C3 n8n → TheHive | Provides the Service account `n8n@asox.local` and its API key | Account and key exist (1.5); check in step 1.7 |
+| C4 TheHive → n8n | Webhook to n8n with the token | Step 1.7 |
+| C5 TheHive → Cortex | Cortex connector (server "Cortex") | Passes (1.5) |
+
+Check: `scripts/contracts-check.sh --only C5`. **Exporting changes:** TheHive's configuration (case templates, custom fields, ...) lives in its database; export/import scripts in this folder are the owner's first task (PROJECT.md 11.2, 11.6). Changing a contract needs the other owner's agreement first (PROJECT.md 5).
 
 ## Local patches and deprecations (re-check on upgrade)
 

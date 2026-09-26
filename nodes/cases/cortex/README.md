@@ -1,6 +1,6 @@
 # Cortex — "Inteligencia de amenazas" (with MISP)
 
-Owner: Diego (@DiegoGuerraA00835430). Node: `cases` (MISP: `intel`, from step 1.6). Run mode: `cases-intel`.
+Owner: Diego (@DiegoGuerraA00835430). Node: `cases` (MISP: `intel`, see `nodes/intel/misp/README.md`). Run mode: `cases-intel`.
 
 Cortex analyzes observables with analyzers, each run as a short-lived Docker container. The full component README (contracts, export rules, backlog) is completed at the end of Phase 1; this file already covers the operations below.
 
@@ -31,6 +31,16 @@ Cortex analyzes observables with analyzers, each run as a short-lived Docker con
 - Analyzer containers join `CORTEX_ANALYZER_NETWORK`: `soc-net` in single-host mode (so they reach MISP as `misp-nginx`), the default `bridge` in distributed mode (MISP through its published port). Each gets a memory limit of `CORTEX_ANALYZER_MEM` bytes (256 MiB) without swap.
 - Analyzer definitions come from StrangeBee's online catalog; an analyzer's image is pulled the first time it runs (bootstrap pre-pulls the MISP analyzer's).
 - **Job cache:** Cortex returns the previous report for the same observable within an analyzer's job cache (10 min for the MISP analyzer) without starting a container. Send `"force": true` in the run request to get a new job; C7 does (`scripts/contracts-check.sh --only C7`).
+
+## Contracts and exporting changes
+
+| Contract | Role | Status (build step) |
+|---|---|---|
+| C5 TheHive → Cortex | Provides the user `thehive` and its API key | Passes (1.5) |
+| C6 n8n → Cortex | Provides the user `n8n` and its API key | Key exists (1.5); check in step 1.7 |
+| C7 Cortex → MISP | MISP analyzer with MISP's Read Only key | Passes (1.6) |
+
+Check: `scripts/contracts-check.sh --only C5,C7`. **Exporting changes:** enabled analyzers and their configuration live in Elasticsearch; export/import scripts in this folder are the owner's first task (PROJECT.md 11.2, 11.6). Custom analyzers go in `analyzers/` as code. Changing a contract needs the other owner's agreement first (PROJECT.md 5).
 
 ## Local patches and deprecations (re-check on upgrade)
 

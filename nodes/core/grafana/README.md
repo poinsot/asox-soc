@@ -29,6 +29,14 @@ A dashboard keeps its file (matched by `uid`); a new one becomes `provisioning/d
 - The index pattern is daily, `[wazuh-alerts-4.x-]YYYY.MM.DD`, not `wazuh-alerts-*`: the OpenSearch plugin's health check fails with a wildcard pattern (PROJECT.md D35).
 - `grafana-ro` can only read `wazuh-alerts-*`. Reading another index (e.g. TheHive data later) needs a role change in `scripts/bootstrap.sh` (ask the integrator).
 
+## Contracts and exporting changes
+
+| Contract | Role | Status (build step) |
+|---|---|---|
+| C8 Grafana → Wazuh indexer | OpenSearch datasource `wazuh-indexer` as `grafana-ro` | Passes (1.3) |
+
+Check: `scripts/contracts-check.sh --only C8`. Exporting changes: `scripts/grafana-export.sh` (section "Editing dashboards"). Reading other data (e.g. TheHive metrics) is a contract change agreed with that owner (PROJECT.md 5).
+
 ## Local patches and deprecations (re-check on upgrade)
 
 Pinned: `grafana/grafana` 12.4.11 and `grafana-opensearch-datasource` 2.34.4. On every version bump, re-check each item below and update this list.

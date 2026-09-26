@@ -31,6 +31,14 @@ If the Cortex user's key changes (e.g. after `soc.sh reset intel`), Cortex needs
 - **Start-up:** the first start takes ~2 minutes; every start reloads galaxies, taxonomies, warninglists and object templates from the image (misp-core's memory peaks then).
 - **Distributed mode:** Cortex reaches MISP at `https://<INTEL_HOST>:9443`; the certificate is issued for the `MISP_BASE_URL` host, so after changing `INTEL_HOST` run `scripts/gen-certs.sh --force intel` and restart intel.
 
+## Contracts and exporting changes
+
+| Contract | Role | Status (build step) |
+|---|---|---|
+| C7 Cortex → MISP | Provides the Read Only user `cortex@asox.local`, its API key and the seed event | Passes (1.6) |
+
+Check: `scripts/contracts-check.sh --only C7`. **Exporting changes:** MISP's settings, taxonomies, feeds and events live in its database; export/import scripts in this folder are the owner's task (PROJECT.md 11.2); the seed event is `seed/seed-event.json`. Changing a contract needs the other owner's agreement first (PROJECT.md 5).
+
 ## Local patches and deprecations (re-check on upgrade)
 
 Pinned: `misp-core` / `misp-nginx` v2.5.47, `misp-modules` v3.0.10, `mariadb` 10.11.19, `valkey` 7.2.14 (from `misp-docker`'s `template.env`). On every version bump, re-check each item and update this list.

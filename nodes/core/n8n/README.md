@@ -64,6 +64,19 @@ scripts/n8n-import.sh            # workflows/*.json -> n8n (after git pull); OVE
 - **PostgreSQL** (optional, profile `pg`): export all workflows, uncomment the `DB_*` lines in `compose.yml`, and ask the integrator to enable the profile (`COMPOSE_PROFILES=pg` in the core `.env`, which `soc.sh` doesn't manage yet); then restart core and re-run `bootstrap.sh core` and `n8n-import.sh`. Switching is the n8n owner's decision.
 - Scripts use n8n's public API with `N8N_API_KEY` (limited scopes, created by `bootstrap.sh`), because the UI login is rate-limited to 5 attempts per window.
 
+## Contracts
+
+| Contract | Role | Status (build step) |
+|---|---|---|
+| C1 Wazuh → n8n | Receives alerts on `recv-wazuh-alert` (token required) | Passes (1.4) |
+| C2 n8n → Wazuh API | Credential "Wazuh API (n8n-api)", checked by `chk-wazuh-api` | Passes (1.4) |
+| C3 n8n → TheHive | TheHive API credential (Service account `n8n@asox.local`) | Step 1.7 |
+| C4 TheHive → n8n | Receives TheHive events on `recv-thehive-event` (token required) | Step 1.7 |
+| C6 n8n → Cortex | Cortex API credential (user `n8n`) | Step 1.7 |
+| C9 n8n → endpoints (Phase 2) | Response actions through Wazuh active response | Planned |
+
+Check: `scripts/contracts-check.sh --only C1,C2`. Exporting changes: section "Keeping workflows as code". Changing a contract needs the other owner's agreement first (PROJECT.md 5).
+
 ## Local patches and deprecations (re-check on upgrade)
 
 Pinned: `n8nio/n8n` 2.40.7 (`postgres` 16.15 for the optional `pg` profile). On every version bump, re-check each item and update this list.
