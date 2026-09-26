@@ -147,7 +147,7 @@ Three services use HTTPS with certificates that browsers and clients don't trust
 |---|---|---|
 | Wazuh Indexer (9200) | Signed by the local root CA from `gen-certs.sh` (`nodes/core/certs/root-ca.pem`), issued for the DNS name `wazuh.indexer` (D32) | Clients verify the certificate, so they must connect to `${WAZUH_INDEXER_URL}` (`https://wazuh.indexer:9200`), never to `wazuh-indexer` or an IP. Grafana (C8): the datasource is provisioned with that URL and the root CA. Filebeat (inside the manager) is configured the same way. |
 | Wazuh API (55000) | Self-signed by the manager | n8n (C2): the credential skips certificate verification (lab only). |
-| MISP (9443) | Self-signed, served by the `misp-nginx` container of `misp-docker` | Cortex MISP analyzer (C7): certificate check disabled in the analyzer configuration (lab only). |
+| MISP (9443) | Self-signed, generated per `intel` host by `gen-certs.sh intel` into `nodes/intel/certs/` (names `misp-nginx`, `localhost`, and the `INTEL_HOST` in distributed mode), served by the `misp-nginx` container of `misp-docker` | Cortex MISP analyzer (C7): certificate check disabled in the analyzer configuration (lab only). Browsers show a certificate warning. |
 
 TheHive, Cortex, n8n and Grafana use plain HTTP in Phase 1, which is acceptable on a lab network. **[ASSUMPTION]** Scripts that call HTTPS endpoints (`healthcheck.sh`, `contracts-check.sh`, `wazuh-query.sh`) use the root CA where available and `curl -k` otherwise. Proper certificates everywhere are a hardening task for later (D25).
 
@@ -255,10 +255,10 @@ Each component section lists its long-term **role** and what Phase 1 delivers as
   - **Catalog and images:** Cortex loads analyzer definitions from the official online catalog (`https://catalogs.download.strangebee.com/latest/json/analyzers.json` by default in 4.1). `bootstrap.sh` pre-pulls the enabled analyzer images.
   - **Phase 1 analyzers:** the **MISP analyzer** only (C7). Others are the owner's backlog.
 - **MISP baseline:**
-  - Official `misp-docker` images: misp-core (MISP application), misp-nginx (the HTTPS front end on 8443, published as 9443, which `MISP_URL` points to; D28), misp-modules, MariaDB and Redis (Valkey image).
-  - Bootstrap creates the SOC org and an API key for Cortex.
-  - One **seed event** with the test IOC `203.0.113.66` (a documentation range, so it's harmless) for C7.
-  - No feeds enabled yet.
+  - Official `misp-docker` images: misp-core (MISP application), misp-nginx (the HTTPS front end on 8443, published as 9443, which `MISP_URL` points to; D28), misp-modules, MariaDB and Redis (Valkey image). Not deployed: `misp-docker`'s mail relay (MISP can't send e-mail in the lab) and the optional misp-guard.
+  - Bootstrap creates the SOC org (the site admin's organisation), the admin API key, a **Read Only** user for Cortex with its API key (copied to the `cases` node as `MISP_CORTEX_API_KEY`), and enables the MISP analyzer in Cortex (certificate check off) with its image pulled.
+  - One **seed event** with the test IOC `203.0.113.66` (a documentation range, so it's harmless) for C7, from `nodes/intel/misp/seed/seed-event.json`, published.
+  - No feeds enabled yet. MISP's galaxies, taxonomies, warninglists and object templates are loaded from the image at every start.
 
 ---
 
@@ -313,10 +313,10 @@ The baseline is built on a **32 GB host**, but teammates may develop on smaller 
 
 | Profile | Intended hosts | WSL memory | Full stack (sum of limits) |
 |---|---|---|---|
-| `standard` | 16 GB+ (the baseline build machine: 32 GB) | 10–16 GB | ~11.7 GB |
-| `low` | 8 GB | 6 GB (+8 GB swap) | ~8.2 GB: `full`, `core-cases` are best effort (swap acceptable); `core`, `cases`, `cases-intel` must fit in 6 GB (D39) |
+| `standard` | 16 GB+ (the baseline build machine: 32 GB) | 10–16 GB | ~12.4 GB |
+| `low` | 8 GB | 6 GB (+8 GB swap) | ~8.9 GB: `full`, `core-cases` are best effort (swap acceptable); `core`, `cases`, `cases-intel` must fit in 6 GB (D39) |
 
-**How limits are sized (D40):** each container's `mem_limit` is its measured anonymous memory peak × 1.15 + 64 MiB for page cache, rounded up to 50 MiB. Measure through a realistic cycle (fresh start, bootstrap, some API activity, idle) from the cgroup's `memory.stat` (`anon`, `file`), not from `docker stats`, which includes reclaimable cache. Swap is capped at the limit (`memswap_limit` = `mem_limit`), so an undersized limit fails visibly (OOM kill, or a Java/Node "out of memory" in the logs) instead of swapping while healthchecks stay green. Measurements: `docs/decisions.md` A56 (and `mem-report.sh` from step 1.7). Real usage is below the limits: e.g. the `cases` node uses ~5.4 GB (`standard`) and ~3.3 GB (`low`).
+**How limits are sized (D40):** each container's `mem_limit` is its measured anonymous memory peak × 1.15 + 64 MiB for page cache, rounded up to 50 MiB. Measure through a realistic cycle (fresh start, bootstrap, some API activity, idle) from the cgroup's `memory.stat` (`anon`, `file`), not from `docker stats`, which includes reclaimable cache. Swap is capped at the limit (`memswap_limit` = `mem_limit`), so an undersized limit fails visibly (OOM kill, or a Java/Node "out of memory" in the logs) instead of swapping while healthchecks stay green. Measurements: `docs/decisions.md` A56 (and `mem-report.sh` from step 1.7). Real usage is below the limits: e.g. the `cases` node uses ~5.4 GB (`standard`) and ~3.3 GB (`low`); `cases-intel` on `low` ~4.0 GB of container memory.
 
 | Node | Service | `standard` heap | `standard` limit | `low` heap | `low` limit |
 |---|---|---|---|---|---|
@@ -331,14 +331,16 @@ The baseline is built on a **32 GB host**, but teammates may develop on smaller 
 | cases | cortex | 512 MB | 0.6 GB | 256 MB | 0.5 GB |
 | cases | analyzer jobs | transient | +0.25 GB per job | transient | +0.25 GB per job |
 | | **cases subtotal** | | **6.5 GB** | | **4.25 GB** |
-| intel | misp-core + mariadb + redis | — | 1.0 GB | — | 0.8 GB |
+| intel | misp-core | — | 0.9 GB | — | 0.9 GB |
+| intel | mariadb | 256 MB buffer pool | 0.55 GB | 128 MB buffer pool | 0.4 GB |
+| intel | redis | — | 0.1 GB | — | 0.1 GB |
 | intel | misp-nginx | — | 0.1 GB | — | 0.1 GB |
-| intel | misp-modules | — | 0.3 GB | — | 0.3 GB |
-| | **intel subtotal** (estimate until step 1.6) | | **1.4 GB** | | **1.2 GB** |
+| intel | misp-modules | — | 0.4 GB | — | 0.4 GB |
+| | **intel subtotal** | | **2.05 GB** | | **1.9 GB** |
 | lab | wazuh-agent | — | 0.1 GB | — | 0.1 GB |
-| | **Total** (analyzer jobs not included) | | **~11.7 GB** | | **~8.2 GB** |
+| | **Total** (analyzer jobs not included) | | **~12.4 GB** | | **~8.9 GB** |
 
-On the 32 GB build machine with WSL at 16 GB, the full stack runs in `standard` with ~4 GB of headroom (more in practice, since usage is below the limits) for Claude Code, build tools and analyzer jobs. On a 16 GB host (WSL 10 GB), `full` in `standard` exceeds WSL memory if every service reaches its limit; use a dev mode there, or `low`. Every container sets `mem_limit` and `memswap_limit`.
+On the 32 GB build machine with WSL at 16 GB, the full stack runs in `standard` with ~3.5 GB of headroom (more in practice, since usage is below the limits) for Claude Code, build tools and analyzer jobs. On a 16 GB host (WSL 10 GB), `full` in `standard` exceeds WSL memory if every service reaches its limit; use a dev mode there, or `low`. Every container sets `mem_limit` and `memswap_limit`.
 
 ### 8.1 Run modes
 
@@ -363,11 +365,11 @@ On the 32 GB build machine, `full` can stay running throughout the build. Run mo
 |---|---|---|---|
 | `core` | core, lab | 3.8 / 2.75 GB | Wazuh and Grafana development |
 | `cases` | cases | 6.5 / 4.25 GB | TheHive development (C7 unavailable) |
-| `cases-intel` | cases, intel | 7.9 / 5.45 GB | Cortex + MISP development; TheHive with enrichment |
+| `cases-intel` | cases, intel | 8.55 / 6.15 GB (measured use on `low`: ~4.0 GB) | Cortex + MISP development; TheHive with enrichment |
 | `core-cases` | core, cases, lab | 10.3 / 7.0 GB (`low`: best effort) | n8n development against TheHive and Cortex (C7 unavailable) |
-| `full` | all | 11.7 / 8.2 GB (`low`: best effort) | Contract checks, integration testing |
+| `full` | all | 12.4 / 8.9 GB (`low`: best effort) | Contract checks, integration testing |
 
-Measured usage is below these sums (the `cases` node alone: ~5.4 / ~3.3 GB); intel figures are estimates until step 1.6.
+Measured usage is below these sums (the `cases` node alone: ~5.4 / ~3.3 GB; `cases-intel` on `low`: ~4.0 GB). A mode fits a WSL allocation when its measured usage plus WSL's own baseline does, not the sum of limits (D39, D40).
 
 ---
 
@@ -597,7 +599,7 @@ At a **checkpoint** (every ~2 weeks, or when something works), follow rule 4 in 
 | **n8n (SOAR)** | `core-cases` (~10.3 GB; best effort on `low`, so on an 8 GB machine use the shared instance for integration work; the current n8n owner uses the 32 GB machine) | n8n UI `localhost:5678` (stub workflows and credentials pre-created) | Edit playbook → `lab/trigger.sh` → check execution and TheHive alert → `n8n-export.sh` | C1–C4, C6, later C9 | Wazuh (alert input), TheHive (alert/case format) |
 | **Grafana** | `core` (~3.8 GB) | Grafana UI `localhost:3000` (datasource and starter dashboard pre-provisioned; lab agent provides data) | Edit dashboard → `lab/trigger.sh` if more data is needed → `grafana-export.sh` | C8 | n8n and TheHive, later (case metrics such as response times) |
 | **TheHive** | `cases` (~6.5 GB) | TheHive UI `localhost:9000` (org, users and Cortex connector pre-created) | Configure → create test alerts via the API (Wazuh isn't running in this mode) → check alert and case flow | C3, C4, C5 | n8n (alert format), Cortex + MISP (analyzers shown to analysts) |
-| **Cortex + MISP** | `cases-intel` (~7.9 GB) | Cortex `localhost:9001` (MISP analyzer enabled); MISP `https://localhost:9443` (self-signed certificate warning is expected) | Add intel in MISP → run analyzers on test observables → check reports | C5, C6, C7 | Wazuh, later (MISP IOCs into Wazuh CDB lists) |
+| **Cortex + MISP** | `cases-intel` (~8.55 GB) | Cortex `localhost:9001` (MISP analyzer enabled); MISP `https://localhost:9443` (self-signed certificate warning is expected) | Add intel in MISP → run analyzers on test observables → check reports | C5, C6, C7 | Wazuh, later (MISP IOCs into Wazuh CDB lists) |
 
 RAM figures are the sums of the `standard` limits; see section 8 for `low` (where `core`, `cases` and `cases-intel` fit a 6 GB WSL allocation, D39). TheHive needs a free Community license after its 14-day trial (`nodes/cases/thehive/README.md`). Modes that include `core` also generate the Wazuh certificates during `init`; nobody creates certificates by hand.
 
@@ -684,6 +686,7 @@ asox-soc/
 │   │   ├── docker-compose.yml  # include: misp
 │   │   ├── soc-net.yml
 │   │   ├── .env.example
+│   │   ├── certs/              # generated, git-ignored (MISP's HTTPS certificate)
 │   │   └── misp/               # owner: Cortex + MISP
 │   │       ├── compose.yml     # misp-core, misp-nginx, misp-modules, mariadb, redis
 │   │       ├── README.md
@@ -838,7 +841,7 @@ These are the **design** decisions made while planning. Implementation choices m
 | 1.3 | Done (2026-09-25) | Grafana 12.4.11 (D34) with the pinned OpenSearch plugin only, datasource to `wazuh.indexer` with the root CA (daily index pattern, D35), starter dashboard "SOC Overview" (alerts over time, recent alerts, minimum-level filter), `grafana-export.sh` (round trip tested). `contracts-check.sh` started: C8 passes, the other contracts report SKIP until their steps. |
 | 1.4 | Done (2026-09-25) | n8n 2.40.7 (SQLite; `pg` profile available), owner and credentials by `bootstrap.sh`, stub workflows `recv-wazuh-alert` / `recv-thehive-event` and check workflow `chk-wazuh-api`, webhooks protected by a shared token (D36), `custom-n8n` integration, execution pruning, `n8n-export.sh` / `n8n-import.sh` (round trip stable). C1 (incl. token rejection) and C2 pass; C8 still passes. n8n needs more memory than planned (D38). |
 | 1.5 | Done (2026-09-25) | Cassandra 4.1.12, Elasticsearch 8.19.21, TheHive 5.7.6, Cortex 4.1.0 (StrangeBee reference without nginx). `bootstrap.sh cases`: Cortex org `SOC`, org admin, API users and keys for TheHive and n8n; TheHive admin password, org `SOC`, analyst, n8n Service account and key, Cortex connector. C5 passes; Cortex starts containers through the host socket, sharing its job directory; a real analyzer job ran on `soc-net` (analyzers reach MISP without a D16 exception, A49). Cortex runs non-root so its entrypoint can't chown the host's Docker socket (A50). TheHive: 14-day trial, then a Community license is needed (A53). Memory limits re-sized from measured need, swap capped everywhere (D40, A56); D39 narrowed to `core`, `cases`, `cases-intel`. Owners recorded. |
-| 1.6 | Not started | |
+| 1.6 | Done (2026-09-25) | MISP 2.5.47 (`misp-docker`: core, nginx, modules, MariaDB 10.11.19, Valkey 7.2.14; no mail relay, no misp-guard), self-signed certificate per machine (`gen-certs.sh intel`). `bootstrap.sh intel`: admin API key, Read Only user for Cortex and its key, published seed event (`nodes/intel/misp/seed/`). `bootstrap.sh cases` enables Cortex's MISP analyzer (`MISP_2_1`, certificate check off, image pulled). C7 passes (forced new job; the analyzer container on `soc-net` reaches `misp-nginx` and finds the seed event); all contracts built so far (C1, C2, C5, C7, C8) pass in `full`. `soc.sh init` bootstraps intel → cases → core with a render before each. Intel limits measured (D40, A63); `cases-intel` on `low` uses ~4.0 GB. |
 | 1.7 | Not started | |
 | 1.8 | Not started | |
 | 1.9 | Not started | |

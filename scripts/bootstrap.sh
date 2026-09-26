@@ -10,7 +10,10 @@
 #   cases: Cortex indexes, superadmin, SOC organization, org admin and the
 #          API users for TheHive (C5) and n8n (C6), with their keys;
 #          TheHive admin password, SOC organisation, analyst, API user for
-#          n8n (C3) with its key, and the Cortex connector (C5)
+#          n8n (C3) with its key, and the Cortex connector (C5); the MISP
+#          analyzer (C7) once intel has created its MISP key
+#   intel: MISP admin API key, read-only user for Cortex with its key (C7),
+#          and the seed event (nodes/intel/misp/seed/seed-event.json)
 set -euo pipefail
 # shellcheck source=scripts/lib/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
@@ -20,9 +23,11 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib/wazuh.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/lib/n8n.sh"
 # shellcheck source=scripts/lib/cases.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/cases.sh"
+# shellcheck source=scripts/lib/misp.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/misp.sh"
 trap n8n_cleanup EXIT
 
-usage() { sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'; }
 
 # ---------------------------------------------------------------- core ---
 
@@ -446,7 +451,129 @@ bootstrap_thehive() {
 bootstrap_cases() {
   echo "== bootstrap cases"
   bootstrap_cortex
+  bootstrap_misp_analyzer
   bootstrap_thehive
+}
+
+# MISP analyzer in Cortex (C7): enabled in the SOC organisation by its org
+# admin, pointing at MISP_URL (as seen from the cases node) with the key of
+# MISP's read-only Cortex user. Certificate check off: MISP's certificate is
+# self-signed (PROJECT.md 4.1, D25).
+MISP_ANALYZER=MISP_2_1
+
+bootstrap_misp_analyzer() {
+  local key url r id body image
+  key=$(cases_env MISP_CORTEX_API_KEY)
+  url=$(cases_env MISP_URL)
+  if [[ -z $key ]]; then
+    skip "Cortex: MISP analyzer not configured: MISP_CORTEX_API_KEY is empty (bootstrap intel first; C7 needs the intel node)"
+    return 0
+  fi
+  body=$(jq -nc --arg a "$MISP_ANALYZER" --arg u "$url" --arg k "$key" '{
+    name: $a,
+    configuration: {name: ["ASOX MISP"], url: [$u], key: [$k], cert_check: false,
+                    auto_extract_artifacts: false, check_tlp: true, max_tlp: 2, check_pap: true, max_pap: 2},
+    jobCache: 10, jobTimeout: 30}')
+  r=$(cortex_orgadmin GET /api/analyzer)
+  id=$(http_body "$r" | jq -r --arg a "$MISP_ANALYZER" '[.[]? | select(.workerDefinitionId == $a or .name == $a) | .id] | first // empty')
+  if [[ -z $id ]]; then
+    r=$(cortex_orgadmin POST "/api/organization/analyzer/$MISP_ANALYZER" "$body")
+    expect "Cortex: enable $MISP_ANALYZER" "$r" 201 || return
+  else
+    r=$(cortex_orgadmin PATCH "/api/analyzer/$id" "$(jq -c 'del(.name)' <<<"$body")")
+    expect "Cortex: configure $MISP_ANALYZER" "$r" 200 || return
+  fi
+  # Pre-pull its image, so the first job doesn't wait for the download.
+  image=$(http_body "$(cortex_orgadmin GET '/api/analyzerdefinition?range=all')" \
+    | jq -r --arg a "$MISP_ANALYZER" '.[] | select(.id == $a) | .dockerImage')
+  if [[ -n $image ]] && docker pull -q "$image" >/dev/null; then
+    pass "Cortex: $MISP_ANALYZER enabled -> $url (image $image pulled)"
+  else
+    fail "Cortex: $MISP_ANALYZER enabled, but its image ($image) could not be pulled"
+  fi
+}
+
+# --------------------------------------------------------------- intel ---
+
+bootstrap_misp_admin_key() {
+  local admin key out
+  admin=$(intel_env MISP_ADMIN_EMAIL)
+  if [[ $(misp_key_email "$(intel_env MISP_ADMIN_KEY)") == "$admin" ]]; then
+    pass "MISP: admin API key works"
+    return 0
+  fi
+  key=$(misp_new_key)
+  out=$(misp_cake User change_authkey 1 "$key" 2>&1) || { fail "MISP: setting the admin API key failed: ${out:0:200}"; return 1; }
+  if [[ $(misp_key_email "$key") == "$admin" ]]; then
+    env_set "$(node_dir intel)/.env" MISP_ADMIN_KEY "$key"
+    pass "MISP: admin API key created (stored in nodes/intel/.env)"
+  else
+    fail "MISP: the new admin API key is refused"
+    return 1
+  fi
+}
+
+# Read-only MISP user for Cortex's analyzer, in the admin's organisation.
+bootstrap_misp_cortex_user() {
+  local email r org_id role_id user_id key
+  email=$(intel_env MISP_CORTEX_USER)
+  org_id=$(http_body "$(misp_admin GET /users/view/me)" | jq -r '.User.org_id')
+  role_id=$(http_body "$(misp_admin GET /roles)" | jq -r '[.[] | (.Role // .) | select(.name == "Read Only") | .id] | first // empty')
+  [[ -n $role_id ]] || { fail "MISP: role \"Read Only\" not found"; return 1; }
+  user_id=$(http_body "$(misp_admin GET /admin/users)" | jq -r --arg e "$email" '[.[] | select(.User.email == $e) | .User.id] | first // empty')
+  if [[ -z $user_id ]]; then
+    r=$(misp_admin POST /admin/users/add "$(jq -nc --arg e "$email" --arg o "$org_id" --arg r "$role_id" \
+      '{email: $e, org_id: $o, role_id: $r, change_pw: false, notify: false, termsaccepted: true}')")
+    expect "MISP: user $email" "$r" 200 || return 1
+    user_id=$(http_body "$r" | jq -r '.User.id')
+  else
+    r=$(misp_admin POST "/admin/users/edit/$user_id" "$(jq -nc --arg r "$role_id" --arg o "$org_id" '{role_id: $r, org_id: $o, disabled: false}')")
+    expect "MISP: user $email" "$r" 200 || return 1
+  fi
+  pass "MISP: user $email (Read Only, organisation $(intel_env MISP_ORG))"
+
+  if [[ $(misp_key_email "$(intel_env MISP_CORTEX_API_KEY)") == "$email" ]]; then
+    pass "MISP: API key of $email works"
+    return 0
+  fi
+  r=$(misp_admin POST "/auth_keys/add/$user_id" '{"comment": "Cortex MISP analyzer (C7), created by bootstrap.sh"}')
+  key=$(http_body "$r" | jq -r '.AuthKey.authkey_raw // empty')
+  if [[ -n $key && $(misp_key_email "$key") == "$email" ]]; then
+    env_set "$(node_dir intel)/.env" MISP_CORTEX_API_KEY "$key"
+    pass "MISP: API key of $email created (stored in nodes/intel/.env)"
+    # Cortex's MISP analyzer still has the old key until cases is bootstrapped
+    # again (soc.sh init does it when both nodes are initialised together).
+    info "Cortex's MISP analyzer needs this key: on the cases machine run scripts/render-env.sh && scripts/bootstrap.sh cases (distributed mode: paste MISP_CORTEX_API_KEY into nodes/cases/.env first)"
+  else
+    fail "MISP: could not create a working API key for $email (HTTP $(http_code "$r"))"
+    return 1
+  fi
+}
+
+# Seed event with the test IOC (C7), created once and published.
+bootstrap_misp_seed() {
+  local info r id
+  info=$(jq -r '.Event.info' "$MISP_SEED_FILE")
+  r=$(misp_admin POST /events/restSearch "$(jq -nc --arg i "$info" '{returnFormat: "json", eventinfo: $i, limit: 1, metadata: true}')")
+  id=$(http_body "$r" | jq -r '[.response[]?.Event.id] | first // empty')
+  if [[ -z $id ]]; then
+    r=$(misp_admin POST /events/add "$(cat "$MISP_SEED_FILE")")
+    expect "MISP: seed event" "$r" 200 || return 1
+    id=$(http_body "$r" | jq -r '.Event.id')
+  fi
+  if [[ $(http_body "$(misp_admin GET "/events/view/$id")" | jq -r '.Event.published') != true ]]; then
+    # Publish without e-mail notifications (there is no mail relay).
+    r=$(misp_admin POST "/events/publish/$id/disable_email:1")
+    expect "MISP: publish seed event" "$r" 200 || return 1
+  fi
+  pass "MISP: seed event $id published (\"$info\")"
+}
+
+bootstrap_intel() {
+  echo "== bootstrap intel"
+  bootstrap_misp_admin_key || return
+  bootstrap_misp_cortex_user || return
+  bootstrap_misp_seed
 }
 
 # ---------------------------------------------------------------- main ---
@@ -459,6 +586,7 @@ main() {
   case $node in
     core)  bootstrap_core ;;
     cases) bootstrap_cases ;;
+    intel) bootstrap_intel ;;
     *)    skip "bootstrap $node: nothing to bootstrap yet" ;;
   esac
   finish

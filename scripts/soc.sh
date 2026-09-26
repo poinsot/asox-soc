@@ -25,6 +25,8 @@ SCRIPTS="$REPO_ROOT/scripts"
 UP_TIMEOUT=${SOC_UP_TIMEOUT:-900}
 # Throwaway container used to delete files created by containers as root.
 UTIL_IMAGE=alpine:3.24.2
+# Bootstrap order: nodes that create values other nodes copy come first.
+BOOTSTRAP_ORDER=(intel cases core lab)
 
 usage() { sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'; }
 
@@ -98,7 +100,9 @@ cmd_init() {
 
   local n
   for n in "${nodes[@]}"; do
-    [[ $n == core ]] && run_step gen-certs.sh   # idempotent: keeps existing files
+    # Idempotent: existing files are kept.
+    [[ $n == core ]] && run_step gen-certs.sh core
+    [[ $n == intel ]] && run_step gen-certs.sh intel
   done
 
   ensure_soc_net
@@ -109,7 +113,12 @@ cmd_init() {
     compose "$n" build --quiet
   done
   start_nodes "${nodes[@]}"
-  for n in "${nodes[@]}"; do
+  # Bootstrap providers before consumers (intel's MISP key is used by cases,
+  # cases' API keys by core), re-rendering .env first so that __from:<node>__
+  # values created by an earlier bootstrap reach the next node.
+  for n in "${BOOTSTRAP_ORDER[@]}"; do
+    [[ " ${nodes[*]} " == *" $n "* ]] || continue
+    "$SCRIPTS/render-env.sh" >/dev/null
     run_step bootstrap.sh "$n"
   done
   run_step healthcheck.sh "${nodes[@]}"
@@ -212,7 +221,8 @@ cmd_reset() {
   echo "  - the containers and ALL data volumes"
   echo "  - the generated .env (secrets and API keys)"
   [[ " ${nodes[*]} " == *" core "* ]] && echo "  - the Wazuh certificates (agents must re-enroll)"
-  [[ " ${nodes[*]} " == *" cases "* ]] && echo "  - the Cortex job directory"
+  [[ " ${nodes[*]} " == *" cases "* ]] && echo "  - the Cortex job directory and TheHive's license (a new trial starts)"
+  [[ " ${nodes[*]} " == *" intel "* ]] && echo "  - the MISP certificate"
   [[ " ${nodes[*]} " == *" lab "* && " ${nodes[*]} " != *" core "* ]] && echo "  - the lab agent's registration on the manager"
   if (( ! yes )); then
     local reply
@@ -235,6 +245,7 @@ cmd_reset() {
     case $n in
       core)  clear_dir "$dir/certs" ;;
       cases) clear_dir "$dir/cortex/jobs" ;;
+      intel) clear_dir "$dir/certs" ;;
     esac
     pass "$n: reset"
   done

@@ -37,9 +37,9 @@ declare -A PROFILE_STANDARD=(
   [THEHIVE_HEAP]=1g      [THEHIVE_MEM]=1900m
   [CORTEX_HEAP]=512m     [CORTEX_MEM]=600m
   [CORTEX_ANALYZER_MEM]=268435456
-  [MISP_CORE_MEM]=600m   [MISP_NGINX_MEM]=100m
-  [MISP_MODULES_MEM]=300m
-  [MARIADB_MEM]=300m     [REDIS_MEM]=100m
+  [MISP_CORE_MEM]=900m   [MISP_NGINX_MEM]=100m
+  [MISP_MODULES_MEM]=400m
+  [MARIADB_MEM]=550m     [MARIADB_BUFFER_POOL]=256M [REDIS_MEM]=100m
   [LAB_AGENT_MEM]=100m
 )
 declare -A PROFILE_LOW=(
@@ -52,9 +52,9 @@ declare -A PROFILE_LOW=(
   [THEHIVE_HEAP]=512m    [THEHIVE_MEM]=1300m
   [CORTEX_HEAP]=256m     [CORTEX_MEM]=500m
   [CORTEX_ANALYZER_MEM]=268435456
-  [MISP_CORE_MEM]=450m   [MISP_NGINX_MEM]=64m
-  [MISP_MODULES_MEM]=300m
-  [MARIADB_MEM]=250m     [REDIS_MEM]=100m
+  [MISP_CORE_MEM]=900m   [MISP_NGINX_MEM]=100m
+  [MISP_MODULES_MEM]=400m
+  [MARIADB_MEM]=400m     [MARIADB_BUFFER_POOL]=128M [REDIS_MEM]=100m
   [LAB_AGENT_MEM]=100m
 )
 
@@ -93,6 +93,8 @@ derive() {
     THEHIVE_URL)        addr "$node" cases http://thehive:9000         http://HOST:9000 ;;
     CORTEX_URL)         addr "$node" cases http://cortex:9001          http://HOST:9001 ;;
     MISP_URL)           addr "$node" intel https://misp-nginx:8443     https://HOST:9443 ;;
+    # MISP's own base URL, as users reach it on the published port.
+    MISP_BASE_URL)      [[ $TOPO_DEPLOY_MODE == single ]] && printf 'https://localhost:9443' || printf 'https://%s:9443' "$TOPO_INTEL_HOST" ;;
     CORTEX_JOBS_HOST_DIR) printf '%s' "$REPO_ROOT/nodes/cases/cortex/jobs" ;;
     # Cortex runs as the owner of the job directory, with access to the
     # host's Docker socket (docs/decisions.md A50).
@@ -118,7 +120,11 @@ from_node() {
   is_node "$src" || die "$node: .env.example: unknown node in __from:${src}__ for $key"
   [[ -f "$(node_dir "$src")/.env" ]] && v=$(env_get "$(node_dir "$src")/.env" "$key")
   [[ -n $v ]] || v=$current
-  [[ -n $v ]] || warn "$node: $key is empty; copy it from nodes/$src/.env on the $src machine" >&2
+  # In single-host mode an empty value is filled by a later render (after
+  # the source node's bootstrap); only distributed mode needs a manual copy.
+  if [[ -z $v && $TOPO_DEPLOY_MODE == distributed ]]; then
+    warn "$node: $key is empty; copy it from nodes/$src/.env on the $src machine" >&2
+  fi
   printf '%s' "$v"
 }
 

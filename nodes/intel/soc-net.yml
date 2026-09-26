@@ -8,6 +8,12 @@
 #   services:
 #     <service>:
 #       networks: [default, soc-net]
+services:
+  # MISP's HTTPS front end, called by Cortex's MISP analyzer containers (C7),
+  # which join soc-net (CORTEX_ANALYZER_NETWORK).
+  misp-nginx:
+    networks: [default, soc-net]
+
 networks:
   soc-net:
     external: true

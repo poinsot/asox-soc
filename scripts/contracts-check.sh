@@ -44,7 +44,13 @@ CASES_ENV="$(node_dir cases)/.env"
 # TheHive's published port: on this machine in single-host mode, on
 # CASES_HOST in distributed mode.
 load_topology
-if [[ $TOPO_DEPLOY_MODE == distributed ]]; then THEHIVE_API=http://$TOPO_CASES_HOST:9000; fi
+if [[ $TOPO_DEPLOY_MODE == distributed ]]; then
+  THEHIVE_API=http://$TOPO_CASES_HOST:9000
+  CORTEX_API=http://$TOPO_CASES_HOST:9001
+fi
+# C7: the seed event (nodes/intel/misp/seed/) and its test IOC.
+SEED_FILE="$REPO_ROOT/nodes/intel/misp/seed/seed-event.json"
+C7_TIMEOUT=${C7_TIMEOUT:-180}
 
 # ------------------------------------------------------------ test alert ---
 # One test alert shared by the contracts that need it (C1, C8): fired through
@@ -141,6 +147,35 @@ check_C5() {
   pass "$c: connected ($servers); analyzers: $analyzers"
 }
 
+check_C7() {
+  local c="C7 Cortex -> MISP" r aid jid info ioc status found
+  [[ -f $CASES_ENV ]] || { fail "$c: nodes/cases/.env not found (the cases node's logins are needed)"; return; }
+  info=$(jq -r '.Event.info' "$SEED_FILE")
+  ioc=$(jq -r '.Event.Attribute[0].value' "$SEED_FILE")
+  r=$(cortex_orgadmin GET /api/analyzer)
+  aid=$(http_body "$r" | jq -r '[.[]? | select(.workerDefinitionId | startswith("MISP_")) | .id] | first // empty')
+  [[ -n $aid ]] || { fail "$c: MISP analyzer not enabled in Cortex (run scripts/bootstrap.sh intel, then cases)"; return; }
+  r=$(cortex_orgadmin POST "/api/analyzer/$aid/run" "$(jq -nc --arg d "$ioc" '{data: $d, dataType: "ip", tlp: 0, pap: 0, force: true}')")
+  jid=$(http_body "$r" | jq -r '.id // empty')
+  [[ -n $jid ]] || { fail "$c: Cortex refused the job (HTTP $(http_code "$r"))"; return; }
+  # force: a new job (and container) even if a cached report exists;
+  # waitreport returns when the analyzer container has exited.
+  r=$(cortex_orgadmin GET "/api/job/$jid/waitreport?atMost=${C7_TIMEOUT}seconds")
+  status=$(http_body "$r" | jq -r '.status // "unknown"')
+  if [[ $status != Success ]]; then
+    # The error's last line is the analyzer's own message (earlier lines are
+    # often Python warnings).
+    fail "$c: analyzer job $jid on $ioc: $status: $(http_body "$r" | jq -r '.errorMessage // "" | split("\n") | map(select(length > 0)) | last // ""' | cut -c1-200)"
+    return
+  fi
+  found=$(http_body "$r" | jq -r --arg i "$info" '[.report.full.results[]?.result[]? | select(.info == $i) | .id] | first // empty')
+  if [[ -n $found ]]; then
+    pass "$c: MISP analyzer job on $ioc finds the seed event (MISP event $found)"
+  else
+    fail "$c: analyzer job $jid succeeded but its report doesn't contain the seed event \"$info\" (bootstrap intel creates it)"
+  fi
+}
+
 check_C8() {
   local auth health body resp
   auth="$(core_env GRAFANA_ADMIN_USER):$(core_env GRAFANA_ADMIN_PASSWORD)"
@@ -164,9 +199,9 @@ check_C8() {
 }
 
 # Build step that implements each contract still to come.
-declare -A PENDING=([C3]=1.7 [C4]=1.7 [C6]=1.7 [C7]=1.6)
+declare -A PENDING=([C3]=1.7 [C4]=1.7 [C6]=1.7)
 
-if [[ ! -f $CORE_ENV && " ${CONTRACTS[*]} " =~ \ C[1-48]\  ]]; then
+if [[ ! -f $CORE_ENV && " ${CONTRACTS[*]} " =~ \ C[123468]\  ]]; then
   die "nodes/core/.env not found; run this on the core machine after scripts/soc.sh init"
 fi
 echo "== Integration contracts (${CONTRACTS[*]})"

@@ -1,24 +1,68 @@
 #!/usr/bin/env bash
-# Generate the per-machine security material of the core node into
-# nodes/core/certs/ (git-ignored), using the pinned Wazuh images:
-#   - Wazuh certificates (root CA, indexer, manager/Filebeat, admin), via the
-#     official wazuh-certs-generator and nodes/core/wazuh/config/certs.yml;
-#   - the indexer's internal_users.yml, with the bcrypt hash of
-#     INDEXER_ADMIN_PASSWORD from nodes/core/.env.
+# Generate the per-machine security material of a node (git-ignored).
+#   core : into nodes/core/certs/, using the pinned Wazuh images:
+#          - Wazuh certificates (root CA, indexer, manager/Filebeat, admin),
+#            via the official wazuh-certs-generator and
+#            nodes/core/wazuh/config/certs.yml;
+#          - the indexer's internal_users.yml, with the bcrypt hash of
+#            INDEXER_ADMIN_PASSWORD from nodes/core/.env.
+#   intel: into nodes/intel/certs/, a self-signed certificate for misp-nginx
+#          (MISP's HTTPS front end; clients skip verification, PROJECT.md 4.1).
 # Idempotent: existing files are kept unless --force is given.
 #
-# Usage: scripts/gen-certs.sh [--force]
+# Usage: scripts/gen-certs.sh [--force] [core|intel]   (default: core)
 set -euo pipefail
 # shellcheck source=scripts/lib/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
 
-FORCE=0
-case ${1:-} in
-  --force) FORCE=1 ;;
-  -h|--help) sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
-  "") ;;
-  *) die "unknown option: $1" ;;
-esac
+FORCE=0 NODE=core
+for arg in "$@"; do
+  case $arg in
+    --force) FORCE=1 ;;
+    core|intel) NODE=$arg ;;
+    -h|--help) sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    *) die "unknown argument: $arg" ;;
+  esac
+done
+
+# ---------------------------------------------------------------- intel ---
+
+# misp-nginx serves HTTPS only when /etc/nginx/certs/{cert,key}.pem exist.
+# Generated with the misp-nginx image's openssl, owned by its nginx user.
+gen_misp_cert() {
+  local dir env image base host san
+  dir="$(node_dir intel)/certs"
+  env="$(node_dir intel)/.env"
+  [[ -f $env ]] || die "nodes/intel/.env not found; run scripts/render-env.sh first"
+  if (( ! FORCE )) && [[ -f $dir/cert.pem && -f $dir/key.pem ]]; then
+    skip "MISP certificate already exists (use --force to regenerate)"
+    return 0
+  fi
+  image=$(env_get "$env" MISP_NGINX_IMAGE)
+  base=$(env_get "$env" MISP_BASE_URL)
+  host=${base#https://}; host=${host%%[:/]*}
+  # Names clients may use: the soc-net alias, this machine, the base URL host.
+  san="DNS:misp-nginx,DNS:localhost,IP:127.0.0.1"
+  if [[ $host =~ ^[0-9.]+$ ]]; then san+=",IP:$host"; elif [[ $host != localhost ]]; then san+=",DNS:$host"; fi
+  mkdir -p "$dir"
+  docker run --rm --user 0 -v "$dir:/out" --entrypoint sh "$image" -c '
+    set -e
+    openssl req -x509 -newkey rsa:3072 -sha256 -nodes -days 1095 \
+      -subj "/O=ASOX SOC/CN=misp-nginx" -addext "subjectAltName=$1" \
+      -keyout /out/key.pem -out /out/cert.pem 2>/dev/null
+    chown 101:101 /out/key.pem /out/cert.pem
+    chmod 400 /out/key.pem
+    chmod 644 /out/cert.pem
+  ' _ "$san"
+  pass "MISP certificate written to nodes/intel/certs/ ($san)"
+}
+
+if [[ $NODE == intel ]]; then
+  gen_misp_cert
+  exit 0
+fi
+
+# ----------------------------------------------------------------- core ---
 
 CORE=$(node_dir core)
 CERTS="$CORE/certs"

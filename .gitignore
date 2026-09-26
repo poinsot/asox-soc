@@ -26,3 +26,7 @@ Thumbs.db
 # Python bytecode
 __pycache__/
 *.pyc
+
+# MISP certificate (per intel host)
+nodes/intel/certs/*
+!nodes/intel/certs/.gitkeep

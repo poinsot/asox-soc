@@ -22,13 +22,15 @@ Cortex analyzes observables with analyzers, each run as a short-lived Docker con
 | Organisation `CORTEX_ORG` (`SOC`) and its admin `CORTEX_ORGADMIN_USER` | Roles `read, analyze, orgadmin`: enables and configures analyzers (UI login `Cortex SOC` in `soc.sh info`) |
 | API users `CORTEX_THEHIVE_USER`, `CORTEX_N8N_USER` | Roles `read, analyze` only; keys `CORTEX_THEHIVE_API_KEY` (C5) and `CORTEX_N8N_API_KEY` (C6) |
 | Runner test | A throwaway container started through Cortex's Docker socket must share its job directory |
+| MISP analyzer `MISP_2_1` | Enabled in the SOC organisation, pointing at `MISP_URL` with `MISP_CORTEX_API_KEY` (MISP's Read Only user), certificate check off (MISP is self-signed); its image is pulled. Skipped while the key is empty (`cases` mode without intel) |
 
 ## How analyzers run
 
 - Cortex talks to the **host's** Docker daemon through the mounted `/var/run/docker.sock` (equivalent to root on the host: lab only, PROJECT.md 6.5).
 - The job directory is `nodes/cases/cortex/jobs` on the host (`CORTEX_JOBS_HOST_DIR`) and `/tmp/cortex-jobs` inside Cortex; analyzer containers mount their job folder by its host path.
 - Analyzer containers join `CORTEX_ANALYZER_NETWORK`: `soc-net` in single-host mode (so they reach MISP as `misp-nginx`), the default `bridge` in distributed mode (MISP through its published port). Each gets a memory limit of `CORTEX_ANALYZER_MEM` bytes (256 MiB) without swap.
-- Analyzer definitions come from StrangeBee's online catalog; an analyzer's image is pulled the first time it runs (or pre-pulled by bootstrap for the enabled ones, step 1.6).
+- Analyzer definitions come from StrangeBee's online catalog; an analyzer's image is pulled the first time it runs (bootstrap pre-pulls the MISP analyzer's).
+- **Job cache:** Cortex returns the previous report for the same observable within an analyzer's job cache (10 min for the MISP analyzer) without starting a container. Send `"force": true` in the run request to get a new job; C7 does (`scripts/contracts-check.sh --only C7`).
 
 ## Local patches and deprecations (re-check on upgrade)
 
@@ -42,5 +44,6 @@ Pinned: `thehiveproject/cortex` 4.1.0 (with Elasticsearch 8.19.21). On every ver
 | `job.runners = [docker]` | The 4.1 default list also tries `kubernetes` and `process` | — |
 | `auth.method.basic = true` | Bootstrap and checks use the admin logins over the API (plain HTTP in the lab, PROJECT.md 4.1) | — |
 | Session secret from `CORTEX_SECRET` (`no_config_secret=1`) | Otherwise the entrypoint generates a random secret at every start and logs everyone out | — |
+| MISP analyzer image `ghcr.io/thehive-project/misp:2` | The catalog names a moving major tag; the digest pulled at build time is in docs/decisions.md (Pinned images) | C7 passes after `docker pull` of the new image |
 | Catalog URL: the entrypoint's default `https://catalogs.download.strangebee.com/latest/json/analyzers.json` | "latest" catalog: analyzer definitions and image tags can change without a Cortex upgrade | The enabled analyzers still exist under the same name/version |
 | Memory: `CORTEX_MEM` 600m / 500m, swap capped at the limit | Measured need (PROJECT.md D40) | Re-measure the anonymous memory peak (`memory.stat`) |

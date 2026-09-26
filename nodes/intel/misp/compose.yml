@@ -1,3 +1,176 @@
 # Component: Cortex + MISP (owner: Cortex + MISP) — "Inteligencia de amenazas"
-# Services: misp-core, misp-nginx, misp-modules, mariadb, redis. Defined in build step 1.6.
-services: {}
+# Adapted from misp-docker (MISP/misp-docker, docker-compose.yml with
+# CORE_TAG v2.5.47), without its mail relay and the optional misp-guard.
+# Data lives in named volumes instead of the reference's bind-mounted folders.
+# misp-nginx is the HTTPS front end (8443, published as 9443; MISP_URL
+# points to it, PROJECT.md D28); its certificate is generated per machine
+# into ../certs by scripts/gen-certs.sh intel.
+# The admin API key, the Cortex user and the seed event are created by
+# scripts/bootstrap.sh intel.
+services:
+  redis:
+    image: ${REDIS_IMAGE}
+    hostname: redis
+    restart: unless-stopped
+    mem_limit: ${REDIS_MEM}
+    memswap_limit: ${REDIS_MEM}  # no swap: an undersized limit fails visibly (D40)
+    command: ["sh", "-c", "exec valkey-server --requirepass \"$$REDIS_PASSWORD\""]
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?missing in .env, run scripts/render-env.sh}
+      TZ: UTC
+    volumes:
+      - misp-redis-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "valkey-cli -a \"$$REDIS_PASSWORD\" --no-auth-warning ping | grep -q PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  mariadb:
+    image: ${MARIADB_IMAGE}
+    hostname: mariadb
+    restart: unless-stopped
+    mem_limit: ${MARIADB_MEM}
+    memswap_limit: ${MARIADB_MEM}  # no swap: an undersized limit fails visibly (D40)
+    environment:
+      MYSQL_USER: misp
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?missing in .env, run scripts/render-env.sh}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?missing in .env, run scripts/render-env.sh}
+      MYSQL_DATABASE: misp
+      TZ: UTC
+    # Reference settings, except the buffer pool, which follows the memory
+    # profile (the reference uses 2048M).
+    command:
+      - --innodb-buffer-pool-size=${MARIADB_BUFFER_POOL}
+      - --innodb-change-buffering=none
+      - --innodb-io-capacity=1000
+      - --innodb-io-capacity-max=2000
+      - --innodb-log-file-size=600M
+      - --innodb-read-io-threads=16
+      - --innodb-stats-persistent=ON
+      - --innodb-write-io-threads=4
+    cap_add:
+      - SYS_NICE
+    volumes:
+      - misp-mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mariadb-admin --user=\"$$MYSQL_USER\" --password=\"$$MYSQL_PASSWORD\" status >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
+  misp-modules:
+    image: ${MISP_MODULES_IMAGE}
+    hostname: misp-modules
+    restart: unless-stopped
+    mem_limit: ${MISP_MODULES_MEM}
+    memswap_limit: ${MISP_MODULES_MEM}  # no swap: an undersized limit fails visibly (D40)
+    environment:
+      TZ: UTC
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/localhost/6666'"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
+  misp-core:
+    image: ${MISP_CORE_IMAGE}
+    hostname: misp-core
+    restart: unless-stopped
+    mem_limit: ${MISP_CORE_MEM}
+    memswap_limit: ${MISP_CORE_MEM}  # no swap: an undersized limit fails visibly (D40)
+    depends_on:
+      redis:
+        condition: service_healthy
+      mariadb:
+        condition: service_healthy
+      misp-modules:
+        condition: service_healthy
+    cap_add:
+      - AUDIT_WRITE
+    environment:
+      BASE_URL: ${MISP_BASE_URL}
+      TZ: UTC
+      # Site admin and organisation, applied at every start. The admin API
+      # key is set by bootstrap.sh instead (MISP keys are 40 characters).
+      ADMIN_EMAIL: ${MISP_ADMIN_EMAIL}
+      ADMIN_PASSWORD: ${MISP_ADMIN_PASSWORD:?missing in .env, run scripts/render-env.sh}
+      ADMIN_ORG: ${MISP_ORG}
+      AUTOGEN_ADMIN_KEY: "false"
+      DISABLE_PRINTING_PLAINTEXT_CREDENTIALS: "true"
+      ENCRYPTION_KEY: ${MISP_ENCRYPTION_KEY:?missing in .env, run scripts/render-env.sh}
+      GPG_PASSPHRASE: ${MISP_GPG_PASSPHRASE:?missing in .env, run scripts/render-env.sh}
+      SUPERVISOR_PASSWORD: ${MISP_SUPERVISOR_PASSWORD:?missing in .env, run scripts/render-env.sh}
+      MYSQL_HOST: ${MARIADB_HOSTNAME}
+      MYSQL_USER: misp
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      MYSQL_DATABASE: misp
+      REDIS_HOST: ${REDIS_HOSTNAME}
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      MISP_MODULES_FQDN: ${MISP_MODULES_URL}
+      # No mail relay in the lab: MISP can't send e-mail (PROJECT.md 6.5).
+    volumes:
+      - misp-config:/var/www/MISP/app/Config
+      - misp-logs:/var/www/MISP/app/tmp/logs
+      - misp-files:/var/www/MISP/app/files
+      - misp-gnupg:/var/www/MISP/.gnupg
+    healthcheck:
+      # php-fpm (port 9002) starts only after the configuration script has
+      # finished, so an open port means MISP is configured and serving.
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/127.0.0.1/9002'"]
+      interval: 15s
+      timeout: 5s
+      retries: 60
+      start_period: 120s
+
+  misp-nginx:
+    image: ${MISP_NGINX_IMAGE}
+    hostname: misp-nginx
+    restart: unless-stopped
+    mem_limit: ${MISP_NGINX_MEM}
+    memswap_limit: ${MISP_NGINX_MEM}  # no swap: an undersized limit fails visibly (D40)
+    depends_on:
+      misp-core:
+        condition: service_healthy
+    ports:
+      - "${BIND_ADDR}:9443:8443"
+    environment:
+      BASE_URL: ${MISP_BASE_URL}
+      TZ: UTC
+      FASTCGI_LISTEN: misp-core:9002
+      FASTCGI_LISTEN_STATUS: misp-core:9003
+    volumes:
+      - ../certs:/etc/nginx/certs:ro
+    tmpfs:
+      - /etc/nginx/conf.d:mode=0755,uid=101,gid=101
+      - /var/cache/nginx:mode=0755,uid=101,gid=101
+      - /tmp:mode=1777
+    user: nginx
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      # An HTTPS request through nginx to MISP (no curl/wget in the image).
+      test:
+        - CMD-SHELL
+        - >-
+          printf 'GET /users/login HTTP/1.0\r\nHost: localhost\r\n\r\n'
+          | openssl s_client -quiet -connect 127.0.0.1:8443 2>/dev/null
+          | head -n 1 | grep -q ' 200'
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 20s
+
+volumes:
+  misp-redis-data:
+  misp-mysql-data:
+  misp-config:
+  misp-logs:
+  misp-files:
+  misp-gnupg:
