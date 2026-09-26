@@ -4,8 +4,8 @@
 # the nodes the checked contracts need running (full mode for C1-C8).
 #
 # Usage: scripts/contracts-check.sh [--only C3,C4]
-# One PASS/FAIL/SKIP line per contract; exit code 1 if any contract fails.
-# Contracts not implemented yet report SKIP with the build step that adds them.
+# One PASS/FAIL line per contract; exit code 1 if any contract fails.
+# C3/C4 create a test alert in TheHive (source contract-check) and delete it.
 set -euo pipefail
 # shellcheck source=scripts/lib/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
@@ -40,6 +40,7 @@ core_env() { env_get "$CORE_ENV" "$1"; }
 # Published on the core host; 127.0.0.1 works with either BIND_ADDR.
 GRAFANA_URL=${GRAFANA_URL:-http://127.0.0.1:3000}
 ALERT_TIMEOUT=${ALERT_TIMEOUT:-120}
+EVENT_TIMEOUT=${EVENT_TIMEOUT:-60}
 CASES_ENV="$(node_dir cases)/.env"
 # TheHive's published port: on this machine in single-host mode, on
 # CASES_HOST in distributed mode.
@@ -126,6 +127,105 @@ check_C2() {
   pass "$c: credential logs in and lists $(jq -r '.agents' <<<"$resp") agents; active response rejected (HTTP 403)"
 }
 
+# ------------------------------------------------------ TheHive test alert ---
+# One test alert shared by C3 and C4, created through n8n's TheHive
+# credential (check workflow chk-thehive-api) and deleted the same way.
+# TheHive sends its webhook asynchronously, so C4's execution is looked for
+# before the alert is deleted.
+TH_ALERT_ID="" TH_ALERT_BY="" TH_ALERT_ERROR="" TH_EVENT_EXEC="" TH_EVENT_ERROR=""
+
+chk_thehive() {
+  curl -s -X POST "$N8N_URL/webhook/chk-thehive-api" -H "X-ASOX-Token: $(core_env N8N_WEBHOOK_TOKEN)" \
+    -H 'Content-Type: application/json' -d "$1" || true
+}
+
+# Create the alert (source contract-check) and read it back.
+thehive_test_alert() {
+  [[ -n $TH_ALERT_ID ]] && return 0
+  [[ -n $TH_ALERT_ERROR ]] && return 1
+  local ref resp
+  ref="contract-check-$(date +%s)-$RANDOM"
+  resp=$(chk_thehive "$(jq -nc --arg r "$ref" '{step: "create", sourceRef: $r}')")
+  if ! jq -e --arg r "$ref" '.id != null and .source == "contract-check" and .sourceRef == $r' >/dev/null 2>&1 <<<"$resp"; then
+    TH_ALERT_ERROR="check workflow chk-thehive-api could not create and read back a test alert (active? credential? cases node running?): ${resp:0:200}"
+    return 1
+  fi
+  TH_ALERT_ID=$(jq -r '.id' <<<"$resp")
+  TH_ALERT_BY=$(jq -r '.createdBy' <<<"$resp")
+}
+
+# Wait for the recv-thehive-event execution carrying the test alert's ID.
+thehive_event_wait() {
+  [[ -n $TH_EVENT_EXEC || -n $TH_EVENT_ERROR ]] && return 0
+  local wf_id e deadline=$(( SECONDS + EVENT_TIMEOUT ))
+  if ! n8n_api_ok; then TH_EVENT_ERROR="n8n API not reachable with N8N_API_KEY (run scripts/bootstrap.sh core)"; return 0; fi
+  wf_id=$(n8n_workflow_id_by_name recv-thehive-event)
+  [[ -n $wf_id ]] || { TH_EVENT_ERROR="workflow recv-thehive-event not found in n8n"; return 0; }
+  while (( SECONDS < deadline )); do
+    e=$(n8n_api GET "/executions?workflowId=$wf_id&limit=50&includeData=true" \
+      | jq -r --arg a "$TH_ALERT_ID" '[.data[]? | select(tostring | contains($a)) | .id] | first // empty')
+    [[ -n $e ]] && { TH_EVENT_EXEC=$e; return 0; }
+    sleep 3
+  done
+  TH_EVENT_ERROR="no recv-thehive-event execution for alert $TH_ALERT_ID within ${EVENT_TIMEOUT}s (TheHive webhook: scripts/bootstrap.sh cases; license: scripts/soc.sh info cases; TheHive logs)"
+}
+
+# Delete the test alert through n8n; sets TH_DELETE_STATUS to the HTTP
+# status TheHive returned.
+TH_DELETE_STATUS=""
+thehive_test_alert_delete() {
+  [[ -n $TH_ALERT_ID ]] || return 0
+  TH_DELETE_STATUS=$(chk_thehive "$(jq -nc --arg i "$TH_ALERT_ID" '{step: "delete", id: $i}')"     | jq -r '.deleted_status // "none"' 2>/dev/null || true)
+  TH_ALERT_ID=""
+}
+# Never leave the test alert behind, even if the script stops early.
+trap thehive_test_alert_delete EXIT
+
+check_C3() {
+  local c="C3 n8n -> TheHive" id by
+  thehive_test_alert || { fail "$c: $TH_ALERT_ERROR"; return; }
+  id=$TH_ALERT_ID by=$TH_ALERT_BY
+  [[ " ${CONTRACTS[*]} " == *" C4 "* ]] && thehive_event_wait
+  thehive_test_alert_delete
+  if [[ $TH_DELETE_STATUS != 204 ]]; then
+    fail "$c: test alert $id created and read back, but deleting it returned ${TH_DELETE_STATUS:-nothing}"
+    return
+  fi
+  pass "$c: test alert $id created (as $by), read back and deleted through n8n's credential"
+}
+
+check_C4() {
+  local c="C4 TheHive -> n8n" no_token wrong_token
+  # TheHive sends the token as "Authorization: Bearer <token>" (A64).
+  no_token=$(webhook_status thehive-event)
+  wrong_token=$(webhook_status thehive-event -H "Authorization: Bearer wrong-$RANDOM")
+  if [[ $no_token != 40[13] || $wrong_token != 40[13] ]]; then
+    fail "$c: webhook must reject requests without a valid token (no token: HTTP $no_token, wrong token: HTTP $wrong_token)"
+    return
+  fi
+  if [[ -z $TH_EVENT_EXEC && -z $TH_EVENT_ERROR ]]; then
+    # Not run together with C3: create (and delete) a test alert here.
+    thehive_test_alert || { fail "$c: $TH_ALERT_ERROR"; return; }
+    thehive_event_wait
+    thehive_test_alert_delete
+  fi
+  if [[ -n $TH_EVENT_EXEC ]]; then
+    pass "$c: creating the test alert produced execution $TH_EVENT_EXEC of recv-thehive-event; requests without a valid token rejected (HTTP $no_token/$wrong_token)"
+  else
+    fail "$c: $TH_EVENT_ERROR"
+  fi
+}
+
+check_C6() {
+  local c="C6 n8n -> Cortex" resp
+  resp=$(curl -s -X POST "$N8N_URL/webhook/chk-cortex-api" -H "X-ASOX-Token: $(core_env N8N_WEBHOOK_TOKEN)" || true)
+  if ! jq -e '.status == 200' >/dev/null 2>&1 <<<"$resp"; then
+    fail "$c: check workflow chk-cortex-api failed (active? credential? Cortex running?): ${resp:0:200}"
+    return
+  fi
+  pass "$c: credential lists the enabled analyzers: $(jq -r '.analyzers | if length == 0 then "none enabled yet" else join(", ") end' <<<"$resp")"
+}
+
 check_C5() {
   local c="C5 TheHive -> Cortex" r status servers analyzers
   [[ -f $CASES_ENV ]] || { fail "$c: nodes/cases/.env not found (the cases node's logins are needed)"; return; }
@@ -198,18 +298,11 @@ check_C8() {
   fi
 }
 
-# Build step that implements each contract still to come.
-declare -A PENDING=([C3]=1.7 [C4]=1.7 [C6]=1.7)
-
 if [[ ! -f $CORE_ENV && " ${CONTRACTS[*]} " =~ \ C[123468]\  ]]; then
   die "nodes/core/.env not found; run this on the core machine after scripts/soc.sh init"
 fi
 echo "== Integration contracts (${CONTRACTS[*]})"
 for c in "${CONTRACTS[@]}"; do
-  if declare -F "check_$c" >/dev/null; then
-    "check_$c"
-  else
-    skip "$c not implemented yet (build step ${PENDING[$c]})"
-  fi
+  "check_$c"
 done
 finish

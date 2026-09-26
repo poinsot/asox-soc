@@ -37,10 +37,10 @@ Cortex analyzes observables with analyzers, each run as a short-lived Docker con
 | Contract | Role | Status (build step) |
 |---|---|---|
 | C5 TheHive → Cortex | Provides the user `thehive` and its API key | Passes (1.5) |
-| C6 n8n → Cortex | Provides the user `n8n` and its API key | Key exists (1.5); check in step 1.7 |
+| C6 n8n → Cortex | Provides the user `n8n` and its API key (n8n credential "Cortex API (n8n)") | Passes (1.7) |
 | C7 Cortex → MISP | MISP analyzer with MISP's Read Only key | Passes (1.6) |
 
-Check: `scripts/contracts-check.sh --only C5,C7`. **Exporting changes:** enabled analyzers and their configuration live in Elasticsearch; export/import scripts in this folder are the owner's first task (PROJECT.md 11.2, 11.6). Custom analyzers go in `analyzers/` as code. Changing a contract needs the other owner's agreement first (PROJECT.md 5).
+Check: `scripts/contracts-check.sh --only C5,C6,C7`; `scripts/healthcheck.sh cases` checks the Docker socket, the job directory and the MISP analyzer image. **Exporting changes:** enabled analyzers and their configuration live in Elasticsearch; export/import scripts in this folder are the owner's first task (PROJECT.md 11.2, 11.6). Custom analyzers go in `analyzers/` as code. Changing a contract needs the other owner's agreement first (PROJECT.md 5).
 
 ## Local patches and deprecations (re-check on upgrade)
 
@@ -56,4 +56,4 @@ Pinned: `thehiveproject/cortex` 4.1.0 (with Elasticsearch 8.19.21). On every ver
 | Session secret from `CORTEX_SECRET` (`no_config_secret=1`) | Otherwise the entrypoint generates a random secret at every start and logs everyone out | — |
 | MISP analyzer image `ghcr.io/thehive-project/misp:2` | The catalog names a moving major tag; the digest pulled at build time is in docs/decisions.md (Pinned images) | C7 passes after `docker pull` of the new image |
 | Catalog URL: the entrypoint's default `https://catalogs.download.strangebee.com/latest/json/analyzers.json` | "latest" catalog: analyzer definitions and image tags can change without a Cortex upgrade | The enabled analyzers still exist under the same name/version |
-| Memory: `CORTEX_MEM` 600m / 500m, swap capped at the limit | Measured need (PROJECT.md D40) | Re-measure the anonymous memory peak (`memory.stat`) |
+| Memory: `CORTEX_MEM` 650m / 500m, swap capped at the limit | Measured need (PROJECT.md D40); standard raised from 600m in step 1.7 (anon peak 486 MiB, A69) | Re-measure the anonymous memory peak (`memory.stat`) |

@@ -1,0 +1,369 @@
+{
+  "id": "asoxChkTheHiveAp",
+  "name": "chk-thehive-api",
+  "active": true,
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## chk-thehive-api (contract check C3)\n**Trigger:** POST /webhook/chk-thehive-api from scripts/contracts-check.sh, header `X-ASOX-Token` required.\n**Inputs:** `{\"step\": \"create\", \"sourceRef\": \"...\"}` or `{\"step\": \"delete\", \"id\": \"...\"}`.\n**Actions taken:** with the \"TheHive API (n8n)\" credential: *create* makes a test alert (`source: contract-check`) and reads it back; *delete* deletes an alert, only if its source is `contract-check`.\n**Systems changed:** TheHive (test alert only, removed by the check).\n**Approval:** not applicable.\n**Owner:** n8n (check maintained with the integrator).",
+        "height": 300,
+        "width": 460
+      },
+      "id": "a13c14a2-72ac-598f-985d-5a6d980baed3",
+      "name": "About this workflow",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -40,
+        -360
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "chk-thehive-api",
+        "authentication": "headerAuth",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "5cef9502-9d4a-5f73-b0bd-fe2dc8dd0c4a",
+      "name": "Contract check request",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "5f2b1c4e-7a1d-4c1e-9f7a-3b2c1d0e9a04",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "asoxWebhookToken",
+          "name": "ASOX webhook token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "bbcc1e8c-4468-5017-a3d4-7e1335ced6b4",
+              "leftValue": "={{ $json.body.step }}",
+              "rightValue": "create",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "86f65e16-99c1-579d-9cd3-219919b2eff6",
+      "name": "Create?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        240,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.THEHIVE_URL }}/api/v1/alert",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "theHiveProjectApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ type: 'contract-check', source: 'contract-check', sourceRef: $('Contract check request').item.json.body.sourceRef, title: 'ASOX contract check (C3)', description: 'Test alert created by scripts/contracts-check.sh through n8n; deleted by the same check.', severity: 1, tlp: 0, pap: 0 }) }}",
+        "options": {}
+      },
+      "id": "8f5b179a-9cd7-5532-9584-b6c446f551af",
+      "name": "Create alert",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        500,
+        -120
+      ],
+      "credentials": {
+        "theHiveProjectApi": {
+          "id": "asoxTheHiveApi01",
+          "name": "TheHive API (n8n)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.THEHIVE_URL }}/api/v1/alert/{{ $json._id }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "theHiveProjectApi",
+        "options": {}
+      },
+      "id": "74fa6f51-0957-5a30-a14d-587d28ce3d72",
+      "name": "Read alert",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        760,
+        -120
+      ],
+      "credentials": {
+        "theHiveProjectApi": {
+          "id": "asoxTheHiveApi01",
+          "name": "TheHive API (n8n)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { \"id\": $json._id, \"source\": $json.source, \"sourceRef\": $json.sourceRef, \"createdBy\": $json._createdBy } }}",
+        "options": {}
+      },
+      "id": "0019ff33-98b7-5f9f-a8d5-3abb47f213bc",
+      "name": "Report created",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1020,
+        -120
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.THEHIVE_URL }}/api/v1/alert/{{ encodeURIComponent($('Contract check request').item.json.body.id) }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "theHiveProjectApi",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "1779216c-c933-5884-afaf-dad8916363b5",
+      "name": "Find alert",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        500,
+        120
+      ],
+      "credentials": {
+        "theHiveProjectApi": {
+          "id": "asoxTheHiveApi01",
+          "name": "TheHive API (n8n)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "29eb7a74-3b99-5d2e-a5f9-0a812b600dcd",
+              "leftValue": "={{ $json.statusCode === 200 && $json.body.source === 'contract-check' }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "4f48fa4d-144d-52d4-ab63-82591f3eb7e2",
+      "name": "Contract-check alert?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        760,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "method": "DELETE",
+        "url": "={{ $env.THEHIVE_URL }}/api/v1/alert/{{ $('Find alert').item.json.body._id }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "theHiveProjectApi",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "3c8a6878-fa6d-56c0-87a0-95a815c7f410",
+      "name": "Delete alert",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1020,
+        40
+      ],
+      "credentials": {
+        "theHiveProjectApi": {
+          "id": "asoxTheHiveApi01",
+          "name": "TheHive API (n8n)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { \"deleted_status\": $json.statusCode } }}",
+        "options": {}
+      },
+      "id": "bd2fbb35-313d-550c-a3ed-27221a6511a0",
+      "name": "Report deleted",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1280,
+        40
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { \"deleted_status\": null, \"error\": \"not found or not a contract-check alert (HTTP \" + $('Find alert').item.json.statusCode + \")\" } }}",
+        "options": {}
+      },
+      "id": "c7ae58e3-0f95-59da-b30b-2039b0d63152",
+      "name": "Report refused",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1020,
+        220
+      ]
+    }
+  ],
+  "connections": {
+    "Contract check request": {
+      "main": [
+        [
+          {
+            "node": "Create?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create?": {
+      "main": [
+        [
+          {
+            "node": "Create alert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Find alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create alert": {
+      "main": [
+        [
+          {
+            "node": "Read alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read alert": {
+      "main": [
+        [
+          {
+            "node": "Report created",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find alert": {
+      "main": [
+        [
+          {
+            "node": "Contract-check alert?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Contract-check alert?": {
+      "main": [
+        [
+          {
+            "node": "Delete alert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Report refused",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Delete alert": {
+      "main": [
+        [
+          {
+            "node": "Report deleted",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataSuccessExecution": "all",
+    "saveDataErrorExecution": "all",
+    "saveManualExecutions": true
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "nodeGroups": [],
+  "tags": [],
+  "pinData": {}
+}

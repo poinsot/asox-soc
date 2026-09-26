@@ -135,6 +135,17 @@ INTEL_HOST=192.168.1.12
 
 From these, `render-env.sh` derives every URL, `WAZUH_MANAGER_ADDR`, `BIND_ADDR`, heap sizes and `CORTEX_JOBS_HOST_DIR`, and writes them into `nodes/<node>/.env`.
 
+**Values copied between nodes (`__from:<node>__`).** A few secrets are created on one node and used by another. In the consuming node's `.env.example` their value is the marker `__from:<source node>__`, and `render-env.sh` copies the same key from `nodes/<source node>/.env`:
+
+| Key | From → to | Created by | Used for |
+|---|---|---|---|
+| `MISP_CORTEX_API_KEY` | intel → cases | `bootstrap.sh intel` | Cortex's MISP analyzer (C7) |
+| `THEHIVE_N8N_API_KEY`, `CORTEX_N8N_API_KEY` | cases → core | `bootstrap.sh cases` | n8n's TheHive and Cortex credentials (C3, C6) |
+| `N8N_WEBHOOK_TOKEN` | core → cases | `render-env.sh` (a `__secret__` of core) | TheHive's webhook to n8n (C4) |
+
+- **Single-host mode:** automatic. `soc.sh init` bootstraps `intel → cases → core → lab`, re-rendering every `.env` before each bootstrap, so a value created by an earlier bootstrap reaches the next node in the same `init` (A62). While the source value doesn't exist yet, the key stays empty without a warning. After a source node is reset or its keys are renewed, run `render-env.sh` and bootstrap the consumers again (e.g. `bootstrap.sh cases` after `soc.sh reset intel`, `bootstrap.sh core` after `soc.sh reset cases`, `bootstrap.sh cases` after `N8N_WEBHOOK_TOKEN` changes).
+- **Distributed mode:** the source `.env` is on another machine, so the value is **copied by hand**. Bootstrap the source node first; on its machine, read the key from `nodes/<source>/.env`; on the consuming machine, paste it as `KEY=value` into `nodes/<consumer>/.env`, then run `render-env.sh` (it keeps the pasted value) and `bootstrap.sh <consumer>`. `render-env.sh` warns about every `__from:` key that is still empty, in distributed mode only. The values are credentials: copy them over a trusted channel and never commit them.
+
 Moving a node to another machine: set it up there with `soc.sh init` (fresh) or restore a backup of it (section 9.2), update `topology.env` on **every** machine, run `render-env.sh`, restart the affected nodes, and run `healthcheck.sh --cross-node`.
 - If `core` moves: regenerate Wazuh certificates and re-enroll agents.
 - If `cases` or `intel` is freshly bootstrapped: their API keys change, so update the dependent credentials (e.g. n8n's TheHive and Cortex keys).
@@ -161,10 +172,10 @@ Contracts are the interfaces between components. Phase 1 makes each one **connec
 |---|---|---|---|---|
 | C1 | Wazuh → n8n | `custom-n8n` integration: HTTP POST of the raw Wazuh alert JSON to `${N8N_WEBHOOK_URL}/webhook/wazuh-alert` for `level >= ${WAZUH_ALERT_MIN_LEVEL}` (default 7), with header `X-ASOX-Token: ${N8N_WEBHOOK_TOKEN}` (D36) | Requests without the token, or with a wrong one, are rejected (HTTP 403); `lab/trigger.sh` fires the test rule and the n8n stub workflow `recv-wazuh-alert` records an execution with that alert's ID | Wazuh, n8n |
 | C2 | n8n → Wazuh API | REST API on 55000, dedicated user `n8n-api` with a **read-only** role in Phase 1 (agents, alerts, rules). Active-response permission is added only through C9. | n8n credential test, through the `chk-wazuh-api` check workflow: authenticate and list agents; an active-response call is **rejected** (proves the role is read-only) | n8n, Wazuh |
-| C3 | n8n → TheHive | TheHive v1 API, API user in the SOC org | Create a test alert (`source: contract-check`), read it back, delete it | n8n, TheHive |
-| C4 | TheHive → n8n | TheHive webhook to `${N8N_WEBHOOK_URL}/webhook/thehive-event`, with header `X-ASOX-Token: ${N8N_WEBHOOK_TOKEN}` (D36; configured in step 1.7) | Requests without the token, or with a wrong one, are rejected (HTTP 403); creating the C3 test alert produces an execution in stub workflow `recv-thehive-event` | TheHive, n8n |
+| C3 | n8n → TheHive | TheHive v1 API, Service account `n8n@asox.local` (profile `analyst`) in the SOC org, n8n credential "TheHive API (n8n)" | Through the check workflow `chk-thehive-api` (n8n's credential): create a test alert (`source: contract-check`), read it back, delete it | n8n, TheHive |
+| C4 | TheHive → n8n | TheHive webhook (endpoint `n8n` and the SOC notification rule "n8n (C4)": every event) to `${N8N_WEBHOOK_URL}/webhook/thehive-event`, with header `Authorization: Bearer ${N8N_WEBHOOK_TOKEN}` (D36, D43) | Requests without the token, or with a wrong one, are rejected (HTTP 403); creating the C3 test alert produces an execution of stub workflow `recv-thehive-event` for that alert | TheHive, n8n |
 | C5 | TheHive → Cortex | Native Cortex connector with a Cortex API key | TheHive reports the Cortex server as connected and lists the enabled analyzers | TheHive, Cortex + MISP |
-| C6 | n8n → Cortex | Cortex API with a dedicated API key | n8n credential test: list analyzers | n8n, Cortex + MISP |
+| C6 | n8n → Cortex | Cortex API with a dedicated API key (user `n8n`, roles read + analyze), n8n credential "Cortex API (n8n)" | Through the check workflow `chk-cortex-api` (n8n's credential): list the enabled analyzers | n8n, Cortex + MISP |
 | C7 | Cortex → MISP | MISP analyzer configured with `MISP_URL` and a MISP API key | Run the MISP analyzer on the seed IOC `203.0.113.66`; the report contains the seed event (analyzer container starts and exits cleanly) | Cortex + MISP |
 | C8 | Grafana → Wazuh Indexer | OpenSearch datasource at `${WAZUH_INDEXER_URL}` (`https://wazuh.indexer:9200`, the certificate name; 4.1), read-only user `grafana-ro` (read access to `wazuh-alerts-*`), daily index pattern `[wazuh-alerts-4.x-]YYYY.MM.DD` (needed by the plugin's health check; D35) | Grafana datasource health check passes, and a query returns the C1 test alert | Grafana, Wazuh |
 | C9 *(planned, Phase 2)* | n8n → endpoints | Response actions through the Wazuh active-response API (`PUT /active-response`), always from an n8n playbook, with analyst approval unless the playbook is marked `auto_approve`. Requires extending `n8n-api`'s role, which is a contract change. | None in Phase 1 | n8n, Wazuh |
@@ -204,8 +215,8 @@ Each component section lists its long-term **role** and what Phase 1 delivers as
 - **Baseline:**
   - n8n with SQLite storage, kept in n8n's data volume. Postgres is defined in the same `n8n/compose.yml` under the optional profile `pg` (off by default, adds ~0.1–0.2 GB); switching is the n8n owner's decision.
   - Credentials created from env vars for Wazuh API, TheHive and Cortex (C2, C3, C6), with fixed IDs so exported workflows work on every machine. The webhook token is a credential too.
-  - Two **stub** workflows that only receive and log: `recv-wazuh-alert` (C1) and `recv-thehive-event` (C4), plus the check workflow `chk-wazuh-api` used by `contracts-check.sh` for C2.
-  - **Webhooks require a shared token** (`X-ASOX-Token`, header authentication; D36).
+  - Two **stub** workflows that only receive and log: `recv-wazuh-alert` (C1) and `recv-thehive-event` (C4), plus the check workflows `chk-wazuh-api`, `chk-thehive-api` and `chk-cortex-api` used by `contracts-check.sh` for C2, C3 and C6.
+  - **Webhooks require a shared token** (`X-ASOX-Token`, header authentication; D36). TheHive sends it as `Authorization: Bearer` instead (D43).
   - Workflows read service URLs from n8n's environment (`$env.WAZUH_API_URL`, ...), which therefore never contains secrets (D37).
   - Execution pruning (7 days / 10,000 executions), since the lab agent alone forwards many level 7+ alerts.
   - `scripts/n8n-export.sh` / `n8n-import.sh` to move workflows between the n8n database and `nodes/core/n8n/workflows/` (section 11.2).
@@ -231,8 +242,8 @@ Each component section lists its long-term **role** and what Phase 1 delivers as
 - **Role:** alert triage and case management for analysts: cases, observables, tasks and collaboration.
 - **Baseline:**
   - TheHive 5 with Cassandra and Elasticsearch per StrangeBee's reference setup, with heaps set by the memory profile.
-  - Bootstrap creates the SOC organization, an analyst user and an API user for n8n (C3).
-  - Webhook to n8n configured (C4).
+  - Bootstrap creates the SOC organization, an analyst user (profile `org-admin`, for the owner's UI work), an API user for n8n (C3), and a Service account that `bootstrap.sh` uses for organisation settings, with an API key that exists only while it runs (D42).
+  - Webhook to n8n configured (C4): a global endpoint and a notification rule in the SOC organisation for every event (D43).
   - Cortex connector configured (C5).
   - **License (D41):** a new instance runs a 14-day Platinum trial, then becomes read-only until a license is activated. Each person who runs the `cases` node requests a free **Community license** (2 users, 1 organisation, 1 Cortex server, 1 MISP server; Service accounts don't count) and activates it with a challenge from their instance. The key is bound to TheHive's **instance ID**, which lives in TheHive's database (Cassandra), not in the machine: `soc.sh reset cases` or a fresh `init` creates a new instance (new trial, license activated again); `restore.sh cases` brings back the backup's instance and license. `soc.sh info` shows the license; `bootstrap.sh` warns when it is read-only or a trial has 3 days or less left. Procedure: `nodes/cases/thehive/README.md`; details in `docs/decisions.md` A53, A57.
 - **How it uses storage:** Cassandra is the primary database. Elasticsearch is the search index, which can be rebuilt from Cassandra. The Elasticsearch instance is shared with Cortex, which uses separate indexes.
@@ -316,7 +327,7 @@ The baseline is built on a **32 GB host**, but teammates may develop on smaller 
 | `standard` | 16 GB+ (the baseline build machine: 32 GB) | 10–16 GB | ~12.4 GB |
 | `low` | 8 GB | 6 GB (+8 GB swap) | ~8.9 GB: `full`, `core-cases` are best effort (swap acceptable); `core`, `cases`, `cases-intel` must fit in 6 GB (D39) |
 
-**How limits are sized (D40):** each container's `mem_limit` is its measured anonymous memory peak × 1.15 + 64 MiB for page cache, rounded up to 50 MiB. Measure through a realistic cycle (fresh start, bootstrap, some API activity, idle) from the cgroup's `memory.stat` (`anon`, `file`), not from `docker stats`, which includes reclaimable cache. Swap is capped at the limit (`memswap_limit` = `mem_limit`), so an undersized limit fails visibly (OOM kill, or a Java/Node "out of memory" in the logs) instead of swapping while healthchecks stay green. Measurements: `docs/decisions.md` A56 (and `mem-report.sh` from step 1.7). Real usage is below the limits: e.g. the `cases` node uses ~5.4 GB (`standard`) and ~3.3 GB (`low`); `cases-intel` on `low` ~4.0 GB of container memory.
+**How limits are sized (D40):** each container's `mem_limit` is its measured anonymous memory peak × 1.15 + 64 MiB for page cache, rounded up to 50 MiB. Measure through a realistic cycle (fresh start, bootstrap, some API activity, idle) from the cgroup's `memory.stat` (`anon`, `file`), not from `docker stats`, which includes reclaimable cache. Swap is capped at the limit (`memswap_limit` = `mem_limit`), so an undersized limit fails visibly (OOM kill, or a Java/Node "out of memory" in the logs) instead of swapping while healthchecks stay green. Measurements: `docs/decisions.md` A56, A63, A69 and `docs/mem-report-*.md` (`scripts/mem-report.sh`). Real usage is below the limits: e.g. the `cases` node uses ~5.4 GB (`standard`) and ~3.3 GB (`low`); `cases-intel` on `low` ~4.0 GB of container memory.
 
 | Node | Service | `standard` heap | `standard` limit | `low` heap | `low` limit |
 |---|---|---|---|---|---|
@@ -328,9 +339,9 @@ The baseline is built on a **32 GB host**, but teammates may develop on smaller 
 | cases | cassandra | 1 GB | 1.6 GB | 512 MB | 1.0 GB |
 | cases | elasticsearch (shared) | 1 GB | 2.4 GB | 512 MB | 1.45 GB |
 | cases | thehive | 1 GB | 1.9 GB | 512 MB | 1.3 GB |
-| cases | cortex | 512 MB | 0.6 GB | 256 MB | 0.5 GB |
+| cases | cortex | 512 MB | 0.65 GB | 256 MB | 0.5 GB |
 | cases | analyzer jobs | transient | +0.25 GB per job | transient | +0.25 GB per job |
-| | **cases subtotal** | | **6.5 GB** | | **4.25 GB** |
+| | **cases subtotal** | | **6.55 GB** | | **4.25 GB** |
 | intel | misp-core | — | 0.9 GB | — | 0.9 GB |
 | intel | mariadb | 256 MB buffer pool | 0.55 GB | 128 MB buffer pool | 0.4 GB |
 | intel | redis | — | 0.1 GB | — | 0.1 GB |
@@ -364,9 +375,9 @@ On the 32 GB build machine, `full` can stay running throughout the build. Run mo
 | Mode | Nodes | Sum of limits (standard / low) | Typical use |
 |---|---|---|---|
 | `core` | core, lab | 3.8 / 2.75 GB | Wazuh and Grafana development |
-| `cases` | cases | 6.5 / 4.25 GB | TheHive development (C7 unavailable) |
-| `cases-intel` | cases, intel | 8.55 / 6.15 GB (measured use on `low`: ~4.0 GB) | Cortex + MISP development; TheHive with enrichment |
-| `core-cases` | core, cases, lab | 10.3 / 7.0 GB (`low`: best effort) | n8n development against TheHive and Cortex (C7 unavailable) |
+| `cases` | cases | 6.55 / 4.25 GB | TheHive development (C7 unavailable) |
+| `cases-intel` | cases, intel | 8.6 / 6.15 GB (measured use on `low`: ~4.0 GB) | Cortex + MISP development; TheHive with enrichment |
+| `core-cases` | core, cases, lab | 10.35 / 7.0 GB (`low`: best effort) | n8n development against TheHive and Cortex (C7 unavailable) |
 | `full` | all | 12.4 / 8.9 GB (`low`: best effort) | Contract checks, integration testing |
 
 Measured usage is below these sums (the `cases` node alone: ~5.4 / ~3.3 GB; `cases-intel` on `low`: ~4.0 GB). A mode fits a WSL allocation when its measured usage plus WSL's own baseline does, not the sum of limits (D39, D40).
@@ -596,10 +607,10 @@ At a **checkpoint** (every ~2 weeks, or when something works), follow rule 4 in 
 | Owner | `init` mode | Works in | Test loop | Contracts | Coordinates with |
 |---|---|---|---|---|---|
 | **Wazuh** | `core` (~3.8 GB) | Files in `nodes/core/wazuh/` (no Wazuh dashboard) | Edit rule → restart manager → `lab/trigger.sh` → `wazuh-query.sh` or Grafana | C1, C2, C8, later C9 | n8n (alert fields playbooks rely on) |
-| **n8n (SOAR)** | `core-cases` (~10.3 GB; best effort on `low`, so on an 8 GB machine use the shared instance for integration work; the current n8n owner uses the 32 GB machine) | n8n UI `localhost:5678` (stub workflows and credentials pre-created) | Edit playbook → `lab/trigger.sh` → check execution and TheHive alert → `n8n-export.sh` | C1–C4, C6, later C9 | Wazuh (alert input), TheHive (alert/case format) |
+| **n8n (SOAR)** | `core-cases` (~10.35 GB; best effort on `low`, so on an 8 GB machine use the shared instance for integration work; the current n8n owner uses the 32 GB machine) | n8n UI `localhost:5678` (stub workflows and credentials pre-created) | Edit playbook → `lab/trigger.sh` → check execution and TheHive alert → `n8n-export.sh` | C1–C4, C6, later C9 | Wazuh (alert input), TheHive (alert/case format) |
 | **Grafana** | `core` (~3.8 GB) | Grafana UI `localhost:3000` (datasource and starter dashboard pre-provisioned; lab agent provides data) | Edit dashboard → `lab/trigger.sh` if more data is needed → `grafana-export.sh` | C8 | n8n and TheHive, later (case metrics such as response times) |
-| **TheHive** | `cases` (~6.5 GB) | TheHive UI `localhost:9000` (org, users and Cortex connector pre-created) | Configure → create test alerts via the API (Wazuh isn't running in this mode) → check alert and case flow | C3, C4, C5 | n8n (alert format), Cortex + MISP (analyzers shown to analysts) |
-| **Cortex + MISP** | `cases-intel` (~8.55 GB) | Cortex `localhost:9001` (MISP analyzer enabled); MISP `https://localhost:9443` (self-signed certificate warning is expected) | Add intel in MISP → run analyzers on test observables → check reports | C5, C6, C7 | Wazuh, later (MISP IOCs into Wazuh CDB lists) |
+| **TheHive** | `cases` (~6.55 GB) | TheHive UI `localhost:9000` (org, users and Cortex connector pre-created) | Configure → create test alerts via the API (Wazuh isn't running in this mode) → check alert and case flow | C3, C4, C5 | n8n (alert format), Cortex + MISP (analyzers shown to analysts) |
+| **Cortex + MISP** | `cases-intel` (~8.6 GB) | Cortex `localhost:9001` (MISP analyzer enabled); MISP `https://localhost:9443` (self-signed certificate warning is expected) | Add intel in MISP → run analyzers on test observables → check reports | C5, C6, C7 | Wazuh, later (MISP IOCs into Wazuh CDB lists) |
 
 RAM figures are the sums of the `standard` limits; see section 8 for `low` (where `core`, `cases` and `cases-intel` fit a 6 GB WSL allocation, D39). TheHive needs a free Community license after its 14-day trial (`nodes/cases/thehive/README.md`). Modes that include `core` also generate the Wazuh certificates during `init`; nobody creates certificates by hand.
 
@@ -662,7 +673,7 @@ asox-soc/
 │   │   ├── n8n/                # owner: n8n
 │   │   │   ├── compose.yml     # n8n (+ postgres, profile pg)
 │   │   │   ├── README.md
-│   │   │   └── workflows/      # recv-wazuh-alert, recv-thehive-event, chk-wazuh-api
+│   │   │   └── workflows/      # recv-wazuh-alert, recv-thehive-event, chk-wazuh-api, chk-thehive-api, chk-cortex-api
 │   │   └── grafana/            # owner: Grafana
 │   │       ├── compose.yml     # grafana
 │   │       ├── README.md
@@ -748,12 +759,13 @@ Each component `README.md` contains: purpose, owner, how to run it (run mode), t
 
 ### 14.1 Healthchecks (`healthcheck.sh`)
 
-- Per node:
-  - container health;
+- Per node (without arguments: the nodes running on this machine):
+  - container health, including OOM kills (warning on restarts);
   - UI and API reachable;
   - Wazuh indexer and Elasticsearch cluster status;
   - Cassandra, MariaDB and Redis up.
 - Cortex: Docker socket reachable from the Cortex container, job directory writable, MISP analyzer image present.
+- TheHive license: warning only (read-only, trial ending soon, or no webhook capability for C4; D41).
 - `--cross-node`: from each node, the URLs it depends on respond.
 - Output: one PASS/FAIL line per check and a non-zero exit code on any failure.
 
@@ -813,12 +825,14 @@ These are the **design** decisions made while planning. Implementation choices m
 | D33 | Agent enrollment requires a password (`WAZUH_ENROLLMENT_PASSWORD`), generated per machine like the other secrets and written to `authd.pass` at every manager start; the lab agent uses it (step 1.2) | Without it, anything that can reach port 1515 can enroll as an agent and inject events once `core` is exposed on a LAN; syslog source restriction stays in the Wazuh backlog |
 | D34 | Grafana pinned to 12.4 (latest 12.x) instead of 13 | Measured on 13.2.2: each browser session left ~100 MiB of retained heap that was never freed (74 → 532 MiB live after five sessions), so any memory limit is eventually hit; 12.4.11 stays flat at ~175 MiB. Grafana's RAM in section 8 was also raised from 0.2 / 0.1 GB to 0.3 / 0.2 GB after measuring |
 | D35 | The Grafana datasource uses the daily index pattern `[wazuh-alerts-4.x-]YYYY.MM.DD` (interval Daily) instead of `wazuh-alerts-*` | The OpenSearch plugin's health check can't pass with a wildcard pattern (it looks up the pattern itself as an index name); the daily pattern matches Wazuh's index naming and limits queries to the days in the time range |
-| D36 | n8n webhooks require a shared token: header `X-ASOX-Token: ${N8N_WEBHOOK_TOKEN}` (n8n Header Auth), generated per machine like the other secrets. Wazuh's `custom-n8n` integration sends it (C1); TheHive's webhook will too (C4, step 1.7). Contract checks verify that requests without it are rejected | Webhooks trigger playbooks that will change systems (C9); in distributed mode port 5678 is reachable on the LAN, so anyone could otherwise inject fake alerts |
+| D36 | n8n webhooks require a shared token: header `X-ASOX-Token: ${N8N_WEBHOOK_TOKEN}` (n8n Header Auth), generated per machine like the other secrets. Wazuh's `custom-n8n` integration sends it (C1); TheHive's webhook sends it as `Authorization: Bearer` (C4, D43). Contract checks verify that requests without it are rejected | Webhooks trigger playbooks that will change systems (C9); in distributed mode port 5678 is reachable on the LAN, so anyone could otherwise inject fake alerts |
 | D37 | n8n workflows read service URLs from n8n's environment (`$env.WAZUH_API_URL`, ...), so `N8N_BLOCK_ENV_ACCESS_IN_NODE=false`; the environment holds no secrets: API credentials are n8n credentials, and the encryption key is a Compose secret file | Exported workflows stay portable across machines and modes without hardcoded hosts; n8n's env access is all-or-nothing, so secrets must not be in the environment at all |
 | D38 | n8n memory raised to 0.6 / 0.5 GB (limits 640 / 448 MB) with an explicit Node.js heap (384 / 256 MB); revised by D40 to limits 750 / 650 MB and heap 384 / 320 MB | n8n 2.40 peaks at ~730 MB while starting (and ran out of heap at the planned 400 MB limit), then settles at ~350 MB; the explicit heap makes it start within the limit. The `low` profile total rises to ~6.4 GB, close to the ~6.5 GB target of step 1.7 |
 | D39 | Low-profile acceptance is per dev mode: `core`, `cases` and `cases-intel` must each start, pass their healthchecks and relevant contracts, and fit a 6 GB WSL allocation; `core-cases` and `full` on `low` are best effort (swap acceptable). Replaces "full stack ≤ ~6.5 GB" | Measured memory pushed the `low` totals well above 6 GB for modes that combine core and cases; teammates on 8 GB machines work in `core`, `cases` or `cases-intel` (11.6), and n8n development (`core-cases`) happens on the integrator's 32 GB machine or the shared instance |
 | D40 | Container memory limits are sized from measured need: anonymous memory peak (cgroup `memory.stat`, through start, bootstrap, activity and idle) × 1.15 + 64 MiB for page cache, rounded up to 50 MiB; `memswap_limit` equals `mem_limit` for every container | Peaks from `docker stats` include reclaimable cache, and with swap allowed an undersized limit only showed up as silent swapping (Elasticsearch and TheHive in step 1.5) while healthchecks stayed green. Measurements in `docs/decisions.md` A56 |
 | D41 | Each person who runs the `cases` node requests their own free TheHive Community license and activates it on their instance; the platform only reports the license state (`soc.sh info`) and warns (read-only, or trial with ≤ 3 days left) | TheHive 5 turns read-only after its 14-day trial. A license key is bound to the instance ID stored in TheHive's database, so it can't be shared or baked into the repo; activation needs the person's own StrangeBee portal account (A57) |
+| D42 | TheHive: the analyst account has the `org-admin` profile in `SOC`; `bootstrap.sh` writes organisation settings as a dedicated Service account `bootstrap@asox.local` (`org-admin` in `SOC`) whose API key is created, used and revoked on every run; bootstrap never uses the analyst's password | Organisation settings such as C4's notification rule can only be written by an org-admin of that organisation (the platform admin belongs to the `admin` organisation). A Service account takes no license seat, and a key that only exists during the run leaves no standing org-admin credential. The TheHive owner needs org-admin rights in the UI for case templates and custom fields (backlog). Integrator's decision, step 1.7 |
+| D43 | C4 authenticates with `Authorization: Bearer ${N8N_WEBHOOK_TOKEN}`, checked by a second n8n Header Auth credential ("ASOX webhook token (Bearer)") on `recv-thehive-event`, instead of `X-ASOX-Token` | TheHive 5.7's webhook endpoints drop custom headers; their only authentication options are none, basic, bearer and key. Same shared token and the same 403 check as C1 (docs/decisions.md A64); the fallback foreseen in A41 |
 
 ---
 
@@ -842,6 +856,6 @@ These are the **design** decisions made while planning. Implementation choices m
 | 1.4 | Done (2026-09-25) | n8n 2.40.7 (SQLite; `pg` profile available), owner and credentials by `bootstrap.sh`, stub workflows `recv-wazuh-alert` / `recv-thehive-event` and check workflow `chk-wazuh-api`, webhooks protected by a shared token (D36), `custom-n8n` integration, execution pruning, `n8n-export.sh` / `n8n-import.sh` (round trip stable). C1 (incl. token rejection) and C2 pass; C8 still passes. n8n needs more memory than planned (D38). |
 | 1.5 | Done (2026-09-25) | Cassandra 4.1.12, Elasticsearch 8.19.21, TheHive 5.7.6, Cortex 4.1.0 (StrangeBee reference without nginx). `bootstrap.sh cases`: Cortex org `SOC`, org admin, API users and keys for TheHive and n8n; TheHive admin password, org `SOC`, analyst, n8n Service account and key, Cortex connector. C5 passes; Cortex starts containers through the host socket, sharing its job directory; a real analyzer job ran on `soc-net` (analyzers reach MISP without a D16 exception, A49). Cortex runs non-root so its entrypoint can't chown the host's Docker socket (A50). TheHive: 14-day trial, then a Community license is needed (A53). Memory limits re-sized from measured need, swap capped everywhere (D40, A56); D39 narrowed to `core`, `cases`, `cases-intel`. Owners recorded. |
 | 1.6 | Done (2026-09-25) | MISP 2.5.47 (`misp-docker`: core, nginx, modules, MariaDB 10.11.19, Valkey 7.2.14; no mail relay, no misp-guard), self-signed certificate per machine (`gen-certs.sh intel`). `bootstrap.sh intel`: admin API key, Read Only user for Cortex and its key, published seed event (`nodes/intel/misp/seed/`). `bootstrap.sh cases` enables Cortex's MISP analyzer (`MISP_2_1`, certificate check off, image pulled). C7 passes (forced new job; the analyzer container on `soc-net` reaches `misp-nginx` and finds the seed event); all contracts built so far (C1, C2, C5, C7, C8) pass in `full`. `soc.sh init` bootstraps intel → cases → core with a render before each. Intel limits measured (D40, A63); `cases-intel` on `low` uses ~4.0 GB. |
-| 1.7 | Not started | |
+| 1.7 | In progress: part 1 (`standard`) done 2026-09-26; part 2 (`low`) pending | n8n credentials for TheHive and Cortex (keys via `__from:cases__`) and check workflows `chk-thehive-api` / `chk-cortex-api`; n8n joins `soc-net`. TheHive webhook (C4): endpoint + SOC notification rule written by the Service account `bootstrap@asox.local`, whose key is revoked after each run; the analyst is org-admin (D42); the token goes as `Authorization: Bearer`, since TheHive's webhooks can't send custom headers (D43, A64). `healthcheck.sh` (incl. `--cross-node`, license warning), `mem-report.sh`, `contracts-check.sh` complete. `__from:<node>__` documented in section 4. In `full` on `standard`: `soc.sh init full` clean, `healthcheck.sh` all green, **C1–C8 pass**, no OOM kills; `docs/mem-report-standard.md`; `CORTEX_MEM` 600m → 650m (A69). Part 2: the D39 checks on `low` after the integrator sets `.wslconfig` to 6 GB / 8 GB swap. |
 | 1.8 | Not started | |
 | 1.9 | Not started | |

@@ -18,15 +18,19 @@ Alert triage and case management for analysts. The full component README (contra
 |---|---|
 | Platform admin `THEHIVE_ADMIN_USER` | The image's default `admin@thehive.local` / `secret`; the default password is replaced with `THEHIVE_ADMIN_PASSWORD` on the first run |
 | Organisation `THEHIVE_ORG` (`SOC`) | The one organisation the community license allows |
-| Analyst `THEHIVE_ANALYST_USER` | Normal user, profile `analyst`, UI login (`soc.sh info`) |
+| Analyst `THEHIVE_ANALYST_USER` | Normal user, profile **`org-admin`** in `SOC`, UI login (`soc.sh info`). It is the organisation's administrator, so the TheHive owner can manage case templates, custom fields, observable types and the organisation's settings from the UI (PROJECT.md D42). Scripts never use its password |
 | n8n API user `THEHIVE_N8N_USER` | **Service** account (API key only, no password), profile `analyst`; its key is `THEHIVE_N8N_API_KEY` (C3) |
+| Bootstrap user `THEHIVE_BOOTSTRAP_USER` | **Service** account, profile `org-admin` in `SOC`: `bootstrap.sh`'s own identity for organisation settings the platform admin can't reach. Its API key is created, used and **revoked** on every run, so no key exists between runs (D42) |
 | Cortex connector | Server "Cortex" at `CORTEX_URL`, authenticated with the key of Cortex's `thehive` user (C5); rewritten on every run |
+| Webhook to n8n (C4) | Global endpoint `n8n` → `${N8N_WEBHOOK_URL}/webhook/thehive-event`, authentication "bearer" with `N8N_WEBHOOK_TOKEN` (TheHive sends `Authorization: Bearer <token>`), and the `SOC` notification rule **"n8n (C4)"**: every event (`AnyEvent`) → that endpoint. Both rewritten on every run |
 
-Check the connector: `scripts/contracts-check.sh --only C5`.
+Check: `scripts/contracts-check.sh --only C3,C4,C5`.
+
+**Don't delete or rename the "n8n (C4)" notification rule or the `n8n` endpoint**: n8n's router depends on them. You can add your own rules next to it; `bootstrap.sh cases` recreates it if it's gone.
 
 ## License (important)
 
-A fresh TheHive starts on a **14-day Platinum trial**. After it ends, TheHive becomes **read-only** (no new alerts or cases, so C3 and every n8n playbook fail) until a license is activated. The free **Community license** allows **2 users, 1 organisation, 1 Cortex server, 1 MISP server**. Only Normal accounts with licensed permissions count as users: Service accounts (like the n8n API user) and Admin / Read-only accounts don't. Our instance has one Normal user (the analyst), so **one seat is left**.
+A fresh TheHive starts on a **14-day Platinum trial**. After it ends, TheHive becomes **read-only** (no new alerts or cases, so C3 and every n8n playbook fail) until a license is activated. The free **Community license** allows **2 users, 1 organisation, 1 Cortex server, 1 MISP server**. Only Normal accounts with licensed permissions count as users: Service accounts (like the n8n and bootstrap API users) and Admin / Read-only accounts don't. Our instance has one Normal user (the analyst), so **one seat is left**. Webhooks (C4) need the license capability `notification.webhook`: `bootstrap.sh cases` and `healthcheck.sh` warn if the active license lacks it.
 
 **Everyone who runs the cases node needs their own Community license** (it is free, but StrangeBee validates each portal account by hand, so request it on day one; see `CHECKLIST.md` section 9).
 
@@ -56,11 +60,11 @@ Re-activating for a new instance ID uses the same portal page ("Activate or View
 
 | Contract | Role | Status (build step) |
 |---|---|---|
-| C3 n8n → TheHive | Provides the Service account `n8n@asox.local` and its API key | Account and key exist (1.5); check in step 1.7 |
-| C4 TheHive → n8n | Webhook to n8n with the token | Step 1.7 |
+| C3 n8n → TheHive | Provides the Service account `n8n@asox.local` and its API key | Passes (1.7) |
+| C4 TheHive → n8n | Webhook (endpoint `n8n` + notification rule "n8n (C4)"), token as `Authorization: Bearer` | Passes (1.7) |
 | C5 TheHive → Cortex | Cortex connector (server "Cortex") | Passes (1.5) |
 
-Check: `scripts/contracts-check.sh --only C5`. **Exporting changes:** TheHive's configuration (case templates, custom fields, ...) lives in its database; export/import scripts in this folder are the owner's first task (PROJECT.md 11.2, 11.6). Changing a contract needs the other owner's agreement first (PROJECT.md 5).
+Check: `scripts/contracts-check.sh --only C3,C4,C5` (C3 and C4 create a test alert with `source: contract-check` and delete it). **Exporting changes:** TheHive's configuration (case templates, custom fields, ...) lives in its database; export/import scripts in this folder are the owner's first task (PROJECT.md 11.2, 11.6). Changing a contract needs the other owner's agreement first (PROJECT.md 5).
 
 ## Local patches and deprecations (re-check on upgrade)
 
@@ -73,6 +77,7 @@ Pinned: `strangebee/thehive` 5.7.6, `cassandra` 4.1.12, `elasticsearch` 8.19.21 
 | Cortex connector set through `PUT /api/v1/admin/config/cortex` | Keeps the Cortex API key out of files; the call needs `statusCheckInterval`, `refreshDelay`, `maxRetryOnError` besides `servers` | C5 passes |
 | C5 reads `GET /api/v1/status` → `.connectors.cortex` | Only place TheHive 5.7 reports the Cortex server status (`/api/connector/cortex/status` doesn't exist) | C5 passes |
 | n8n API user of type `Service` | Doesn't use one of the 2 Normal user seats (A53, A57) | License quotas in `GET /api/v1/status` → `.license.quotas` |
+| Webhook: endpoint through `PUT /api/v1/admin/config/global/endpoint` (type `webhook`, `auth` bearer), rule through `PUT /api/v1/notification/organisation` as the bootstrap user | Webhook endpoints ignore custom headers, so the token goes as a bearer key; rules are read only from the organisation's stored settings, not from `application.conf` defaults, and only an org-admin of `SOC` can write them (A64, D42) | C4 passes (rule changes take up to 5 minutes: TheHive caches them) |
 | TheHive and Cortex use Elasticsearch's built-in `elastic` superuser | As in StrangeBee's reference; dedicated users are hardening for later (A52) | — |
 | Cassandra without authentication | Internal to the cases node, never published or on `soc-net` (A52) | — |
 | License: challenge from `GET /api/v1/license/challenge` (instance ID from the graph variable `instance-id`), status from `GET /api/v1/status` → `.license` (`kind`, `plan`, `expiresAt`, `isValid`) | Used by `soc.sh info` and the bootstrap warning (A57) | Both endpoints still answer; a reset still starts a new trial |

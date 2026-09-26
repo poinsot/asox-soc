@@ -1,0 +1,126 @@
+{
+  "id": "asoxChkCortexApi",
+  "name": "chk-cortex-api",
+  "active": true,
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## chk-cortex-api (contract check C6)\n**Trigger:** POST /webhook/chk-cortex-api from scripts/contracts-check.sh, header `X-ASOX-Token` required.\n**Actions taken:** lists the analyzers enabled in Cortex with the \"Cortex API (n8n)\" credential.\n**Systems changed:** none.\n**Approval:** not applicable.\n**Owner:** n8n (check maintained with the integrator).",
+        "height": 300,
+        "width": 460
+      },
+      "id": "a545f01a-bd63-556a-b4b3-ca927b336f1a",
+      "name": "About this workflow",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -40,
+        -320
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "chk-cortex-api",
+        "authentication": "headerAuth",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "2e4bafae-3ad8-56da-b994-7a3b7f369d56",
+      "name": "Contract check request",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "5f2b1c4e-7a1d-4c1e-9f7a-3b2c1d0e9a05",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "asoxWebhookToken",
+          "name": "ASOX webhook token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.CORTEX_URL }}/api/analyzer",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "cortexApi",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "ff583439-1b5b-591f-ae87-b9c1c73c40b2",
+      "name": "List analyzers",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        260,
+        0
+      ],
+      "credentials": {
+        "cortexApi": {
+          "id": "asoxCortexApi001",
+          "name": "Cortex API (n8n)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { \"status\": $json.statusCode, \"analyzers\": Array.isArray($json.body) ? $json.body.map(a => a.name) : [] } }}",
+        "options": {}
+      },
+      "id": "f8af6d01-938a-54d1-802e-1ffb1d7ecc59",
+      "name": "Report",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        520,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Contract check request": {
+      "main": [
+        [
+          {
+            "node": "List analyzers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "List analyzers": {
+      "main": [
+        [
+          {
+            "node": "Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataSuccessExecution": "all",
+    "saveDataErrorExecution": "all",
+    "saveManualExecutions": true
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "nodeGroups": [],
+  "tags": [],
+  "pinData": {}
+}

@@ -5,13 +5,15 @@
 # Usage: scripts/bootstrap.sh <node>
 #   core : Wazuh API user n8n-api with a read-only role (C2);
 #          indexer user grafana-ro, read-only on wazuh-alerts-* (C8);
-#          n8n owner, n8n credentials, and the workflows from
-#          nodes/core/n8n/workflows/ that n8n doesn't have yet
+#          n8n owner, n8n credentials (incl. TheHive and Cortex, C3/C6),
+#          and the workflows from nodes/core/n8n/workflows/ that n8n
+#          doesn't have yet
 #   cases: Cortex indexes, superadmin, SOC organization, org admin and the
 #          API users for TheHive (C5) and n8n (C6), with their keys;
 #          TheHive admin password, SOC organisation, analyst, API user for
-#          n8n (C3) with its key, and the Cortex connector (C5); the MISP
-#          analyzer (C7) once intel has created its MISP key
+#          n8n (C3) with its key, the Cortex connector (C5) and the webhook
+#          to n8n (C4); the MISP analyzer (C7) once intel has created its
+#          MISP key
 #   intel: MISP admin API key, read-only user for Cortex with its key (C7),
 #          and the seed event (nodes/intel/misp/seed/seed-event.json)
 set -euo pipefail
@@ -27,7 +29,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib/cases.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/lib/misp.sh"
 trap n8n_cleanup EXIT
 
-usage() { sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//'; }
 
 # ---------------------------------------------------------------- core ---
 
@@ -179,14 +181,25 @@ bootstrap_indexer() {
 
 # n8n credentials, with fixed IDs so that exported workflows (which reference
 # credentials by ID and name) work on every machine. Values come from .env.
+# The webhook token has two forms: header X-ASOX-Token (Wazuh, scripts) and
+# "Authorization: Bearer" (TheHive's webhooks can't send other headers, C4).
+N8N_CREDENTIALS='"ASOX webhook token", "ASOX webhook token (Bearer)", "Wazuh API (n8n-api)", "TheHive API (n8n)", "Cortex API (n8n)"'
 n8n_credentials_json() {
   jq -nc \
     --arg token "$(core_env N8N_WEBHOOK_TOKEN)" \
-    --arg wuser "$(core_env WAZUH_N8N_API_USER)" --arg wpass "$(core_env WAZUH_N8N_API_PASSWORD)" '[
+    --arg wuser "$(core_env WAZUH_N8N_API_USER)" --arg wpass "$(core_env WAZUH_N8N_API_PASSWORD)" \
+    --arg thkey "$(core_env THEHIVE_N8N_API_KEY)" --arg thurl "$(core_env THEHIVE_URL)" \
+    --arg cxkey "$(core_env CORTEX_N8N_API_KEY)" --arg cxurl "$(core_env CORTEX_URL)" '[
     {id: "asoxWebhookToken", name: "ASOX webhook token", type: "httpHeaderAuth",
      data: {name: "X-ASOX-Token", value: $token}},
+    {id: "asoxWebhookBear1", name: "ASOX webhook token (Bearer)", type: "httpHeaderAuth",
+     data: {name: "Authorization", value: ("Bearer " + $token)}},
     {id: "asoxWazuhApiRo01", name: "Wazuh API (n8n-api)", type: "httpBasicAuth",
-     data: {user: $wuser, password: $wpass}}
+     data: {user: $wuser, password: $wpass}},
+    {id: "asoxTheHiveApi01", name: "TheHive API (n8n)", type: "theHiveProjectApi",
+     data: {ApiKey: $thkey, url: $thurl, allowUnauthorizedCerts: false}},
+    {id: "asoxCortexApi001", name: "Cortex API (n8n)", type: "cortexApi",
+     data: {cortexApiKey: $cxkey, host: $cxurl}}
   ]'
 }
 
@@ -222,10 +235,15 @@ bootstrap_n8n() {
 
   # Credential data goes through stdin, never to a file on the host.
   if n8n_credentials_json | n8n_cli -- import:credentials --input=/dev/stdin >/dev/null 2>&1; then
-    pass "n8n: credentials \"ASOX webhook token\", \"Wazuh API (n8n-api)\""
+    pass "n8n: credentials $N8N_CREDENTIALS"
   else
     fail "n8n: credential import failed"; return
   fi
+  # TheHive and Cortex keys come from the cases node (__from:cases__).
+  local k
+  for k in THEHIVE_N8N_API_KEY CORTEX_N8N_API_KEY; do
+    [[ -n $(core_env "$k") ]] || skip "n8n: $k is empty, so its credential can't log in yet (C3, C6): bootstrap cases, then scripts/render-env.sh && scripts/bootstrap.sh core (distributed mode: paste it from the cases machine's nodes/cases/.env)"
+  done
 
   # Only workflows n8n doesn't have: never overwrite a teammate's UI work
   # (scripts/n8n-import.sh does that on request).
@@ -251,10 +269,6 @@ bootstrap_core() {
 }
 
 # --------------------------------------------------------------- cases ---
-
-# Image used to prove that Cortex can start containers (same pinned image as
-# soc.sh's utility container).
-RUNNER_TEST_IMAGE=alpine:3.24.2
 
 # Fail unless the HTTP status of response <r> is one of the given codes.
 expect() {
@@ -424,10 +438,16 @@ bootstrap_thehive() {
   fi
   pass "TheHive: organisation $org"
 
-  thehive_ensure_user "$(cases_env THEHIVE_ANALYST_USER)" Normal analyst "SOC analyst" "$(cases_env THEHIVE_ANALYST_PASSWORD)" || return
+  # The analyst is org-admin so the TheHive owner can manage case templates,
+  # custom fields and the like in the UI (PROJECT.md D42). Scripts never use
+  # this password.
+  thehive_ensure_user "$(cases_env THEHIVE_ANALYST_USER)" Normal org-admin "SOC analyst" "$(cases_env THEHIVE_ANALYST_PASSWORD)" || return
   # n8n's API user (C3): a Service account (API key only, no password).
   thehive_ensure_user "$(cases_env THEHIVE_N8N_USER)" Service analyst "n8n (API)" || return
   ensure_key TheHive "$(cases_env THEHIVE_N8N_USER)" THEHIVE_N8N_API_KEY thehive_key_login thehive_renew_key || return
+  # bootstrap.sh's own org-admin identity in SOC (organisation settings the
+  # platform admin can't reach); its key lives only during this run.
+  thehive_ensure_user "$(cases_env THEHIVE_BOOTSTRAP_USER)" Service org-admin "bootstrap.sh (API)" || return
 
   # Cortex connector (C5): Cortex as seen from TheHive (same node), with the
   # API key of Cortex's "thehive" user. Rewritten on every run so a renewed
@@ -445,7 +465,47 @@ bootstrap_thehive() {
   r=$(thehive_admin PUT /api/v1/admin/config/cortex "$body")
   expect "TheHive: Cortex connector" "$r" 204 200 || return
   pass "TheHive: Cortex connector -> $(cases_env CORTEX_URL)"
+  bootstrap_thehive_webhook
   thehive_license_check
+}
+
+# Webhook to n8n (C4). TheHive 5 splits it in two:
+#  - a global endpoint (platform admin): URL and authentication. Webhook
+#    endpoints drop custom headers, so the token goes as a bearer key, which
+#    TheHive sends as "Authorization: Bearer <token>" (docs/decisions.md A64);
+#  - a notification rule in the SOC organisation's settings (org-admin only):
+#    every event (AnyEvent) goes to that endpoint. TheHive reads rules only
+#    from the organisation's stored settings, not from application.conf.
+# Both are replaced on every run, so a new token or URL is picked up.
+THEHIVE_WEBHOOK_ENDPOINT=n8n
+THEHIVE_WEBHOOK_RULE="n8n (C4)"
+
+bootstrap_thehive_webhook() {
+  local token url body r key login
+  token=$(cases_env N8N_WEBHOOK_TOKEN)
+  url="$(cases_env N8N_WEBHOOK_URL)/webhook/thehive-event"
+  if [[ -z $token ]]; then
+    skip "TheHive: webhook to n8n not configured: N8N_WEBHOOK_TOKEN is empty (render core first; distributed mode: paste it from the core machine's nodes/core/.env)"
+    return 0
+  fi
+  body=$(jq -nc --arg n "$THEHIVE_WEBHOOK_ENDPOINT" --arg u "$url" --arg t "$token" '{
+    name: $n, type: "webhook", url: $u, version: 1, wsConfig: {},
+    auth: {type: "bearer", key: $t},
+    includedTheHiveOrganisations: ["*"], excludedTheHiveOrganisations: []}')
+  r=$(thehive_admin PUT /api/v1/admin/config/global/endpoint "$body")
+  expect "TheHive: webhook endpoint $THEHIVE_WEBHOOK_ENDPOINT" "$r" 204 200 || return
+
+  login=$(cases_env THEHIVE_BOOTSTRAP_USER)
+  key=$(thehive_renew_key "$login")
+  [[ -n $key ]] || { fail "TheHive: could not create a temporary API key for $login"; return; }
+  body=$(jq -nc --arg n "$THEHIVE_WEBHOOK_RULE" --arg e "$THEHIVE_WEBHOOK_ENDPOINT" '{
+    name: $n, enabled: true, delegate: false, trigger: {name: "AnyEvent"},
+    notifiers: [{name: "Webhook", endpoint: $e, enabled: true}]}')
+  r=$(thehive_key "$key" PUT /api/v1/notification/organisation "$body")
+  # Revoke the key whatever happened.
+  thehive_admin DELETE "/api/v1/user/$login/key" >/dev/null
+  expect "TheHive: notification rule \"$THEHIVE_WEBHOOK_RULE\"" "$r" 204 200 || return
+  pass "TheHive: webhook -> $url (every event of organisation $(cases_env THEHIVE_ORG); temporary key of $login revoked)"
 }
 
 bootstrap_cases() {
@@ -459,7 +519,6 @@ bootstrap_cases() {
 # admin, pointing at MISP_URL (as seen from the cases node) with the key of
 # MISP's read-only Cortex user. Certificate check off: MISP's certificate is
 # self-signed (PROJECT.md 4.1, D25).
-MISP_ANALYZER=MISP_2_1
 
 bootstrap_misp_analyzer() {
   local key url r id body image
@@ -484,8 +543,7 @@ bootstrap_misp_analyzer() {
     expect "Cortex: configure $MISP_ANALYZER" "$r" 200 || return
   fi
   # Pre-pull its image, so the first job doesn't wait for the download.
-  image=$(http_body "$(cortex_orgadmin GET '/api/analyzerdefinition?range=all')" \
-    | jq -r --arg a "$MISP_ANALYZER" '.[] | select(.id == $a) | .dockerImage')
+  image=$(cortex_analyzer_image "$MISP_ANALYZER")
   if [[ -n $image ]] && docker pull -q "$image" >/dev/null; then
     pass "Cortex: $MISP_ANALYZER enabled -> $url (image $image pulled)"
   else

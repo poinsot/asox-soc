@@ -12,6 +12,9 @@ services:
   # The lab agent (lab node) enrolls and reports through wazuh-manager.
   wazuh-manager:
     networks: [default, soc-net]
+  # Calls TheHive (C3) and Cortex (C6); receives TheHive's webhook (C4).
+  n8n:
+    networks: [default, soc-net]
 
 networks:
   soc-net:

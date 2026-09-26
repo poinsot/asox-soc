@@ -35,7 +35,7 @@ declare -A PROFILE_STANDARD=(
   [CASSANDRA_HEAP]=1g    [CASSANDRA_NEWSIZE]=256m [CASSANDRA_MEM]=1600m
   [ES_HEAP]=1g           [ES_MEM]=2400m
   [THEHIVE_HEAP]=1g      [THEHIVE_MEM]=1900m
-  [CORTEX_HEAP]=512m     [CORTEX_MEM]=600m
+  [CORTEX_HEAP]=512m     [CORTEX_MEM]=650m
   [CORTEX_ANALYZER_MEM]=268435456
   [MISP_CORE_MEM]=900m   [MISP_NGINX_MEM]=100m
   [MISP_MODULES_MEM]=400m
@@ -113,8 +113,9 @@ derive() {
   esac
 }
 
-# Value of <key> for <node> taken from nodes/<src>/.env (rendered earlier in
-# this run, since ALL_NODES lists sources first), else the current value.
+# Value of <key> for <node> taken from nodes/<src>/.env, else the current
+# value. The source may be rendered before or after <node> in this run: the
+# copied values (secrets, bootstrap keys) are kept across renders anyway.
 from_node() {
   local node=$1 key=$2 src=$3 current=$4 v=""
   is_node "$src" || die "$node: .env.example: unknown node in __from:${src}__ for $key"

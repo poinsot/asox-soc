@@ -5,7 +5,7 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## recv-thehive-event (stub, contract C4)\n**Trigger:** POST /webhook/thehive-event from the TheHive webhook, header `X-ASOX-Token` required.\n**Inputs:** TheHive event JSON (body).\n**Actions taken:** none (records the event summary only).\n**Systems changed:** none.\n**Approval:** not applicable.\n**Owner:** n8n.",
+        "content": "## recv-thehive-event (stub, contract C4)\n**Trigger:** POST /webhook/thehive-event from the TheHive webhook, header `Authorization: Bearer <N8N_WEBHOOK_TOKEN>` required (credential \"ASOX webhook token (Bearer)\": TheHive's webhooks can't send other headers).\n**Inputs:** TheHive event JSON (body).\n**Actions taken:** none (records the event summary only).\n**Systems changed:** none.\n**Approval:** not applicable.\n**Owner:** n8n.",
         "height": 260,
         "width": 420
       },
@@ -37,8 +37,8 @@
       "webhookId": "5f2b1c4e-7a1d-4c1e-9f7a-3b2c1d0e9a02",
       "credentials": {
         "httpHeaderAuth": {
-          "id": "asoxWebhookToken",
-          "name": "ASOX webhook token"
+          "id": "asoxWebhookBear1",
+          "name": "ASOX webhook token (Bearer)"
         }
       }
     },

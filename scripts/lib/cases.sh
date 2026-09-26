@@ -53,6 +53,21 @@ cortex_key_login() {
   return 0
 }
 
+# Image used to prove that Cortex can start containers (same pinned image as
+# soc.sh's utility container).
+# shellcheck disable=SC2034  # used by the scripts that source this file
+RUNNER_TEST_IMAGE=alpine:3.24.2
+# The one analyzer enabled in Phase 1 (C7).
+# shellcheck disable=SC2034
+MISP_ANALYZER=MISP_2_1
+
+# Docker image of analyzer <id> in Cortex's catalog (empty if unknown).
+cortex_analyzer_image() {
+  http_body "$(cortex_orgadmin GET '/api/analyzerdefinition?range=all')" \
+    | jq -r --arg a "$1" '.[]? | select(.id == $a) | .dockerImage' 2>/dev/null
+  return 0
+}
+
 # Start a throwaway container the way Cortex starts analyzers: through the
 # Docker socket from inside the Cortex container, as Cortex's user, on the
 # analyzer network, with a job folder mounted by its HOST path. The container
@@ -81,19 +96,20 @@ cortex_test_container() {
 # Warn when a trial has this many days left or fewer.
 THEHIVE_LICENSE_WARN_DAYS=${THEHIVE_LICENSE_WARN_DAYS:-3}
 
-# Prints "<kind>|<plan>|<expires epoch s>|<isValid>" from /api/v1/status;
-# returns 1 if TheHive doesn't answer.
+# Prints "<kind>|<plan>|<expires epoch s>|<isValid>|<webhooks>" from
+# /api/v1/status (<webhooks>: true if the license includes webhook
+# notifications, which C4 needs); returns 1 if TheHive doesn't answer.
 thehive_license_status() {
   local r
   r=$(thehive_admin GET /api/v1/status)
   [[ $(http_code "$r") == 200 ]] || return 1
-  http_body "$r" | jq -r '.license // {} | "\(.kind // "none")|\(.plan // "none")|\((.expiresAt // 0) / 1000 | floor)|\(.isValid // false)"'
+  http_body "$r" | jq -r '.license // {} | "\(.kind // "none")|\(.plan // "none")|\((.expiresAt // 0) / 1000 | floor)|\(.isValid // false)|\((.capabilities // []) | index("notification.webhook") != null)"'
 }
 
 # One-line description, e.g. "Platinum Trial, valid until 2026-10-11 (15 days left)".
 thehive_license_describe() {
-  local kind plan exp valid days
-  IFS='|' read -r kind plan exp valid <<<"$1"
+  local kind plan exp valid webhooks days
+  IFS='|' read -r kind plan exp valid webhooks <<<"$1"
   days=$(( (exp - $(date +%s)) / 86400 ))
   if [[ $valid == true ]]; then
     printf '%s %s, valid until %s (%d days left)' "$plan" "$kind" "$(date -u -d "@$exp" +%F)" "$days"
@@ -102,15 +118,16 @@ thehive_license_describe() {
   fi
 }
 
-# PASS, or WARN when TheHive is read-only (no valid license) or on a trial
-# with THEHIVE_LICENSE_WARN_DAYS days left or fewer. Never fails.
+# PASS, or WARN when TheHive is read-only (no valid license), on a trial
+# with THEHIVE_LICENSE_WARN_DAYS days left or fewer, or when the license
+# doesn't include webhooks (C4). Never fails.
 thehive_license_check() {
-  local s kind plan exp valid days hint
+  local s kind plan exp valid webhooks days hint
   if ! s=$(thehive_license_status); then
     warn "TheHive license: status not available (is TheHive running?)"
     return 0
   fi
-  IFS='|' read -r kind plan exp valid <<<"$s"
+  IFS='|' read -r kind plan exp valid webhooks <<<"$s"
   days=$(( (exp - $(date +%s)) / 86400 ))
   hint="request a free Community license and apply it (nodes/cases/thehive/README.md, section License)"
   if [[ $valid != true ]]; then
@@ -119,5 +136,8 @@ thehive_license_check() {
     warn "TheHive license: $(thehive_license_describe "$s"); then TheHive becomes read-only: $hint"
   else
     pass "TheHive license: $(thehive_license_describe "$s")"
+  fi
+  if [[ $valid == true && $webhooks != true ]]; then
+    warn "TheHive license: $plan $kind doesn't include webhook notifications, so TheHive can't send events to n8n (C4)"
   fi
 }
