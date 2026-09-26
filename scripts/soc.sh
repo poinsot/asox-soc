@@ -156,7 +156,9 @@ INFO_ENTRIES=(
   "core|n8n|n8n|http://HOST:5678|N8N_OWNER_EMAIL|N8N_OWNER_PASSWORD"
   "core|wazuh-manager|Wazuh API|https://HOST:55000|WAZUH_API_ADMIN_USER|WAZUH_API_ADMIN_PASSWORD"
   "cases|thehive|TheHive|http://HOST:9000|THEHIVE_ADMIN_USER|THEHIVE_ADMIN_PASSWORD"
+  "cases|thehive|TheHive SOC|http://HOST:9000|THEHIVE_ANALYST_USER|THEHIVE_ANALYST_PASSWORD"
   "cases|cortex|Cortex|http://HOST:9001|CORTEX_ADMIN_USER|CORTEX_ADMIN_PASSWORD"
+  "cases|cortex|Cortex SOC|http://HOST:9001|CORTEX_ORGADMIN_USER|CORTEX_ORGADMIN_PASSWORD"
   "intel|misp-nginx|MISP|https://HOST:9443|MISP_ADMIN_EMAIL|MISP_ADMIN_PASSWORD"
 )
 
@@ -179,7 +181,7 @@ cmd_info() {
       else
         host=$(env_get "$TOPOLOGY_FILE" "${node^^}_HOST")
       fi
-      printf '%-10s %-28s user: %-24s password: %s\n' "$label" "${url//HOST/$host}" \
+      printf '%-11s %-28s user: %-24s password: %s\n' "$label" "${url//HOST/$host}" \
         "$(env_get "$envf" "$uvar")" "$(env_get "$envf" "$pvar")"
       shown=$((shown + 1))
     done

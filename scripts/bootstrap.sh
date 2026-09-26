@@ -7,6 +7,10 @@
 #          indexer user grafana-ro, read-only on wazuh-alerts-* (C8);
 #          n8n owner, n8n credentials, and the workflows from
 #          nodes/core/n8n/workflows/ that n8n doesn't have yet
+#   cases: Cortex indexes, superadmin, SOC organization, org admin and the
+#          API users for TheHive (C5) and n8n (C6), with their keys;
+#          TheHive admin password, SOC organisation, analyst, API user for
+#          n8n (C3) with its key, and the Cortex connector (C5)
 set -euo pipefail
 # shellcheck source=scripts/lib/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
@@ -14,9 +18,11 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/lib/wazuh.sh"
 # shellcheck source=scripts/lib/n8n.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/n8n.sh"
+# shellcheck source=scripts/lib/cases.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/cases.sh"
 trap n8n_cleanup EXIT
 
-usage() { sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; }
 
 # ---------------------------------------------------------------- core ---
 
@@ -239,6 +245,209 @@ bootstrap_core() {
   bootstrap_n8n
 }
 
+# --------------------------------------------------------------- cases ---
+
+# Image used to prove that Cortex can start containers (same pinned image as
+# soc.sh's utility container).
+RUNNER_TEST_IMAGE=alpine:3.24.2
+
+# Fail unless the HTTP status of response <r> is one of the given codes.
+expect() {
+  local what=$1 r=$2; shift 2
+  local code c
+  code=$(http_code "$r")
+  for c in "$@"; do [[ $code == "$c" ]] && return 0; done
+  fail "$what: HTTP $code $(http_body "$r" | head -c 200)"
+  return 1
+}
+
+# Store a new API key for <login> in nodes/cases/.env under <key-var>,
+# unless the current one still authenticates as that user.
+# Usage: ensure_key <label> <login> <key-var> <check-fn> <renew-fn>
+ensure_key() {
+  local label=$1 login=$2 var=$3 check=$4 renew=$5 key
+  key=$(cases_env "$var")
+  if [[ -n $key && $("$check" "$key") == "$login" ]]; then
+    pass "$label: API key of $login works"
+    return 0
+  fi
+  key=$("$renew" "$login")
+  if [[ -n $key && $("$check" "$key") == "$login" ]]; then
+    env_set "$(node_dir cases)/.env" "$var" "$key"
+    pass "$label: API key of $login created (stored in nodes/cases/.env)"
+  else
+    fail "$label: could not create a working API key for $login"
+    return 1
+  fi
+}
+
+cortex_renew_key() {
+  local r
+  r=$(cortex_admin POST "/api/user/$1/key/renew")
+  [[ $(http_code "$r") == 200 ]] && http_body "$r"
+  return 0
+}
+
+thehive_renew_key() {
+  local r
+  r=$(thehive_admin POST "/api/v1/user/$1/key/renew")
+  [[ $(http_code "$r") == 200 ]] && http_body "$r"
+  return 0
+}
+
+# Cortex user <login> in <org> with <roles> (JSON array); password optional.
+cortex_ensure_user() {
+  local login=$1 org=$2 roles=$3 pw=${4:-} r body
+  r=$(cortex_admin GET "/api/user/$login")
+  if [[ $(http_code "$r") == 200 ]]; then
+    body=$(jq -nc --argjson r "$roles" '{roles: $r, status: "Ok"}')
+    r=$(cortex_admin PATCH "/api/user/$login" "$body")
+    expect "Cortex: user $login" "$r" 200 || return 1
+  else
+    body=$(jq -nc --arg l "$login" --arg o "$org" --argjson r "$roles" \
+      '{login: $l, name: $l, organization: $o, roles: $r}')
+    r=$(cortex_admin POST /api/user "$body")
+    expect "Cortex: user $login" "$r" 201 || return 1
+  fi
+  if [[ -n $pw ]] && [[ $(http_code "$(cortex_as "$login" "$pw" GET /api/user/current)") != 200 ]]; then
+    r=$(cortex_admin POST "/api/user/$login/password/set" "$(jq -nc --arg p "$pw" '{password: $p}')")
+    expect "Cortex: password of $login" "$r" 204 200 || return 1
+  fi
+  pass "Cortex: user $login ($org, roles $(jq -r 'join(",")' <<<"$roles"))"
+}
+
+bootstrap_cortex() {
+  local admin org r
+  admin=$(cases_env CORTEX_ADMIN_USER)
+  org=$(cases_env CORTEX_ORG)
+
+  # Create or update Cortex's indexes in Elasticsearch (idempotent).
+  r=$(cortex_noauth POST "$CORTEX_API/api/maintenance/migrate")
+  expect "Cortex: index migration" "$r" 204 200 || return
+  pass "Cortex: Elasticsearch indexes up to date"
+
+  # Superadmin: Cortex accepts an unauthenticated user creation only while
+  # it has no users at all.
+  if [[ $(http_code "$(cortex_admin GET /api/user/current)") != 200 ]]; then
+    r=$(cortex_noauth POST "$CORTEX_API/api/user" "$(jq -nc --arg l "$admin" --arg p "$(cases_env CORTEX_ADMIN_PASSWORD)" \
+      '{login: $l, name: "SOC superadmin", roles: ["superadmin"], organization: "cortex", password: $p}')")
+    if [[ $(http_code "$r") != 201 ]]; then
+      fail "Cortex: superadmin $admin cannot log in with the password from nodes/cases/.env, and cannot be created (HTTP $(http_code "$r"))"
+      return
+    fi
+    pass "Cortex: superadmin $admin created"
+  else
+    pass "Cortex: superadmin $admin can log in"
+  fi
+
+  if [[ $(http_code "$(cortex_admin GET "/api/organization/$org")") != 200 ]]; then
+    r=$(cortex_admin POST /api/organization "$(jq -nc --arg o "$org" '{name: $o, description: "ASOX SOC", status: "Active"}')")
+    expect "Cortex: organization $org" "$r" 201 || return
+  fi
+  pass "Cortex: organization $org"
+
+  # Org admin (enables and configures analyzers, UI login), and the two API
+  # users: read + analyze only.
+  cortex_ensure_user "$(cases_env CORTEX_ORGADMIN_USER)" "$org" '["read","analyze","orgadmin"]' \
+    "$(cases_env CORTEX_ORGADMIN_PASSWORD)" || return
+  cortex_ensure_user "$(cases_env CORTEX_THEHIVE_USER)" "$org" '["read","analyze"]' || return
+  cortex_ensure_user "$(cases_env CORTEX_N8N_USER)" "$org" '["read","analyze"]' || return
+  ensure_key Cortex "$(cases_env CORTEX_THEHIVE_USER)" CORTEX_THEHIVE_API_KEY cortex_key_login cortex_renew_key || return
+  ensure_key Cortex "$(cases_env CORTEX_N8N_USER)" CORTEX_N8N_API_KEY cortex_key_login cortex_renew_key || return
+
+  # The Docker job runner: Cortex reports it available, and a container
+  # started through its socket shares its job directory (PROJECT.md 6.5).
+  local problem
+  docker image inspect "$RUNNER_TEST_IMAGE" >/dev/null 2>&1 || docker pull -q "$RUNNER_TEST_IMAGE" >/dev/null
+  if problem=$(cortex_test_container "$RUNNER_TEST_IMAGE"); then
+    pass "Cortex: can start a container on network $(cases_env CORTEX_ANALYZER_NETWORK) sharing its job directory"
+  else
+    fail "Cortex: test container: $problem"
+  fi
+}
+
+# TheHive user <login> of <type> (Normal or Service) in the SOC organisation
+# with <profile>; password optional. The community license allows 2 Normal
+# users; Service users (API only) are not counted (docs/decisions.md A53).
+thehive_ensure_user() {
+  local login=$1 type=$2 profile=$3 name=$4 pw=${5:-} org r body
+  org=$(cases_env THEHIVE_ORG)
+  r=$(thehive_admin GET "/api/v1/user/$login")
+  if [[ $(http_code "$r") != 200 ]]; then
+    body=$(jq -nc --arg l "$login" --arg t "$type" --arg n "$name" --arg o "$org" --arg p "$profile" \
+      '{login: $l, type: $t, name: $n, organisation: $o, profile: $p}')
+    r=$(thehive_admin POST /api/v1/user "$body")
+    expect "TheHive: user $login" "$r" 201 || return 1
+  elif [[ $(http_body "$r" | jq -r '.type') != "$type" ]]; then
+    fail "TheHive: user $login exists with type $(http_body "$r" | jq -r '.type'), expected $type (TheHive can't change it; delete the user or run scripts/soc.sh reset cases)"
+    return 1
+  elif [[ $(http_body "$r" | jq -r --arg o "$org" '[.organisations[]? | select(.organisation == $o) | .profile] | first // empty') != "$profile" ]]; then
+    r=$(thehive_admin PUT "/api/v1/user/$login/organisations" \
+      "$(jq -nc --arg o "$org" --arg p "$profile" '{organisations: [{organisation: $o, profile: $p, default: true}]}')")
+    expect "TheHive: profile of $login" "$r" 200 204 || return 1
+  fi
+  if [[ -n $pw ]] && [[ $(http_code "$(thehive_as "$login" "$pw" GET /api/v1/user/current)") != 200 ]]; then
+    r=$(thehive_admin POST "/api/v1/user/$login/password/set" "$(jq -nc --arg p "$pw" '{password: $p}')")
+    expect "TheHive: password of $login" "$r" 204 200 || return 1
+  fi
+  pass "TheHive: user $login ($type, $org, profile $profile)"
+}
+
+bootstrap_thehive() {
+  local admin pw org r
+  admin=$(cases_env THEHIVE_ADMIN_USER)
+  pw=$(cases_env THEHIVE_ADMIN_PASSWORD)
+  org=$(cases_env THEHIVE_ORG)
+
+  # Replace the image's default admin password on first run.
+  if [[ $(http_code "$(thehive_admin GET /api/v1/user/current)") == 200 ]]; then
+    pass "TheHive: admin $admin can log in"
+  else
+    r=$(thehive_as "$admin" secret POST "/api/v1/user/$admin/password/change" \
+      "$(jq -nc --arg p "$pw" '{currentPassword: "secret", password: $p}')")
+    if [[ $(http_code "$r") =~ ^20[04]$ ]] && [[ $(http_code "$(thehive_admin GET /api/v1/user/current)") == 200 ]]; then
+      pass "TheHive: default admin password replaced"
+    else
+      fail "TheHive: admin $admin refuses both the password from nodes/cases/.env and the default one"
+      return
+    fi
+  fi
+
+  if [[ $(http_code "$(thehive_admin GET "/api/v1/organisation/$org")") != 200 ]]; then
+    r=$(thehive_admin POST /api/v1/organisation "$(jq -nc --arg o "$org" '{name: $o, description: "ASOX SOC"}')")
+    expect "TheHive: organisation $org" "$r" 201 || return
+  fi
+  pass "TheHive: organisation $org"
+
+  thehive_ensure_user "$(cases_env THEHIVE_ANALYST_USER)" Normal analyst "SOC analyst" "$(cases_env THEHIVE_ANALYST_PASSWORD)" || return
+  # n8n's API user (C3): a Service account (API key only, no password).
+  thehive_ensure_user "$(cases_env THEHIVE_N8N_USER)" Service analyst "n8n (API)" || return
+  ensure_key TheHive "$(cases_env THEHIVE_N8N_USER)" THEHIVE_N8N_API_KEY thehive_key_login thehive_renew_key || return
+
+  # Cortex connector (C5): Cortex as seen from TheHive (same node), with the
+  # API key of Cortex's "thehive" user. Rewritten on every run so a renewed
+  # key is picked up.
+  local body
+  body=$(jq -nc --arg url "$(cases_env CORTEX_URL)" --arg key "$(cases_env CORTEX_THEHIVE_API_KEY)" '{
+    statusCheckInterval: "1 minute", refreshDelay: "5 seconds",
+    maxRetryOnError: 3, jobTimeout: "3 hours",
+    servers: [{
+      name: "Cortex", url: $url,
+      auth: {type: "bearer", key: $key},
+      wsConfig: {},
+      includedTheHiveOrganisations: ["*"], excludedTheHiveOrganisations: []
+    }]}')
+  r=$(thehive_admin PUT /api/v1/admin/config/cortex "$body")
+  expect "TheHive: Cortex connector" "$r" 204 200 || return
+  pass "TheHive: Cortex connector -> $(cases_env CORTEX_URL)"
+}
+
+bootstrap_cases() {
+  echo "== bootstrap cases"
+  bootstrap_cortex
+  bootstrap_thehive
+}
+
 # ---------------------------------------------------------------- main ---
 
 main() {
@@ -247,7 +456,8 @@ main() {
   is_node "$node" || die "unknown node: $node"
   [[ -f "$(node_dir "$node")/.env" ]] || die "nodes/$node/.env not found; run scripts/render-env.sh"
   case $node in
-    core) bootstrap_core ;;
+    core)  bootstrap_core ;;
+    cases) bootstrap_cases ;;
     *)    skip "bootstrap $node: nothing to bootstrap yet" ;;
   esac
   finish

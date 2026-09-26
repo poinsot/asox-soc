@@ -13,6 +13,7 @@ services:
     hostname: ${LAB_AGENT_NAME}
     restart: unless-stopped
     mem_limit: ${LAB_AGENT_MEM}
+    memswap_limit: ${LAB_AGENT_MEM}  # no swap: an undersized limit fails visibly (D40)
     environment:
       WAZUH_MANAGER_ADDR: ${WAZUH_MANAGER_ADDR}
       WAZUH_AGENT_NAME: ${LAB_AGENT_NAME}

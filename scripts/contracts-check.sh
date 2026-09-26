@@ -11,7 +11,8 @@ set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
 # shellcheck source=scripts/lib/n8n.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/n8n.sh"
-
+# shellcheck source=scripts/lib/cases.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/cases.sh"
 
 usage() { sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//'; }
 
@@ -39,6 +40,11 @@ core_env() { env_get "$CORE_ENV" "$1"; }
 # Published on the core host; 127.0.0.1 works with either BIND_ADDR.
 GRAFANA_URL=${GRAFANA_URL:-http://127.0.0.1:3000}
 ALERT_TIMEOUT=${ALERT_TIMEOUT:-120}
+CASES_ENV="$(node_dir cases)/.env"
+# TheHive's published port: on this machine in single-host mode, on
+# CASES_HOST in distributed mode.
+load_topology
+if [[ $TOPO_DEPLOY_MODE == distributed ]]; then THEHIVE_API=http://$TOPO_CASES_HOST:9000; fi
 
 # ------------------------------------------------------------ test alert ---
 # One test alert shared by the contracts that need it (C1, C8): fired through
@@ -114,6 +120,27 @@ check_C2() {
   pass "$c: credential logs in and lists $(jq -r '.agents' <<<"$resp") agents; active response rejected (HTTP 403)"
 }
 
+check_C5() {
+  local c="C5 TheHive -> Cortex" r status servers analyzers
+  [[ -f $CASES_ENV ]] || { fail "$c: nodes/cases/.env not found (the cases node's logins are needed)"; return; }
+  r=$(thehive_admin GET /api/v1/status)
+  if [[ $(http_code "$r") != 200 ]]; then
+    fail "$c: TheHive status not available at $THEHIVE_API (HTTP $(http_code "$r"))"; return
+  fi
+  status=$(http_body "$r" | jq -r '.connectors.cortex.status // "missing"')
+  servers=$(http_body "$r" | jq -r '[.connectors.cortex.servers[]? | "\(.name) \(.version) \(.status)"] | join(", ")')
+  if [[ $status != OK ]]; then
+    fail "$c: Cortex connector status $status (servers: ${servers:-none}); run scripts/bootstrap.sh cases"; return
+  fi
+  # Analyzers enabled in Cortex, as TheHive's analysts see them.
+  r=$(thehive_as "$(cases_env THEHIVE_ANALYST_USER)" "$(cases_env THEHIVE_ANALYST_PASSWORD)" GET /api/connector/cortex/analyzer)
+  if [[ $(http_code "$r") != 200 ]]; then
+    fail "$c: analyzer list refused (HTTP $(http_code "$r"))"; return
+  fi
+  analyzers=$(http_body "$r" | jq -r '[.[].name] | if length == 0 then "none enabled yet" else join(", ") end')
+  pass "$c: connected ($servers); analyzers: $analyzers"
+}
+
 check_C8() {
   local auth health body resp
   auth="$(core_env GRAFANA_ADMIN_USER):$(core_env GRAFANA_ADMIN_PASSWORD)"
@@ -137,9 +164,11 @@ check_C8() {
 }
 
 # Build step that implements each contract still to come.
-declare -A PENDING=([C3]=1.7 [C4]=1.7 [C5]=1.5 [C6]=1.7 [C7]=1.6)
+declare -A PENDING=([C3]=1.7 [C4]=1.7 [C6]=1.7 [C7]=1.6)
 
-[[ -f $CORE_ENV ]] || die "nodes/core/.env not found; run this on the core machine after scripts/soc.sh init"
+if [[ ! -f $CORE_ENV && " ${CONTRACTS[*]} " =~ \ C[1-48]\  ]]; then
+  die "nodes/core/.env not found; run this on the core machine after scripts/soc.sh init"
+fi
 echo "== Integration contracts (${CONTRACTS[*]})"
 for c in "${CONTRACTS[@]}"; do
   if declare -F "check_$c" >/dev/null; then

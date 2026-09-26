@@ -12,6 +12,7 @@ services:
         # DNS name in the indexer certificate (see config/certs.yml).
         aliases: [wazuh.indexer]
     mem_limit: ${INDEXER_MEM}
+    memswap_limit: ${INDEXER_MEM}  # no swap: an undersized limit fails visibly (D40)
     environment:
       OPENSEARCH_JAVA_OPTS: -Xms${INDEXER_HEAP} -Xmx${INDEXER_HEAP}
     ulimits:
@@ -46,6 +47,7 @@ services:
     hostname: wazuh-manager
     restart: unless-stopped
     mem_limit: ${WAZUH_MANAGER_MEM}
+    memswap_limit: ${WAZUH_MANAGER_MEM}  # no swap: an undersized limit fails visibly (D40)
     depends_on:
       wazuh-indexer:
         condition: service_healthy

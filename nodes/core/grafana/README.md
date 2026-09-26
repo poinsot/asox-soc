@@ -1,6 +1,6 @@
 # Grafana — "Dashboard analitico"
 
-Owner: Grafana owner. Node: `core`. Run mode: `core`.
+Owner: Jesus (@JC-535). Node: `core`. Run mode: `core`.
 
 Analytic dashboards and SOC metrics; the replacement for the Wazuh dashboard. The full component README (contracts, backlog) is completed at the end of Phase 1; this file already covers the operations below.
 
@@ -29,9 +29,14 @@ A dashboard keeps its file (matched by `uid`); a new one becomes `provisioning/d
 - The index pattern is daily, `[wazuh-alerts-4.x-]YYYY.MM.DD`, not `wazuh-alerts-*`: the OpenSearch plugin's health check fails with a wildcard pattern (PROJECT.md D35).
 - `grafana-ro` can only read `wazuh-alerts-*`. Reading another index (e.g. TheHive data later) needs a role change in `scripts/bootstrap.sh` (ask the integrator).
 
-## Versions and upgrading
+## Local patches and deprecations (re-check on upgrade)
+
+Pinned: `grafana/grafana` 12.4.11 and `grafana-opensearch-datasource` 2.34.4. On every version bump, re-check each item below and update this list.
 
 - **Grafana is pinned to 12.4.x on purpose** (PROJECT.md D34): 13.2.2 leaked about 100 MiB of memory per browser session and restarted at its limit. **Re-test before moving to 13.x**: open the dashboard in a browser several times and watch `go_gc_heap_live_bytes` at `/metrics` (or `docker stats`); it must level off, not keep growing.
 - **Plugin installation uses `GF_INSTALL_PLUGINS`, which is deprecated upstream** (and in Grafana 13 only runs with `GF_INSTALL_PLUGINS_FORCE=true`). Its replacement is `GF_PLUGINS_PREINSTALL_SYNC=<plugin-id>@<version>` (installed before the server starts). When upgrading, switch to it, but note what it does today (docs/decisions.md A35): it also downloads Grafana's default app plugins at unpinned versions and updates bundled plugins at every start (turn that off with `GF_PLUGINS_PREINSTALL_AUTO_UPDATE=false`), and `GF_PLUGINS_PREINSTALL_DISABLED=true` disables the `_SYNC` install too. Check which plugins end up in `/var/lib/grafana/plugins` after the change.
 - The plugin version is `GRAFANA_OPENSEARCH_PLUGIN_VERSION` in `nodes/core/.env.example` (integrator-owned; ask for a change).
 - The admin login is set on Grafana's first start only; to change it later: `docker exec -it <instance>-core-grafana-1 grafana cli admin reset-admin-password '<new>'` and update `nodes/core/.env`.
+- **Datasource `flavor: opensearch`, `version: 2.19.6`** (`provisioning/datasources/wazuh-indexer.yml`, A36): the OpenSearch version inside the Wazuh indexer (its `/` reports 7.10.2 for compatibility). Update it when the Wazuh indexer is upgraded (Wazuh owner).
+- **Index pattern `[wazuh-alerts-4.x-]YYYY.MM.DD`** (D35) follows Wazuh 4.x index names; Wazuh 5 renames them (coordinate with the Wazuh owner).
+- **Memory:** limit `GRAFANA_MEM` 256m / 200m, with swap capped at the limit (D40). Re-measure after an upgrade: anonymous memory peak from the container's `memory.stat`, not `docker stats` (which includes page cache).

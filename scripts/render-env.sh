@@ -24,29 +24,34 @@ usage() { sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; }
 load_topology
 
 # Memory profiles (PROJECT.md section 8): heaps and container mem_limit.
+# Limits are sized from measured need (D40): anonymous memory peak x 1.15
+# + 64 MiB for page cache, rounded up to 50 MiB. Swap is capped at the
+# limit in every compose file, so an undersized limit fails visibly.
 declare -A PROFILE_STANDARD=(
   [INDEXER_HEAP]=1g      [INDEXER_MEM]=2g
-  [WAZUH_MANAGER_MEM]=600m
-  [N8N_HEAP]=384        [N8N_MEM]=640m         [N8N_POSTGRES_MEM]=200m
+  [WAZUH_MANAGER_MEM]=700m
+  [N8N_HEAP]=384        [N8N_MEM]=750m         [N8N_POSTGRES_MEM]=200m
   [GRAFANA_MEM]=256m
-  [CASSANDRA_HEAP]=1g    [CASSANDRA_MEM]=1600m
-  [ES_HEAP]=1g           [ES_MEM]=1600m
-  [THEHIVE_HEAP]=1g      [THEHIVE_MEM]=1300m
-  [CORTEX_HEAP]=512m     [CORTEX_MEM]=700m
+  [CASSANDRA_HEAP]=1g    [CASSANDRA_NEWSIZE]=256m [CASSANDRA_MEM]=1600m
+  [ES_HEAP]=1g           [ES_MEM]=2400m
+  [THEHIVE_HEAP]=1g      [THEHIVE_MEM]=1900m
+  [CORTEX_HEAP]=512m     [CORTEX_MEM]=600m
+  [CORTEX_ANALYZER_MEM]=268435456
   [MISP_CORE_MEM]=600m   [MISP_NGINX_MEM]=100m
   [MISP_MODULES_MEM]=300m
   [MARIADB_MEM]=300m     [REDIS_MEM]=100m
   [LAB_AGENT_MEM]=100m
 )
 declare -A PROFILE_LOW=(
-  [INDEXER_HEAP]=512m    [INDEXER_MEM]=1g
-  [WAZUH_MANAGER_MEM]=500m
-  [N8N_HEAP]=256        [N8N_MEM]=448m         [N8N_POSTGRES_MEM]=150m
-  [GRAFANA_MEM]=192m
-  [CASSANDRA_HEAP]=512m  [CASSANDRA_MEM]=900m
-  [ES_HEAP]=512m         [ES_MEM]=900m
-  [THEHIVE_HEAP]=512m    [THEHIVE_MEM]=700m
-  [CORTEX_HEAP]=256m     [CORTEX_MEM]=400m
+  [INDEXER_HEAP]=512m    [INDEXER_MEM]=1100m
+  [WAZUH_MANAGER_MEM]=700m
+  [N8N_HEAP]=320        [N8N_MEM]=650m         [N8N_POSTGRES_MEM]=150m
+  [GRAFANA_MEM]=200m
+  [CASSANDRA_HEAP]=512m  [CASSANDRA_NEWSIZE]=128m [CASSANDRA_MEM]=1000m
+  [ES_HEAP]=512m         [ES_MEM]=1450m
+  [THEHIVE_HEAP]=512m    [THEHIVE_MEM]=1300m
+  [CORTEX_HEAP]=256m     [CORTEX_MEM]=500m
+  [CORTEX_ANALYZER_MEM]=268435456
   [MISP_CORE_MEM]=450m   [MISP_NGINX_MEM]=64m
   [MISP_MODULES_MEM]=300m
   [MARIADB_MEM]=250m     [REDIS_MEM]=100m
@@ -89,6 +94,14 @@ derive() {
     CORTEX_URL)         addr "$node" cases http://cortex:9001          http://HOST:9001 ;;
     MISP_URL)           addr "$node" intel https://misp-nginx:8443     https://HOST:9443 ;;
     CORTEX_JOBS_HOST_DIR) printf '%s' "$REPO_ROOT/nodes/cases/cortex/jobs" ;;
+    # Cortex runs as the owner of the job directory, with access to the
+    # host's Docker socket (docs/decisions.md A50).
+    CORTEX_UID)         id -u ;;
+    CORTEX_GID)         id -g ;;
+    DOCKER_GID)         stat -c %g /var/run/docker.sock 2>/dev/null || getent group docker | cut -d: -f3 ;;
+    # Analyzer containers reach MISP by alias on soc-net in single-host mode,
+    # or through its published port from the default bridge (A49).
+    CORTEX_ANALYZER_NETWORK) [[ $TOPO_DEPLOY_MODE == single ]] && printf '%s' "$SOC_NET" || printf 'bridge' ;;
     *)
       local v
       if [[ $TOPO_MEM_PROFILE == standard ]]; then v=${PROFILE_STANDARD[$key]:-}; else v=${PROFILE_LOW[$key]:-}; fi

@@ -8,6 +8,15 @@
 #   services:
 #     <service>:
 #       networks: [default, soc-net]
+services:
+  # Called by n8n (C3) and calls n8n's webhook (C4).
+  thehive:
+    networks: [default, soc-net]
+  # Called by n8n (C6). Analyzer containers join soc-net on their own
+  # (CORTEX_ANALYZER_NETWORK) to reach MISP (C7).
+  cortex:
+    networks: [default, soc-net]
+
 networks:
   soc-net:
     external: true

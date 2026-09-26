@@ -6,6 +6,7 @@ services:
     image: ${GRAFANA_IMAGE}
     restart: unless-stopped
     mem_limit: ${GRAFANA_MEM}
+    memswap_limit: ${GRAFANA_MEM}  # no swap: an undersized limit fails visibly (D40)
     ports:
       - "${BIND_ADDR}:3000:3000"
     environment:

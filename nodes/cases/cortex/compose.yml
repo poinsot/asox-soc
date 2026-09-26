@@ -1,3 +1,51 @@
 # Component: Cortex + MISP (owner: Cortex + MISP) — "Inteligencia de amenazas"
-# Services: cortex (analyzer containers are started at runtime). Defined in build step 1.5.
-services: {}
+# Adapted from StrangeBee's reference (StrangeBeeCorp/docker, profile "testing").
+# Analyzers run as short-lived containers started by the HOST's Docker daemon
+# through the mounted socket (PROJECT.md 6.5); they are not defined here.
+# Configuration: config/application.conf (secrets come from the environment).
+services:
+  cortex:
+    image: ${CORTEX_IMAGE}
+    hostname: cortex
+    restart: unless-stopped
+    mem_limit: ${CORTEX_MEM}
+    memswap_limit: ${CORTEX_MEM}  # no swap: an undersized limit fails visibly (D40)
+    # Never start as root: the image's entrypoint would then chown the mounted
+    # Docker socket to its own user, locking the host user out of Docker.
+    # The host user's UID owns the job directory; the docker group gives
+    # access to the socket (docs/decisions.md A50).
+    user: "${CORTEX_UID}:${CORTEX_GID}"
+    group_add:
+      - "${DOCKER_GID}"
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    ports:
+      - "${BIND_ADDR}:9001:9001"
+    environment:
+      JAVA_OPTS: -Xms${CORTEX_HEAP} -Xmx${CORTEX_HEAP}
+      # Read by the image's entrypoint (search.uri, job.directory,
+      # job.dockerDirectory). config/application.conf must not set these.
+      es_uri: ${ELASTICSEARCH_URL}
+      job_directory: /tmp/cortex-jobs
+      docker_job_directory: ${CORTEX_JOBS_HOST_DIR}
+      # The secret is set in config/application.conf instead of a random one
+      # per start (which would log everyone out at each restart).
+      no_config_secret: "1"
+      # Read by config/application.conf.
+      CORTEX_SECRET: ${CORTEX_SECRET:?missing in .env, run scripts/render-env.sh}
+      ES_PASSWORD: ${ES_PASSWORD:?missing in .env, run scripts/render-env.sh}
+      CORTEX_ANALYZER_NETWORK: ${CORTEX_ANALYZER_NETWORK}
+      CORTEX_ANALYZER_MEM: ${CORTEX_ANALYZER_MEM}
+    volumes:
+      # Equivalent to root on the host: acceptable for the lab only (PROJECT.md 6.5).
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Same directory, seen from the host (docker_job_directory) and from here.
+      - ${CORTEX_JOBS_HOST_DIR}:/tmp/cortex-jobs
+      - ./config/application.conf:/etc/cortex/application.conf:ro
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9001/api/status >/dev/null"]
+      interval: 15s
+      timeout: 10s
+      retries: 30
+      start_period: 90s

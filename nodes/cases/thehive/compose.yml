@@ -1,3 +1,45 @@
 # Component: TheHive (owner: TheHive) — "Dashboard operativo"
-# Services: thehive. Defined in build step 1.5.
-services: {}
+# Adapted from StrangeBee's reference (StrangeBeeCorp/docker, profile "testing"),
+# without its nginx: TheHive is served directly on 9000, at the root path.
+# Configuration: config/application.conf (secrets come from the environment).
+# Organisation, users, API key and the Cortex connector (C5) are created by
+# scripts/bootstrap.sh cases.
+services:
+  thehive:
+    image: ${THEHIVE_IMAGE}
+    hostname: thehive
+    restart: unless-stopped
+    mem_limit: ${THEHIVE_MEM}
+    memswap_limit: ${THEHIVE_MEM}  # no swap: an undersized limit fails visibly (D40)
+    # Use only config/application.conf (the image would otherwise generate
+    # its own database, index and secret settings).
+    command: --no-config --no-config-secret
+    depends_on:
+      cassandra:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+    ports:
+      - "${BIND_ADDR}:9000:9000"
+    environment:
+      JAVA_OPTS: >-
+        -Xms${THEHIVE_HEAP} -Xmx${THEHIVE_HEAP}
+        -XX:MaxMetaspaceSize=400m -XX:ReservedCodeCacheSize=250m
+      # Read by config/application.conf.
+      THEHIVE_SECRET: ${THEHIVE_SECRET:?missing in .env, run scripts/render-env.sh}
+      CASSANDRA_HOSTNAME: ${CASSANDRA_HOSTNAME}
+      ELASTICSEARCH_HOSTNAME: ${ELASTICSEARCH_HOSTNAME}
+      ES_PASSWORD: ${ES_PASSWORD:?missing in .env, run scripts/render-env.sh}
+    volumes:
+      - ./config/application.conf:/etc/thehive/application.conf:ro
+      # Attachments (config: storage.localfs.location = /data/files).
+      - thehive-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9000/api/status >/dev/null"]
+      interval: 15s
+      timeout: 10s
+      retries: 30
+      start_period: 120s
+
+volumes:
+  thehive-data:

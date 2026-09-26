@@ -35,7 +35,7 @@ Phases 2 and 3 are described in section 13 only so Phase 1 decisions don't block
 **Phase 1 deliberately does NOT build:** detection rules beyond a test rule, real playbooks, case templates, production dashboards, intel feeds or custom analyzers. Those are the component owners' work (section 11). Also out of scope: the Wazuh dashboard, Snort, ASOX, the Slack bot, real endpoints, pfSense and response actions.
 
 **Phase 1 is done when** all build steps in section 10 pass, in particular:
-- `healthcheck.sh` is all green and `contracts-check.sh` passes C1–C8 in `full` mode, in both memory profiles (step 1.7);
+- `healthcheck.sh` is all green and `contracts-check.sh` passes C1–C8 in `full` mode in `standard`, and each dev mode that must fit on `low` passes its checks there (step 1.7, D39);
 - the distribution simulation and the backup round trip pass (step 1.8);
 - the fresh-clone test passes, and the baseline is tagged `v1.0-baseline` and pushed to GitHub by the integrator (step 1.9).
 
@@ -50,11 +50,11 @@ The project has two views of the same services:
 
 | Component | Services | Node | Owner |
 |---|---|---|---|
-| **Wazuh** | wazuh-manager, wazuh-indexer | `core` | [OPEN] |
-| **n8n (SOAR)** | n8n | `core` | [OPEN] |
-| **Grafana** | grafana | `core` | [OPEN] |
-| **TheHive** | thehive, cassandra, elasticsearch (shared storage) | `cases` | [OPEN] |
-| **Cortex + MISP** | cortex, analyzer containers (in `cases`); misp-core, misp-nginx, misp-modules, mariadb, redis (in `intel`) | `cases` + `intel` | [OPEN] |
+| **Wazuh** | wazuh-manager, wazuh-indexer | `core` | Daniel (@dmelgar1110) |
+| **n8n (SOAR)** | n8n | `core` | Inigo (@poinsot), also the integrator |
+| **Grafana** | grafana | `core` | Jesus (@JC-535) |
+| **TheHive** | thehive, cassandra, elasticsearch (shared storage) | `cases` | Park (@Jinhyuk-P) |
+| **Cortex + MISP** | cortex, analyzer containers (in `cases`); misp-core, misp-nginx, misp-modules, mariadb, redis (in `intel`) | `cases` + `intel` | Diego (@DiegoGuerraA00835430) |
 | *(test only)* lab | one Wazuh agent container | `lab` | Wazuh owner |
 
 ### 3.1 Nodes
@@ -251,6 +251,7 @@ Each component section lists its long-term **role** and what Phase 1 delivers as
     - `render-env.sh` sets `CORTEX_JOBS_HOST_DIR` to the absolute host path of `nodes/cases/cortex/jobs`. This differs per machine (e.g. `/home/<user>/asox-soc/...` in WSL).
     - The compose file mounts `${CORTEX_JOBS_HOST_DIR}:/tmp/cortex-jobs`.
     - Cortex's `job.directory` = `/tmp/cortex-jobs` (inside the container) and `job.dockerDirectory` = `${CORTEX_JOBS_HOST_DIR}` (on the host). Verified against Cortex 4.1.0: the image's entrypoint sets these two keys from the environment variables `job_directory` and `docker_job_directory` (equivalent to its `--job-directory` / `--docker-job-directory` options), which is how StrangeBee's reference compose sets them. The entrypoint's generated configuration includes `/etc/cortex/application.conf` last, so a mounted `application.conf` must not set these keys too, or it overrides the environment variables.
+  - **Network:** analyzer containers join `CORTEX_ANALYZER_NETWORK`, applied by Cortex's `docker.container.networkMode` setting: `soc-net` in single-host mode (MISP reached by alias), the default `bridge` in distributed mode (MISP through its published port). Each analyzer container gets a memory limit without swap (`docker.container.memory`).
   - **Catalog and images:** Cortex loads analyzer definitions from the official online catalog (`https://catalogs.download.strangebee.com/latest/json/analyzers.json` by default in 4.1). `bootstrap.sh` pre-pulls the enabled analyzer images.
   - **Phase 1 analyzers:** the **MISP analyzer** only (C7). Others are the owner's backlog.
 - **MISP baseline:**
@@ -310,34 +311,34 @@ The baseline is built on a **32 GB host**, but teammates may develop on smaller 
 
 `render-env.sh` writes the matching heap and `mem_limit` values into each node's `.env`. The compose files only reference variables (e.g. `${INDEXER_HEAP}`), never fixed sizes.
 
-| Profile | Intended hosts | WSL memory | Full stack (approx.) |
+| Profile | Intended hosts | WSL memory | Full stack (sum of limits) |
 |---|---|---|---|
-| `standard` | 16 GB+ (the baseline build machine: 32 GB) | 10–16 GB | ~10.2 GB |
-| `low` | 8 GB | 6 GB (+8 GB swap) | ~6.4 GB: `full` is best effort (swap acceptable); every dev mode must fit in 6 GB (D39) |
+| `standard` | 16 GB+ (the baseline build machine: 32 GB) | 10–16 GB | ~11.7 GB |
+| `low` | 8 GB | 6 GB (+8 GB swap) | ~8.2 GB: `full`, `core-cases` are best effort (swap acceptable); `core`, `cases`, `cases-intel` must fit in 6 GB (D39) |
 
-These are estimates; `scripts/mem-report.sh` records real usage per profile.
+**How limits are sized (D40):** each container's `mem_limit` is its measured anonymous memory peak × 1.15 + 64 MiB for page cache, rounded up to 50 MiB. Measure through a realistic cycle (fresh start, bootstrap, some API activity, idle) from the cgroup's `memory.stat` (`anon`, `file`), not from `docker stats`, which includes reclaimable cache. Swap is capped at the limit (`memswap_limit` = `mem_limit`), so an undersized limit fails visibly (OOM kill, or a Java/Node "out of memory" in the logs) instead of swapping while healthchecks stay green. Measurements: `docs/decisions.md` A56 (and `mem-report.sh` from step 1.7). Real usage is below the limits: e.g. the `cases` node uses ~5.4 GB (`standard`) and ~3.3 GB (`low`).
 
-| Node | Service | `standard` heap | `standard` RAM | `low` heap | `low` RAM |
+| Node | Service | `standard` heap | `standard` limit | `low` heap | `low` limit |
 |---|---|---|---|---|---|
-| core | wazuh-indexer | 1 GB | 2.0 GB | 512 MB | 1.0 GB |
-| core | wazuh-manager | — | 0.6 GB | — | 0.5 GB |
-| core | n8n (SQLite) | 384 MB | 0.6 GB | 256 MB | 0.5 GB |
-| core | grafana | — | 0.3 GB | — | 0.2 GB |
-| | **core subtotal** | | **3.5 GB** | | **2.2 GB** |
-| cases | cassandra | 1 GB | 1.6 GB | 512 MB | 0.9 GB |
-| cases | elasticsearch (shared) | 1 GB | 1.6 GB | 512 MB | 0.9 GB |
-| cases | thehive | 1 GB | 1.3 GB | 512 MB | 0.7 GB |
-| cases | cortex | 512 MB | 0.7 GB | 256 MB | 0.4 GB |
-| cases | analyzer jobs | transient | +0.1–0.3 GB | transient | +0.1–0.3 GB |
-| | **cases subtotal** | | **5.2 GB** | | **2.9 GB** |
+| core | wazuh-indexer | 1 GB | 2.0 GB | 512 MB | 1.1 GB |
+| core | wazuh-manager | — | 0.7 GB | — | 0.7 GB |
+| core | n8n (SQLite) | 384 MB | 0.75 GB | 320 MB | 0.65 GB |
+| core | grafana | — | 0.25 GB | — | 0.2 GB |
+| | **core subtotal** | | **3.7 GB** | | **2.65 GB** |
+| cases | cassandra | 1 GB | 1.6 GB | 512 MB | 1.0 GB |
+| cases | elasticsearch (shared) | 1 GB | 2.4 GB | 512 MB | 1.45 GB |
+| cases | thehive | 1 GB | 1.9 GB | 512 MB | 1.3 GB |
+| cases | cortex | 512 MB | 0.6 GB | 256 MB | 0.5 GB |
+| cases | analyzer jobs | transient | +0.25 GB per job | transient | +0.25 GB per job |
+| | **cases subtotal** | | **6.5 GB** | | **4.25 GB** |
 | intel | misp-core + mariadb + redis | — | 1.0 GB | — | 0.8 GB |
 | intel | misp-nginx | — | 0.1 GB | — | 0.1 GB |
 | intel | misp-modules | — | 0.3 GB | — | 0.3 GB |
-| | **intel subtotal** | | **1.4 GB** | | **1.2 GB** |
+| | **intel subtotal** (estimate until step 1.6) | | **1.4 GB** | | **1.2 GB** |
 | lab | wazuh-agent | — | 0.1 GB | — | 0.1 GB |
-| | **Total** (analyzer jobs not included) | | **~10.2 GB** | | **~6.4 GB** |
+| | **Total** (analyzer jobs not included) | | **~11.7 GB** | | **~8.2 GB** |
 
-On the 32 GB build machine with WSL at 16 GB, the full stack runs in `standard` with ~6 GB of headroom for Claude Code, build tools and analyzer jobs. Every container sets `mem_limit`.
+On the 32 GB build machine with WSL at 16 GB, the full stack runs in `standard` with ~4 GB of headroom (more in practice, since usage is below the limits) for Claude Code, build tools and analyzer jobs. On a 16 GB host (WSL 10 GB), `full` in `standard` exceeds WSL memory if every service reaches its limit; use a dev mode there, or `low`. Every container sets `mem_limit` and `memswap_limit`.
 
 ### 8.1 Run modes
 
@@ -354,17 +355,19 @@ On the 32 GB build machine with WSL at 16 GB, the full stack runs in `standard` 
 
 The repo contains no secrets, certificates, API keys or data, so a fresh clone always needs `init` before `up`.
 
-**Low-profile target (D39):** on `low` with a 6 GB WSL allocation, every dev mode (`core`, `cases`, `cases-intel`, `core-cases`) must start, pass its healthchecks and relevant contracts, and fit in memory. Running `full` on `low` is best effort (swap acceptable).
+**Low-profile target (D39):** on `low` with a 6 GB WSL allocation, the dev modes teammates run on 8 GB machines (`core`, `cases`, `cases-intel`) must start, pass their healthchecks and relevant contracts, and fit in memory. `core-cases` and `full` on `low` are best effort (swap acceptable); n8n development, which needs `core-cases`, happens on a 16 GB+ machine or the shared instance.
 
 On the 32 GB build machine, `full` can stay running throughout the build. Run modes exist mainly for teammates on smaller machines (RAM shown for `standard` / `low`).
 
-| Mode | Nodes | Approx. RAM (standard / low) | Typical use |
+| Mode | Nodes | Sum of limits (standard / low) | Typical use |
 |---|---|---|---|
-| `core` | core, lab | 3.6 / 2.3 GB | Wazuh and Grafana development |
-| `cases` | cases | 5.2 / 2.9 GB | TheHive development (C7 unavailable) |
-| `cases-intel` | cases, intel | 6.6 / 4.1 GB | Cortex + MISP development; TheHive with enrichment |
-| `core-cases` | core, cases, lab | 8.8 / 5.2 GB | n8n development against TheHive and Cortex (C7 unavailable) |
-| `full` | all | 10.2 / 6.4 GB | Contract checks, integration testing |
+| `core` | core, lab | 3.8 / 2.75 GB | Wazuh and Grafana development |
+| `cases` | cases | 6.5 / 4.25 GB | TheHive development (C7 unavailable) |
+| `cases-intel` | cases, intel | 7.9 / 5.45 GB | Cortex + MISP development; TheHive with enrichment |
+| `core-cases` | core, cases, lab | 10.3 / 7.0 GB (`low`: best effort) | n8n development against TheHive and Cortex (C7 unavailable) |
+| `full` | all | 11.7 / 8.2 GB (`low`: best effort) | Contract checks, integration testing |
+
+Measured usage is below these sums (the `cases` node alone: ~5.4 / ~3.3 GB); intel figures are estimates until step 1.6.
 
 ---
 
@@ -430,7 +433,7 @@ Work in order. Each step ends with its check passing, then a local commit. Follo
 | 1.4 | core | n8n: stub workflows, `custom-n8n` integration, Wazuh credential, export/import scripts | C1 and C2 pass |
 | 1.5 | cases | Cassandra, Elasticsearch, TheHive, Cortex (Docker socket + job directory); bootstrap orgs, users, keys; TheHive → Cortex connector | TheHive and Cortex healthy; C5 passes; Cortex can start a test container |
 | 1.6 | cases-intel | MISP, bootstrap, seed event; MISP analyzer enabled in Cortex (certificate check per 4.1) and its image pulled | C7 passes |
-| 1.7 | full | n8n credentials for TheHive and Cortex; TheHive webhook; `healthcheck.sh`, `contracts-check.sh`, `mem-report.sh` | In `standard`: `healthcheck.sh` all green, C1–C8 all pass. Then switch to `low` and, for each dev mode (`core`, `cases`, `cases-intel`, `core-cases`), start it alone: healthchecks green, its relevant contracts pass, usage fits a 6 GB WSL allocation (D39). `full` on `low` is best effort (swap acceptable). Memory reports saved in `docs/` |
+| 1.7 | full | n8n credentials for TheHive and Cortex; TheHive webhook; `healthcheck.sh`, `contracts-check.sh`, `mem-report.sh` | In `standard`: `healthcheck.sh` all green, C1–C8 all pass. Then switch to `low` and, for each dev mode that must fit (`core`, `cases`, `cases-intel`), start it alone: healthchecks green, its relevant contracts pass, usage fits a 6 GB WSL allocation (D39). `core-cases` and `full` on `low` are best effort (swap acceptable). Memory reports saved in `docs/` |
 | 1.8 | full | Distribution simulation (14.3); `backup.sh` / `restore.sh` | Contracts pass in distributed mode. Backup round-trip: create a marker case in TheHive → `backup.sh cases --with-secrets` (reset deletes the secrets too) → `soc.sh reset cases` → `restore.sh cases` → marker case present, `healthcheck.sh` green and C3/C5 still pass |
 | 1.9 | — | Team handoff, prepared locally by Claude Code, in this order: (1) component READMEs with seeded backlogs (11.3) and `CONTRIBUTING.md` (light rules 11.1, export rules 11.2, onboarding 11.6); (2) **fresh-clone test**; (3) only if it passes, tag `v1.0-baseline` and create the five owner branches from the tag. **Then the integrator** pushes `main`, the tag and the branches to the private `asox-soc` repo on GitHub, and adds teammates as collaborators | **Fresh-clone test:** with the build instance stopped (`soc.sh down`), `git clone ~/asox-soc ~/asox-soc-fresh`, set `SOC_INSTANCE=fresh` in its `topology.env`, and `soc.sh init full` reaches a green `healthcheck.sh` (the different instance name guarantees it can't reuse the build instance's volumes); then `soc.sh reset` the fresh instance, delete `~/asox-soc-fresh`, and restart the build instance. Tag and branches exist locally; after the integrator's push, CI is green on GitHub; section 17 updated |
 
@@ -460,8 +463,8 @@ Work in order. Each step ends with its check passing, then a local commit. Follo
 The team workflow is deliberately simple: one branch per owner, merged into `main` at checkpoints.
 
 **Roles**
-- **Owner:** one per component (section 3). Develops only their component, on their own branch.
-- **Integrator:** the baseline builder. Owns the shared files, reviews and merges checkpoint pull requests, and tags milestones.
+- **Owner:** one per component (section 3): Wazuh: Daniel (@dmelgar1110); n8n: Inigo (@poinsot); Grafana: Jesus (@JC-535); TheHive: Park (@Jinhyuk-P); Cortex + MISP: Diego (@DiegoGuerraA00835430). Develops only their component, on their own branch.
+- **Integrator:** Inigo (@poinsot), the baseline builder. Owns the shared files, reviews and merges checkpoint pull requests, and tags milestones. The integrator is also the n8n owner and follows the light rules below for that component work like everyone else: n8n changes go on the `n8n` branch and reach `main` through checkpoint pull requests, ideally glanced at by a teammate before merging.
 - **Claude Code during component work:** owners may use Claude Code on their own branch if they want. Whether it commits or pushes for them is each owner's choice, but the light rules below still apply (e.g. only their own folders).
 
 **Branches**
@@ -587,13 +590,13 @@ At a **checkpoint** (every ~2 weeks, or when something works), follow rule 4 in 
 
 | Owner | `init` mode | Works in | Test loop | Contracts | Coordinates with |
 |---|---|---|---|---|---|
-| **Wazuh** | `core` (~3.6 GB) | Files in `nodes/core/wazuh/` (no Wazuh dashboard) | Edit rule → restart manager → `lab/trigger.sh` → `wazuh-query.sh` or Grafana | C1, C2, C8, later C9 | n8n (alert fields playbooks rely on) |
-| **n8n (SOAR)** | `core-cases` (~8.8 GB; small machines use the shared instance for integration work) | n8n UI `localhost:5678` (stub workflows and credentials pre-created) | Edit playbook → `lab/trigger.sh` → check execution and TheHive alert → `n8n-export.sh` | C1–C4, C6, later C9 | Wazuh (alert input), TheHive (alert/case format) |
-| **Grafana** | `core` (~3.6 GB) | Grafana UI `localhost:3000` (datasource and starter dashboard pre-provisioned; lab agent provides data) | Edit dashboard → `lab/trigger.sh` if more data is needed → `grafana-export.sh` | C8 | n8n and TheHive, later (case metrics such as response times) |
-| **TheHive** | `cases` (~5.2 GB) | TheHive UI `localhost:9000` (org, users and Cortex connector pre-created) | Configure → create test alerts via the API (Wazuh isn't running in this mode) → check alert and case flow | C3, C4, C5 | n8n (alert format), Cortex + MISP (analyzers shown to analysts) |
-| **Cortex + MISP** | `cases-intel` (~6.6 GB) | Cortex `localhost:9001` (MISP analyzer enabled); MISP `https://localhost:9443` (self-signed certificate warning is expected) | Add intel in MISP → run analyzers on test observables → check reports | C5, C6, C7 | Wazuh, later (MISP IOCs into Wazuh CDB lists) |
+| **Wazuh** | `core` (~3.8 GB) | Files in `nodes/core/wazuh/` (no Wazuh dashboard) | Edit rule → restart manager → `lab/trigger.sh` → `wazuh-query.sh` or Grafana | C1, C2, C8, later C9 | n8n (alert fields playbooks rely on) |
+| **n8n (SOAR)** | `core-cases` (~10.3 GB; best effort on `low`, so on an 8 GB machine use the shared instance for integration work; the current n8n owner uses the 32 GB machine) | n8n UI `localhost:5678` (stub workflows and credentials pre-created) | Edit playbook → `lab/trigger.sh` → check execution and TheHive alert → `n8n-export.sh` | C1–C4, C6, later C9 | Wazuh (alert input), TheHive (alert/case format) |
+| **Grafana** | `core` (~3.8 GB) | Grafana UI `localhost:3000` (datasource and starter dashboard pre-provisioned; lab agent provides data) | Edit dashboard → `lab/trigger.sh` if more data is needed → `grafana-export.sh` | C8 | n8n and TheHive, later (case metrics such as response times) |
+| **TheHive** | `cases` (~6.5 GB) | TheHive UI `localhost:9000` (org, users and Cortex connector pre-created) | Configure → create test alerts via the API (Wazuh isn't running in this mode) → check alert and case flow | C3, C4, C5 | n8n (alert format), Cortex + MISP (analyzers shown to analysts) |
+| **Cortex + MISP** | `cases-intel` (~7.9 GB) | Cortex `localhost:9001` (MISP analyzer enabled); MISP `https://localhost:9443` (self-signed certificate warning is expected) | Add intel in MISP → run analyzers on test observables → check reports | C5, C6, C7 | Wazuh, later (MISP IOCs into Wazuh CDB lists) |
 
-RAM figures are for `standard`; see section 8 for `low`. Modes that include `core` also generate the Wazuh certificates during `init`; nobody creates certificates by hand.
+RAM figures are the sums of the `standard` limits; see section 8 for `low` (where `core`, `cases` and `cases-intel` fit a 6 GB WSL allocation, D39). TheHive needs a free Community license after its 14-day trial (`nodes/cases/thehive/README.md`). Modes that include `core` also generate the Wazuh certificates during `init`; nobody creates certificates by hand.
 
 **First task for the TheHive and Cortex + MISP owners:** write export/import scripts for their UI-based configuration (TheHive templates and custom fields; enabled analyzers and MISP settings), since that's how their work reaches git. After that, every owner picks from their backlog in section 11.3 / their README.
 
@@ -806,18 +809,18 @@ These are the **design** decisions made while planning. Implementation choices m
 | D35 | The Grafana datasource uses the daily index pattern `[wazuh-alerts-4.x-]YYYY.MM.DD` (interval Daily) instead of `wazuh-alerts-*` | The OpenSearch plugin's health check can't pass with a wildcard pattern (it looks up the pattern itself as an index name); the daily pattern matches Wazuh's index naming and limits queries to the days in the time range |
 | D36 | n8n webhooks require a shared token: header `X-ASOX-Token: ${N8N_WEBHOOK_TOKEN}` (n8n Header Auth), generated per machine like the other secrets. Wazuh's `custom-n8n` integration sends it (C1); TheHive's webhook will too (C4, step 1.7). Contract checks verify that requests without it are rejected | Webhooks trigger playbooks that will change systems (C9); in distributed mode port 5678 is reachable on the LAN, so anyone could otherwise inject fake alerts |
 | D37 | n8n workflows read service URLs from n8n's environment (`$env.WAZUH_API_URL`, ...), so `N8N_BLOCK_ENV_ACCESS_IN_NODE=false`; the environment holds no secrets: API credentials are n8n credentials, and the encryption key is a Compose secret file | Exported workflows stay portable across machines and modes without hardcoded hosts; n8n's env access is all-or-nothing, so secrets must not be in the environment at all |
-| D38 | n8n memory raised to 0.6 / 0.5 GB (limits 640 / 448 MB) with an explicit Node.js heap (384 / 256 MB) | n8n 2.40 peaks at ~730 MB while starting (and ran out of heap at the planned 400 MB limit), then settles at ~350 MB; the explicit heap makes it start within the limit. The `low` profile total rises to ~6.4 GB, close to the ~6.5 GB target of step 1.7 |
-| D39 | Low-profile acceptance is per dev mode: `core`, `cases`, `cases-intel` and `core-cases` must each start, pass their healthchecks and relevant contracts, and fit a 6 GB WSL allocation; `full` on `low` is best effort (swap acceptable). Replaces "full stack ≤ ~6.5 GB" | Measured memory (Grafana, n8n) pushed the `low` full stack to ~6.4 GB; teammates on 8 GB machines work in one dev mode at a time (11.6), so that is what must fit |
+| D38 | n8n memory raised to 0.6 / 0.5 GB (limits 640 / 448 MB) with an explicit Node.js heap (384 / 256 MB); revised by D40 to limits 750 / 650 MB and heap 384 / 320 MB | n8n 2.40 peaks at ~730 MB while starting (and ran out of heap at the planned 400 MB limit), then settles at ~350 MB; the explicit heap makes it start within the limit. The `low` profile total rises to ~6.4 GB, close to the ~6.5 GB target of step 1.7 |
+| D39 | Low-profile acceptance is per dev mode: `core`, `cases` and `cases-intel` must each start, pass their healthchecks and relevant contracts, and fit a 6 GB WSL allocation; `core-cases` and `full` on `low` are best effort (swap acceptable). Replaces "full stack ≤ ~6.5 GB" | Measured memory pushed the `low` totals well above 6 GB for modes that combine core and cases; teammates on 8 GB machines work in `core`, `cases` or `cases-intel` (11.6), and n8n development (`core-cases`) happens on the integrator's 32 GB machine or the shared instance |
+| D40 | Container memory limits are sized from measured need: anonymous memory peak (cgroup `memory.stat`, through start, bootstrap, activity and idle) × 1.15 + 64 MiB for page cache, rounded up to 50 MiB; `memswap_limit` equals `mem_limit` for every container | Peaks from `docker stats` include reclaimable cache, and with swap allowed an undersized limit only showed up as silent swapping (Elasticsearch and TheHive in step 1.5) while healthchecks stayed green. Measurements in `docs/decisions.md` A56 |
 
 ---
 
 ## 16. Open questions (non-blocking for Phase 1)
 
 1. Teammates' Windows versions (10 or 11). Only matters for machines that host nodes of the shared instance in distributed mode (mirrored networking vs portproxy). Default: mirrored.
-2. Team members' GitHub usernames, so the integrator can add them as collaborators at step 1.9.
-3. Exact definitions of phases 2 and 3.
-4. How much RAM do teammates' machines have? This confirms whether the `low` profile is needed. Default: keep it, since it costs little.
-5. Who hosts and maintains the optional shared instance, and on which machines? Default: none until the team needs whole-chain testing.
+2. Exact definitions of phases 2 and 3.
+3. How much RAM do the Wazuh, Grafana, TheHive and Cortex + MISP owners' machines have? This confirms who needs the `low` profile (the n8n owner uses the 32 GB machine). Default: keep it, since it costs little.
+4. Who hosts and maintains the optional shared instance, and on which machines? Default: none until the team needs whole-chain testing.
 
 ---
 
@@ -830,7 +833,7 @@ These are the **design** decisions made while planning. Implementation choices m
 | 1.2 | Done (2026-09-25) | Lab agent image (Ubuntu 24.04 + wazuh-agent 4.14.8) enrolled with the enrollment password, `trigger.sh`. Agent `active`; test-rule alert from `lab-agent` found by `wazuh-query.sh`, also right after `init`, after `down`/`up` and after a restart. `soc.sh reset lab` removes the old registration so the agent can re-enroll (A30). |
 | 1.3 | Done (2026-09-25) | Grafana 12.4.11 (D34) with the pinned OpenSearch plugin only, datasource to `wazuh.indexer` with the root CA (daily index pattern, D35), starter dashboard "SOC Overview" (alerts over time, recent alerts, minimum-level filter), `grafana-export.sh` (round trip tested). `contracts-check.sh` started: C8 passes, the other contracts report SKIP until their steps. |
 | 1.4 | Done (2026-09-25) | n8n 2.40.7 (SQLite; `pg` profile available), owner and credentials by `bootstrap.sh`, stub workflows `recv-wazuh-alert` / `recv-thehive-event` and check workflow `chk-wazuh-api`, webhooks protected by a shared token (D36), `custom-n8n` integration, execution pruning, `n8n-export.sh` / `n8n-import.sh` (round trip stable). C1 (incl. token rejection) and C2 pass; C8 still passes. n8n needs more memory than planned (D38). |
-| 1.5 | Not started | |
+| 1.5 | Done (2026-09-25) | Cassandra 4.1.12, Elasticsearch 8.19.21, TheHive 5.7.6, Cortex 4.1.0 (StrangeBee reference without nginx). `bootstrap.sh cases`: Cortex org `SOC`, org admin, API users and keys for TheHive and n8n; TheHive admin password, org `SOC`, analyst, n8n Service account and key, Cortex connector. C5 passes; Cortex starts containers through the host socket, sharing its job directory; a real analyzer job ran on `soc-net` (analyzers reach MISP without a D16 exception, A49). Cortex runs non-root so its entrypoint can't chown the host's Docker socket (A50). TheHive: 14-day trial, then a Community license is needed (A53). Memory limits re-sized from measured need, swap capped everywhere (D40, A56); D39 narrowed to `core`, `cases`, `cases-intel`. Owners recorded. |
 | 1.6 | Not started | |
 | 1.7 | Not started | |
 | 1.8 | Not started | |

@@ -1,3 +1,63 @@
 # Shared storage for TheHive and Cortex (integrator-owned).
-# Services: cassandra, elasticsearch. Defined in build step 1.5.
-services: {}
+# Adapted from StrangeBee's reference (StrangeBeeCorp/docker, profile "testing").
+#   cassandra     : TheHive's primary database
+#   elasticsearch : TheHive's search index and Cortex's only database
+#                   (separate indexes: thehive*, cortex*)
+# Both stay internal to the cases node: never published, never on soc-net.
+services:
+  cassandra:
+    image: ${CASSANDRA_IMAGE}
+    hostname: cassandra
+    restart: unless-stopped
+    mem_limit: ${CASSANDRA_MEM}
+    memswap_limit: ${CASSANDRA_MEM}  # no swap: an undersized limit fails visibly (D40)
+    environment:
+      CASSANDRA_CLUSTER_NAME: TheHive
+      CASSANDRA_NUM_TOKENS: "4"
+      # Both must be set together (cassandra-env.sh).
+      MAX_HEAP_SIZE: ${CASSANDRA_HEAP}
+      HEAP_NEWSIZE: ${CASSANDRA_NEWSIZE}
+    volumes:
+      - cassandra-data:/var/lib/cassandra
+    healthcheck:
+      # Ready = accepts CQL queries, not just "process up".
+      test: ["CMD-SHELL", "cqlsh -e 'describe keyspaces' >/dev/null"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 90s
+
+  elasticsearch:
+    image: ${ELASTICSEARCH_IMAGE}
+    hostname: elasticsearch
+    restart: unless-stopped
+    mem_limit: ${ES_MEM}
+    memswap_limit: ${ES_MEM}  # no swap: an undersized limit fails visibly (D40)
+    environment:
+      discovery.type: single-node
+      cluster.name: hive
+      http.host: 0.0.0.0
+      thread_pool.search.queue_size: "100000"
+      thread_pool.write.queue_size: "100000"
+      bootstrap.memory_lock: "true"
+      # Authentication on, plain HTTP inside the node (PROJECT.md 4.1).
+      xpack.security.enabled: "true"
+      xpack.security.http.ssl.enabled: "false"
+      xpack.security.transport.ssl.enabled: "false"
+      ELASTIC_PASSWORD: ${ES_PASSWORD:?missing in .env, run scripts/render-env.sh}
+      ES_JAVA_OPTS: -Xms${ES_HEAP} -Xmx${ES_HEAP}
+    ulimits:
+      memlock: { soft: -1, hard: -1 }
+      nofile: { soft: 65536, hard: 65536 }
+    volumes:
+      - elasticsearch-data:/usr/share/elasticsearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf -u \"elastic:$$ELASTIC_PASSWORD\" 'http://localhost:9200/_cluster/health' | grep -Eq '\"status\":\"(green|yellow)\"'"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 60s
+
+volumes:
+  cassandra-data:
+  elasticsearch-data:

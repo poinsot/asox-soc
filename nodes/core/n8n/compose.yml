@@ -10,6 +10,7 @@ services:
     image: ${N8N_IMAGE}
     restart: unless-stopped
     mem_limit: ${N8N_MEM}
+    memswap_limit: ${N8N_MEM}  # no swap: an undersized limit fails visibly (D40)
     ports:
       - "${BIND_ADDR}:5678:5678"
     environment:
@@ -61,6 +62,7 @@ services:
     profiles: [pg]
     restart: unless-stopped
     mem_limit: ${N8N_POSTGRES_MEM}
+    memswap_limit: ${N8N_POSTGRES_MEM}  # no swap: an undersized limit fails visibly (D40)
     environment:
       POSTGRES_DB: n8n
       POSTGRES_USER: n8n
