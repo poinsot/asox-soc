@@ -7,9 +7,10 @@
 #   - __secret__    : a random secret is generated once, then kept;
 #   - __bootstrap__ : left empty until bootstrap.sh fills it, then kept;
 #   - __from:<node>__ : copied from the same key in nodes/<node>/.env when
-#                     that file exists on this machine; otherwise the value
-#                     already in .env is kept (pasted by hand in distributed
-#                     mode), with a warning while it is empty;
+#                     <node> runs on this machine (single-host mode, or the
+#                     same host in topology.env); otherwise the value already
+#                     in .env is kept (pasted by hand in distributed mode),
+#                     with a warning while it is empty;
 #   - anything else : copied from .env.example (e.g. pinned image tags).
 # Keys already in .env but no longer in .env.example are kept, with a warning.
 #
@@ -58,9 +59,11 @@ declare -A PROFILE_LOW=(
   [LAB_AGENT_MEM]=100m
 )
 
+# Host of a node in distributed mode. The lab agent has no host of its own:
+# it is treated as running on the core machine.
 node_host() {
   case $1 in
-    core)  printf '%s' "$TOPO_CORE_HOST" ;;
+    core|lab) printf '%s' "$TOPO_CORE_HOST" ;;
     cases) printf '%s' "$TOPO_CASES_HOST" ;;
     intel) printf '%s' "$TOPO_INTEL_HOST" ;;
   esac
@@ -116,15 +119,23 @@ derive() {
 # Value of <key> for <node> taken from nodes/<src>/.env, else the current
 # value. The source may be rendered before or after <node> in this run: the
 # copied values (secrets, bootstrap keys) are kept across renders anyway.
+# The source is only read when <src> runs on this machine: in single-host
+# mode, or in distributed mode when topology.env gives both nodes the same
+# host. Otherwise nodes/<src>/.env here is just a rendering of a node this
+# machine doesn't run (with its own, unused secrets), and the value pasted
+# by hand is kept.
 from_node() {
   local node=$1 key=$2 src=$3 current=$4 v=""
   is_node "$src" || die "$node: .env.example: unknown node in __from:${src}__ for $key"
-  [[ -f "$(node_dir "$src")/.env" ]] && v=$(env_get "$(node_dir "$src")/.env" "$key")
+  if [[ $TOPO_DEPLOY_MODE == single || $(node_host "$node") == "$(node_host "$src")" ]] \
+      && [[ -f "$(node_dir "$src")/.env" ]]; then
+    v=$(env_get "$(node_dir "$src")/.env" "$key")
+  fi
   [[ -n $v ]] || v=$current
   # In single-host mode an empty value is filled by a later render (after
   # the source node's bootstrap); only distributed mode needs a manual copy.
   if [[ -z $v && $TOPO_DEPLOY_MODE == distributed ]]; then
-    warn "$node: $key is empty; copy it from nodes/$src/.env on the $src machine" >&2
+    warn "$node: $key is empty; if $node runs on this machine, paste it from nodes/$src/.env on the $src machine" >&2
   fi
   printf '%s' "$v"
 }

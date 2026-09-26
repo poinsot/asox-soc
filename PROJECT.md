@@ -145,6 +145,7 @@ From these, `render-env.sh` derives every URL, `WAZUH_MANAGER_ADDR`, `BIND_ADDR`
 
 - **Single-host mode:** automatic. `soc.sh init` bootstraps `intel → cases → core → lab`, re-rendering every `.env` before each bootstrap, so a value created by an earlier bootstrap reaches the next node in the same `init` (A62). While the source value doesn't exist yet, the key stays empty without a warning. After a source node is reset or its keys are renewed, run `render-env.sh` and bootstrap the consumers again (e.g. `bootstrap.sh cases` after `soc.sh reset intel`, `bootstrap.sh core` after `soc.sh reset cases`, `bootstrap.sh cases` after `N8N_WEBHOOK_TOKEN` changes).
 - **Distributed mode:** the source `.env` is on another machine, so the value is **copied by hand**. Bootstrap the source node first; on its machine, read the key from `nodes/<source>/.env`; on the consuming machine, paste it as `KEY=value` into `nodes/<consumer>/.env`, then run `render-env.sh` (it keeps the pasted value) and `bootstrap.sh <consumer>`. `render-env.sh` warns about every `__from:` key that is still empty, in distributed mode only. The values are credentials: copy them over a trusted channel and never commit them.
+  - `render-env.sh` renders every node's `.env` on every machine, including nodes that machine doesn't run (with their own, unused secrets). So in distributed mode it copies a `__from:` value automatically only when `topology.env` gives the source and the consumer the **same host** (e.g. the one-machine simulation in 14.3); otherwise it never reads the local source `.env`, which would replace the pasted value with an unrelated one (A73). The lab agent counts as running on `CORE_HOST`.
 
 Moving a node to another machine: set it up there with `soc.sh init` (fresh) or restore a backup of it (section 9.2), update `topology.env` on **every** machine, run `render-env.sh`, restart the affected nodes, and run `healthcheck.sh --cross-node`.
 - If `core` moves: regenerate Wazuh certificates and re-enroll agents.
@@ -782,6 +783,8 @@ Each component `README.md` contains: purpose, owner, how to run it (run mode), t
 2. Run `render-env.sh`, then restart the nodes. With `DEPLOY_MODE=distributed`, `soc.sh` leaves out the `soc-net.yml` overrides, so nodes can only reach each other through published ports.
 3. `contracts-check.sh` must pass using only published ports.
 4. If a second computer is available: open the UIs from it and enroll an agent from it.
+
+**What the single-machine simulation doesn't cover** (step 1.8, A71, A73): all traffic stays inside one WSL VM, so it never crosses Windows Firewall or WSL's Hyper-V firewall (which blocks inbound by default: each hosting machine runs `windows/firewall-rules.ps1`), the LAN, or the Windows 10 `portproxy` fallback. All hosts are equal, so `__from:` values are still copied automatically; the manual copy between machines was checked separately by rendering a cases-only repo with distinct hosts (A73). Each node keeps the secrets, certificates and TheHive instance it already had, whereas a real move sets nodes up fresh or from a backup (section 4). Agent enrollment from another machine and clock differences between hosts aren't tested. The first real multi-host deployment (e.g. the shared instance) should run `healthcheck.sh --cross-node` and `contracts-check.sh` on the core machine.
 
 ---
 
