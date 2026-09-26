@@ -4,24 +4,33 @@ Read after PROJECT.md, before starting work (CLAUDE.md). Update at the end of ea
 
 ## Current state (2026-09-26)
 
-- **Step 1.8 done** (PROJECT.md section 17, docs/decisions.md A71, A72). **Next: step 1.9** (component READMEs + `CONTRIBUTING.md`, fresh-clone test, then tag `v1.0-baseline` and owner branches locally; the integrator pushes).
-- **Running: `full`** in `single` / `standard` (WSL 16 GB), healthcheck green. `topology.env` is back to `DEPLOY_MODE=single` (hosts back to the example values); every published port is on `127.0.0.1`.
-- **Backups on disk (git-ignored):** `backups/cases-20260926-152640/` (with secrets; the TheHive instance still on its trial, the one to keep until the license is activated) and `backups/intel-20260926-152438/` (with secrets; test). Both contain credentials.
-- **Testing budget (integrator, 2026-09-26):** memory measurements = startup peak + 5 min steady state per mode, longer only if still rising. Re-run a full reset+init or the whole contract suite only when a change touches that area; otherwise only the relevant checks. The fresh-clone test (1.9) stays as planned.
-- The integrator reviews after each step; approved so far: Cortex 4.1 + ES 8 (D27), Grafana 12.4 (D34), n8n memory (D38, revised by D40), D39 as revised in 1.5, D40, D41, D42, D43.
-- **Owners** (PROJECT.md section 3, 11.1): Wazuh Daniel (@dmelgar1110), n8n Inigo (@poinsot, also the integrator, on the 32 GB machine), Grafana Jesus (@JC-535), TheHive Park (@Jinhyuk-P), Cortex + MISP Diego (@DiegoGuerraA00835430). The integrator adds collaborators at step 1.9.
-- **TheHive trial of the build instance ends 2026-10-11.** The integrator is requesting a Community license. Until it's activated, don't `soc.sh reset cases` without restoring afterwards (D41). **Once activated: `scripts/backup.sh cases --with-secrets`**, and check C4 still passes (webhooks need the capability `notification.webhook`; `healthcheck.sh` warns if it's missing, A64).
+- **Phase 1 built locally: steps 1.0–1.9 done** (PROJECT.md section 17; docs/decisions.md up to A75). Tag `v1.0-baseline` and owner branches `wazuh`, `n8n`, `thehive`, `grafana`, `cortex-misp` exist **locally only**. **Next (integrator):** push `main`, the tag and the branches to the private `asox-soc` repo, add collaborators, check CI is green on GitHub; then component work starts (CONTRIBUTING.md).
+- **Running: `full`** in `single` / `standard` (WSL 16 GB), healthcheck green, ports on `127.0.0.1`.
+- **Backups on disk (git-ignored, contain credentials except core's):** `backups/cases-20260926-152640/` (with secrets; the TheHive trial instance, keep it until the license is activated), `backups/intel-20260926-152438/` (with secrets), `backups/core-20260926-153828/` (no secrets, 1.1 GB, made to measure the size).
+- **TheHive trial of the build instance ends 2026-10-11.** Once the Community license is activated: `scripts/backup.sh cases --with-secrets`, and check C4 still passes (webhooks need the capability `notification.webhook`; `healthcheck.sh` warns if it's missing, A64). Until then, don't `soc.sh reset cases` without restoring afterwards (D41).
+- **Testing budget (integrator, 2026-09-26):** memory measurements = startup peak + 5 min steady state per mode, longer only if still rising. Re-run a full reset+init or the whole contract suite only when a change touches that area; otherwise only the relevant checks.
+- The integrator reviews after each step; approved so far: Cortex 4.1 + ES 8 (D27), Grafana 12.4 (D34), n8n memory (D38, revised by D40), D39 as revised in 1.5, D40, D41, D42, D43. Not yet reviewed: A73 (the `__from:` fix in `render-env.sh`).
+- **Owners** (PROJECT.md section 3, 11.1; CONTRIBUTING.md): Wazuh Daniel (@dmelgar1110), n8n Inigo (@poinsot, also the integrator, on the 32 GB machine), Grafana Jesus (@JC-535), TheHive Park (@Jinhyuk-P), Cortex + MISP Diego (@DiegoGuerraA00835430).
 
-## Step 1.8 results (A71, A72)
+## Step 1.9 results (A73–A75)
 
-- **Distribution simulation:** all hosts = 192.168.1.64 (mirrored LAN IP); C1–C8 and `healthcheck.sh --cross-node` pass through published ports; `soc-net` empty. Needed after switching mode either way: `render-env.sh`, `gen-certs.sh --force intel`, `soc.sh down` + `up`, `bootstrap.sh cases` (webhook URL, MISP analyzer URL) and `bootstrap.sh core` (n8n credential URLs).
-- **Windows firewall:** WSL's Hyper-V firewall has default inbound **Block** and no ASOX rules exist; the simulation didn't need them (traffic stays in the VM). A second computer would need, in an Administrator PowerShell: `powershell -ExecutionPolicy Bypass -File \\wsl.localhost\Ubuntu-24.04\home\poinsot\asox-soc\windows\firewall-rules.ps1` (check the distro name with `wsl -l`).
-- **Backups:** `backup.sh cases --with-secrets` ~1 min, 9 MB; `restore.sh cases` ~1 min, same TheHive instance and license, no re-bootstrap needed with secrets. `intel` ~0.6 GB; `core` would be large (Wazuh's vulnerability feed ~9.5 GB in `wazuh_queue`). Restores of core, intel and lab were not run.
+- **1.8 follow-ups:** the `__from:` manual copy was checked on a cases-only copy of the repo with distinct hosts. It found a bug, now fixed (A73): `render-env.sh` renders every node's `.env`, so on a cases machine it had created a core `.env` with its own `N8N_WEBHOOK_TOKEN` and copied it over the pasted one. Now a local source `.env` is only read in single-host mode or when `topology.env` gives both nodes the same host (lab = `CORE_HOST`). PROJECT.md 14.3 lists what the single-machine simulation doesn't cover.
+- **Disk (A74):** images core 8.5 / cases 5.6 / intel 4.6 / lab 0.3 GB; volumes core 10.2 GB (Wazuh vulnerability feed 9.5 GB) / intel 1.9 / cases 0.1 GB; per mode ~19 / 6 / 12 / 25 / 31 GB (core / cases / cases-intel / core-cases / full). `backup.sh core` 1.1 GB in under 3 min.
+- **Fresh-clone test (A75):** `init full` with `SOC_INSTANCE=fresh` green in ~7 min; C1–C8 pass; fresh instance reset and deleted; build instance restarted.
 
-## Pending notes for later steps
+## Integrator backlog (after the push)
 
-- **Step 1.9:** component READMEs (Wazuh, n8n, Grafana, TheHive, Cortex, MISP) have owner, run mode, contracts with status, export notes and "Local patches and deprecations" lists; complete them with backlogs (11.3), update contract statuses after 1.7, and keep the patches list in every README. `CONTRIBUTING.md` gets 11.6 (including the 8 GB / VS Code note). The fresh-clone test (`SOC_INSTANCE=fresh`) gets its own TheHive trial; stop the build instance first (`soc.sh down`), and restart it afterwards.
+- **Exclude the re-downloadable Wazuh vulnerability feed** (`wazuh_queue` → `queue/vd/feed`, ~9.5 GB, possibly `queue/vd_updater` with it) **from core backups**, then test a core restore: the manager must re-download the feed on its own (A72, A74). Today core backups are ~1.1 GB, so this saves time and space, not correctness.
+- Restores of `core`, `intel` and `lab` haven't been run (only `cases`, A72).
+- Windows Firewall: `windows/firewall-rules.ps1` hasn't been run on any machine; a real multi-host deployment (e.g. the shared instance) needs it on each hosting machine (A71), plus the manual `__from:` copies (PROJECT.md section 4).
+- `COMPOSE_PROFILES=pg` for n8n's optional Postgres isn't managed by `soc.sh` (n8n README).
+- Open questions: PROJECT.md section 16 (shared instance host, license re-activation, teammates' RAM and Windows versions).
+- `healthcheck.sh` right after `soc.sh up` can report the lab agent `pending` for a few seconds (manager reconnection, A75); a short wait for `active` in `check_lab` would avoid the false FAIL.
+
+## Pending notes
+
 - After `soc.sh reset intel`, cases needs `render-env.sh` + `bootstrap.sh cases` (new MISP key, A61). After `soc.sh reset cases` or `restore.sh cases` **without** secrets: `render-env.sh` + `bootstrap.sh core` and `bootstrap.sh cases` (C4 rules take up to 5 min to apply).
+- Switching `DEPLOY_MODE` either way: `render-env.sh`, `gen-certs.sh --force intel`, `soc.sh down` + `up`, `bootstrap.sh cases` and `bootstrap.sh core` (A71).
 
 ## Gotchas learned
 
