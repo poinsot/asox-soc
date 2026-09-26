@@ -2,7 +2,9 @@
 
 Owner: Daniel (@dmelgar1110). Node: `core` (plus the `lab` test agent). Run mode: `core`.
 
-Collects events from agents and syslog, decodes them, classifies them with rules, stores alerts in the Wazuh indexer and forwards relevant alerts to n8n. The full component README (contracts, export rules, backlog) is completed at the end of Phase 1; this file already covers the operations below.
+Collects events from agents and syslog, decodes them, classifies them with rules, stores alerts in the Wazuh indexer and forwards relevant alerts to n8n.
+
+**Start here:** [CONTRIBUTING.md](../../../CONTRIBUTING.md) (light rules, exporting changes, onboarding), then this file. First time: `./scripts/soc.sh init core`; then `soc.sh up core` / `soc.sh down`. Test loop: edit a rule → `docker restart <instance>-core-wazuh-manager-1` → `nodes/lab/trigger.sh` → `scripts/wazuh-query.sh` or Grafana. Details: [PROJECT.md](../../../PROJECT.md) 6.1.
 
 | Folder / file | What it is |
 |---|---|
@@ -22,7 +24,7 @@ In the commands below, `<instance>` is `SOC_INSTANCE` from `topology.env` (defau
 - **Adding or editing** a rule or decoder file: edit it, then restart the manager and check the result:
   ```bash
   docker restart <instance>-core-wazuh-manager-1
-  nodes/lab/trigger.sh    # (step 1.2) or send a test event, then:
+  nodes/lab/trigger.sh    # prints the test event ID; then:
   scripts/wazuh-query.sh --rule <id>
   ```
   Editing or deleting individual `<rule>`/`<decoder>` entries inside a file works the same way, since the whole file is copied over.
@@ -83,11 +85,11 @@ A containerized Wazuh agent (`lab-agent`), enrolled exactly like a real endpoint
 
 ## Contracts and exporting changes
 
-| Contract | Role | Status (build step) |
+| Contract | Role | Status at `v1.0-baseline` |
 |---|---|---|
-| C1 Wazuh → n8n | Sends alerts with level ≥ `WAZUH_ALERT_MIN_LEVEL` through `custom-n8n`, with the webhook token | Passes (1.4) |
-| C2 n8n → Wazuh API | Provides the read-only user `n8n-api` | Passes (1.4) |
-| C8 Grafana → Wazuh indexer | Provides the read-only user `grafana-ro` (`wazuh-alerts-*`) | Passes (1.3) |
+| C1 Wazuh → n8n | Sends alerts with level ≥ `WAZUH_ALERT_MIN_LEVEL` through `custom-n8n`, with the webhook token | Passes |
+| C2 n8n → Wazuh API | Provides the read-only user `n8n-api` | Passes |
+| C8 Grafana → Wazuh indexer | Provides the read-only user `grafana-ro` (`wazuh-alerts-*`) | Passes |
 | C9 n8n → endpoints (Phase 2) | Active response through the API; extends `n8n-api`'s role (contract change) | Planned |
 
 Check: `scripts/contracts-check.sh --only C1,C2,C8`. **Exporting changes:** Wazuh is configured by files (`config/`, `rules/`, `decoders/`, `integrations/`): edit, restart the manager, commit (section "How configuration reaches the manager"). Changing a contract needs the other owner's agreement first (PROJECT.md 5).
@@ -108,6 +110,13 @@ Everything here works around upstream behaviour or depends on details of the pin
 | Index names `wazuh-alerts-4.x-*` | Used by `grafana-ro`'s role (A19), `wazuh-query.sh` and the Grafana datasource pattern (D35) | Wazuh 5 renames the alert indices: update all three with the Grafana owner |
 | Lab agent image (`nodes/lab/Dockerfile`) | `wazuh-agent=<version>-1` from the Wazuh apt repository on a dated Ubuntu tag (A28) | Must match the manager version; rebuild with `soc.sh init core` |
 
-## Backlog notes
+## Backlog (PROJECT.md 11.3)
 
-- Restrict syslog sources (`<allowed-ips>` of the 514/udp listener in `config/ossec.conf`, currently any source) to the real devices before `core` is exposed on a LAN (PROJECT.md 11.3).
+Pick from this list; Phase 1 only built the baseline.
+
+- **Restrict syslog sources** (`<allowed-ips>` of the 514/udp listener in `config/ossec.conf`, currently any source) to the real devices before `core` is exposed on a LAN.
+- Detection rules and decoders for the environment; false-positive tuning; the alert level threshold (`WAZUH_ALERT_MIN_LEVEL`, default 7).
+- Agent groups and policies; an enrollment guide for real endpoints (the lab agent is the reference).
+- Decoders for pfSense and router logs; MITRE ATT&CK mapping.
+- CDB lists fed from MISP IOCs (with the Cortex + MISP owner).
+- Later: response actions through C9 (Phase 2, with the n8n owner).

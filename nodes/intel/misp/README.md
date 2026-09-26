@@ -2,7 +2,9 @@
 
 Owner: Diego (@DiegoGuerraA00835430). Node: `intel`. Run mode: `cases-intel`.
 
-MISP stores threat intelligence (events, IOCs, tags, galaxies) and can share it; Cortex's MISP analyzer searches it (contract C7). The full component README (contracts, export rules, backlog) is completed at the end of Phase 1; this file already covers the operations below.
+MISP stores threat intelligence (events, IOCs, tags, galaxies) and can share it; Cortex's MISP analyzer searches it (contract C7).
+
+**Start here:** [CONTRIBUTING.md](../../../CONTRIBUTING.md) (light rules, exporting changes, onboarding), then this file. First time: `./scripts/soc.sh init cases-intel`; then `soc.sh up cases-intel` / `soc.sh down`. Test loop: add intel in MISP → run analyzers on test observables in Cortex → check the reports. Details: [PROJECT.md](../../../PROJECT.md) 6.5.
 
 | Folder / file | What it is |
 |---|---|
@@ -33,9 +35,9 @@ If the Cortex user's key changes (e.g. after `soc.sh reset intel`), Cortex needs
 
 ## Contracts and exporting changes
 
-| Contract | Role | Status (build step) |
+| Contract | Role | Status at `v1.0-baseline` |
 |---|---|---|
-| C7 Cortex → MISP | Provides the Read Only user `cortex@asox.local`, its API key and the seed event | Passes (1.6) |
+| C7 Cortex → MISP | Provides the Read Only user `cortex@asox.local`, its API key and the seed event | Passes |
 
 Check: `scripts/contracts-check.sh --only C7`. **Exporting changes:** MISP's settings, taxonomies, feeds and events live in its database; export/import scripts in this folder are the owner's task (PROJECT.md 11.2); the seed event is `seed/seed-event.json`. Changing a contract needs the other owner's agreement first (PROJECT.md 5).
 
@@ -53,3 +55,12 @@ Pinned: `misp-core` / `misp-nginx` v2.5.47, `misp-modules` v3.0.10, `mariadb` 10
 | MariaDB `--innodb-buffer-pool-size=${MARIADB_BUFFER_POOL}` (256M / 128M instead of 2048M) | Memory profile (A58, A63) | Other `command` flags still match upstream |
 | Bootstrap API calls: `/users/view/me`, `/roles`, `/admin/users`, `/admin/users/add`, `/admin/users/edit`, `/auth_keys/add`, `/events/restSearch`, `/events/add`, `/events/publish/<id>/disable_email:1` | A60 | `bootstrap.sh intel` on a fresh instance, twice |
 | Memory: limits in PROJECT.md section 8, swap capped at the limit | Measured need (D40, A63) | Re-measure the anonymous memory peak (`memory.stat`) through a start (component loading) and some API activity |
+
+## Backlog (PROJECT.md 11.3)
+
+Pick from this list; Phase 1 only built the baseline.
+
+- MISP feeds, warninglists, taxonomies and galaxies; decaying models.
+- Exporting confirmed case IOCs from TheHive to MISP (an analyst-triggered responder is allowed: it doesn't change systems, D12).
+- Proactive detection: MISP IOCs pushed to Wazuh CDB lists (with the Wazuh owner), and to Snort in Phase 2.
+- Export/import scripts for MISP's configuration (with the Cortex backlog's first task).

@@ -2,7 +2,9 @@
 
 Owner: Inigo (@poinsot), also the integrator. Node: `core`. Run mode: `core-cases` (`core` is enough for C1/C2 work).
 
-n8n is the platform's SOAR and integration hub, and the **only** component that executes automated actions that change systems (PROJECT.md 6.2, D12). The full component README (contracts, backlog) is completed at the end of Phase 1; this file already has the conventions and operations.
+n8n is the platform's SOAR and integration hub, and the **only** component that executes automated actions that change systems (PROJECT.md 6.2, D12).
+
+**Start here:** [CONTRIBUTING.md](../../../CONTRIBUTING.md) (light rules, exporting changes, onboarding), then this file. First time: `./scripts/soc.sh init core-cases`; then `soc.sh up core-cases` / `soc.sh down`. Test loop: edit a playbook → `nodes/lab/trigger.sh` → check the execution and the TheHive alert → `scripts/n8n-export.sh` (`core-cases` is best effort on 8 GB machines: use a 16 GB+ machine or the shared instance). Details: [PROJECT.md](../../../PROJECT.md) 6.2.
 
 | Folder / file | What it is |
 |---|---|
@@ -74,13 +76,13 @@ scripts/n8n-import.sh            # workflows/*.json -> n8n (after git pull); OVE
 
 ## Contracts
 
-| Contract | Role | Status (build step) |
+| Contract | Role | Status at `v1.0-baseline` |
 |---|---|---|
-| C1 Wazuh → n8n | Receives alerts on `recv-wazuh-alert` (token required) | Passes (1.4) |
-| C2 n8n → Wazuh API | Credential "Wazuh API (n8n-api)", checked by `chk-wazuh-api` | Passes (1.4) |
-| C3 n8n → TheHive | Credential "TheHive API (n8n)" (Service account `n8n@asox.local`), checked by `chk-thehive-api` | Passes (1.7) |
-| C4 TheHive → n8n | Receives TheHive events on `recv-thehive-event` (token as `Authorization: Bearer`) | Passes (1.7) |
-| C6 n8n → Cortex | Credential "Cortex API (n8n)" (user `n8n`), checked by `chk-cortex-api` | Passes (1.7) |
+| C1 Wazuh → n8n | Receives alerts on `recv-wazuh-alert` (token required) | Passes |
+| C2 n8n → Wazuh API | Credential "Wazuh API (n8n-api)", checked by `chk-wazuh-api` | Passes |
+| C3 n8n → TheHive | Credential "TheHive API (n8n)" (Service account `n8n@asox.local`), checked by `chk-thehive-api` | Passes |
+| C4 TheHive → n8n | Receives TheHive events on `recv-thehive-event` (token as `Authorization: Bearer`) | Passes |
+| C6 n8n → Cortex | Credential "Cortex API (n8n)" (user `n8n`), checked by `chk-cortex-api` | Passes |
 | C9 n8n → endpoints (Phase 2) | Response actions through Wazuh active response | Planned |
 
 Check: `scripts/contracts-check.sh --only C1,C2,C3,C4,C6`. Exporting changes: section "Keeping workflows as code". Changing a contract needs the other owner's agreement first (PROJECT.md 5).
@@ -101,3 +103,14 @@ Pinned: `n8nio/n8n` 2.40.7 (`postgres` 16.15 for the optional `pg` profile). On 
 | Credentials with fixed IDs (`asoxWebhookToken`, `asoxWebhookBear1`, `asoxWazuhApiRo01`, `asoxTheHiveApi01`, `asoxCortexApi001`) and types `httpHeaderAuth` / `httpBasicAuth` / `theHiveProjectApi` / `cortexApi` | Exported workflows reference credentials by ID (A44) | Credential types still exist (fields `ApiKey`, `url`; `cortexApiKey`, `host`); C1–C4 and C6 pass |
 | `recv-thehive-event` authenticates `Authorization: Bearer` instead of `X-ASOX-Token` | TheHive's webhook endpoints can't send custom headers (A64, D43) | If a TheHive upgrade supports headers, C4 could move back to `X-ASOX-Token` (contract change) |
 | Secrets as Compose secret files (`N8N_ENCRYPTION_KEY_FILE`, `DB_POSTGRESDB_PASSWORD_FILE`) | Workflows can read the whole environment (D37, A42) | The `*_FILE` variables are still supported |
+
+## Backlog (PROJECT.md 11.3)
+
+Pick from this list; Phase 1 only built the baseline.
+
+- **Router de Playbooks** on `recv-wazuh-alert` (and `recv-thehive-event`).
+- Playbooks per alert type (e.g. SSH brute force, malware hash, IDS alert, generic), following the conventions above.
+- `lib-` sub-workflows for enrichment (Cortex) and TheHive updates.
+- Alert deduplication before TheHive; error handling and retries.
+- Analyst approval flow (in TheHive first, Slack in Phase 3).
+- Response actions via C9 (Phase 2, with the Wazuh owner).

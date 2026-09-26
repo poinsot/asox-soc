@@ -2,7 +2,9 @@
 
 Owner: Jesus (@JC-535). Node: `core`. Run mode: `core`.
 
-Analytic dashboards and SOC metrics; the replacement for the Wazuh dashboard. The full component README (contracts, backlog) is completed at the end of Phase 1; this file already covers the operations below.
+Analytic dashboards and SOC metrics; the replacement for the Wazuh dashboard.
+
+**Start here:** [CONTRIBUTING.md](../../../CONTRIBUTING.md) (light rules, exporting changes, onboarding), then this file. First time: `./scripts/soc.sh init core`; then `soc.sh up core` / `soc.sh down`. Test loop: edit a dashboard in the UI → `nodes/lab/trigger.sh` if you need more data → `scripts/grafana-export.sh`. Details: [PROJECT.md](../../../PROJECT.md) 6.3.
 
 | Folder / file | What it is |
 |---|---|
@@ -31,9 +33,9 @@ A dashboard keeps its file (matched by `uid`); a new one becomes `provisioning/d
 
 ## Contracts and exporting changes
 
-| Contract | Role | Status (build step) |
+| Contract | Role | Status at `v1.0-baseline` |
 |---|---|---|
-| C8 Grafana → Wazuh indexer | OpenSearch datasource `wazuh-indexer` as `grafana-ro` | Passes (1.3) |
+| C8 Grafana → Wazuh indexer | OpenSearch datasource `wazuh-indexer` as `grafana-ro` | Passes |
 
 Check: `scripts/contracts-check.sh --only C8`. Exporting changes: `scripts/grafana-export.sh` (section "Editing dashboards"). Reading other data (e.g. TheHive metrics) is a contract change agreed with that owner (PROJECT.md 5).
 
@@ -47,4 +49,12 @@ Pinned: `grafana/grafana` 12.4.11 and `grafana-opensearch-datasource` 2.34.4. On
 - The admin login is set on Grafana's first start only; to change it later: `docker exec -it <instance>-core-grafana-1 grafana cli admin reset-admin-password '<new>'` and update `nodes/core/.env`.
 - **Datasource `flavor: opensearch`, `version: 2.19.6`** (`provisioning/datasources/wazuh-indexer.yml`, A36): the OpenSearch version inside the Wazuh indexer (its `/` reports 7.10.2 for compatibility). Update it when the Wazuh indexer is upgraded (Wazuh owner).
 - **Index pattern `[wazuh-alerts-4.x-]YYYY.MM.DD`** (D35) follows Wazuh 4.x index names; Wazuh 5 renames them (coordinate with the Wazuh owner).
-- **Memory:** limit `GRAFANA_MEM` 256m / 200m, with swap capped at the limit (D40). Re-measure after an upgrade: anonymous memory peak from the container's `memory.stat`, not `docker stats` (which includes page cache).
+- **Memory:** limit `GRAFANA_MEM` 256m / 250m, with swap capped at the limit (D40). Re-measure after an upgrade: anonymous memory peak from the container's `memory.stat`, not `docker stats` (which includes page cache).
+
+## Backlog (PROJECT.md 11.3)
+
+Pick from this list; Phase 1 only built the baseline.
+
+- Real SOC metrics: alert volume, top rules and agents, MTTD/MTTR (with TheHive data: a contract change with the TheHive owner).
+- Dashboards per audience (analyst, management).
+- Grafana alerting (`provisioning/alerting/`).

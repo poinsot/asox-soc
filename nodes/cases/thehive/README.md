@@ -2,7 +2,9 @@
 
 Owner: Park (@Jinhyuk-P). Node: `cases`. Run mode: `cases`.
 
-Alert triage and case management for analysts. The full component README (contracts, export rules, backlog) is completed at the end of Phase 1; this file already covers the operations below.
+Alert triage and case management for analysts. **Apply your Community license before the 14-day trial ends** (section License).
+
+**Start here:** [CONTRIBUTING.md](../../../CONTRIBUTING.md) (light rules, exporting changes, onboarding), then this file. First time: `./scripts/soc.sh init cases`; then `soc.sh up cases` / `soc.sh down`. Test loop: configure in the UI → create test alerts through the API (Wazuh doesn't run in this mode) → check the alert and case flow. Details: [PROJECT.md](../../../PROJECT.md) 6.4.
 
 | Folder / file | What it is |
 |---|---|
@@ -58,11 +60,11 @@ Re-activating for a new instance ID uses the same portal page ("Activate or View
 
 ## Contracts and exporting changes
 
-| Contract | Role | Status (build step) |
+| Contract | Role | Status at `v1.0-baseline` |
 |---|---|---|
-| C3 n8n → TheHive | Provides the Service account `n8n@asox.local` and its API key | Passes (1.7) |
-| C4 TheHive → n8n | Webhook (endpoint `n8n` + notification rule "n8n (C4)"), token as `Authorization: Bearer` | Passes (1.7) |
-| C5 TheHive → Cortex | Cortex connector (server "Cortex") | Passes (1.5) |
+| C3 n8n → TheHive | Provides the Service account `n8n@asox.local` and its API key | Passes |
+| C4 TheHive → n8n | Webhook (endpoint `n8n` + notification rule "n8n (C4)"), token as `Authorization: Bearer` | Passes |
+| C5 TheHive → Cortex | Cortex connector (server "Cortex") | Passes |
 
 Check: `scripts/contracts-check.sh --only C3,C4,C5` (C3 and C4 create a test alert with `source: contract-check` and delete it). **Exporting changes:** TheHive's configuration (case templates, custom fields, ...) lives in its database; export/import scripts in this folder are the owner's first task (PROJECT.md 11.2, 11.6). Changing a contract needs the other owner's agreement first (PROJECT.md 5).
 
@@ -82,3 +84,12 @@ Pinned: `strangebee/thehive` 5.7.6, `cassandra` 4.1.12, `elasticsearch` 8.19.21 
 | Cassandra without authentication | Internal to the cases node, never published or on `soc-net` (A52) | — |
 | License: challenge from `GET /api/v1/license/challenge` (instance ID from the graph variable `instance-id`), status from `GET /api/v1/status` → `.license` (`kind`, `plan`, `expiresAt`, `isValid`) | Used by `soc.sh info` and the bootstrap warning (A57) | Both endpoints still answer; a reset still starts a new trial |
 | Memory: `THEHIVE_MEM` 1900m / 1300m, swap capped at the limit | Measured need (PROJECT.md D40): TheHive uses ~550 MB beyond its heap | Re-measure the anonymous memory peak (`memory.stat`) through start, bootstrap and some API activity |
+
+## Backlog (PROJECT.md 11.3)
+
+Pick from this list; Phase 1 only built the baseline.
+
+- **First task:** export/import scripts for the UI configuration (case templates, custom fields), in this folder, so your work reaches git (PROJECT.md 11.2).
+- Case templates and tasks; custom fields; severity / TLP / PAP mapping.
+- Alert-to-case rules (with the n8n owner: alert format).
+- Users and roles for the team (the Community license allows 2 Normal users); triage procedures.

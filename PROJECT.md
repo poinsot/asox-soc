@@ -415,7 +415,7 @@ Git never carries data: TheHive cases, MISP events, Cortex job history, n8n exec
 4. Restarts the node.
 - Output: `backups/<node>-<timestamp>/` (git-ignored), or `<dir>/<node>-<timestamp>/` with `--out <dir>`.
 - `--with-secrets` also includes the node's generated `.env` and, for `core` and `intel`, their certificates (Wazuh; MISP). These contain credentials; store them accordingly and never commit them.
-- Size: `cases` and `lab` are small; `intel` ~0.6 GB compressed with the seed data; `core` is the largest, since its manager volumes hold Wazuh's downloaded vulnerability feed (~9.5 GB before compression, docs/decisions.md A72).
+- Size (measured, compressed): `core` ~1.1 GB (its 10.2 GB of volumes are mostly Wazuh's downloaded vulnerability feed, `queue/vd/feed`, ~9.5 GB, which compresses to ~1 GB; ~3 min, during which core is stopped), `intel` ~0.6 GB (~1.5 min), `cases` a few MB (~1 min); the `lab` volume holds ~2 MB (docs/decisions.md A72). Disk per mode: `CHECKLIST.md` section 1.
 
 **`scripts/restore.sh <node> <backup-dir> [--force] [--yes]`**
 1. Verifies the checksums.
@@ -716,7 +716,10 @@ asox-soc/
 │   ├── lib/
 │   │   ├── common.sh           # shared helpers sourced by the other scripts
 │   │   ├── n8n.sh              # n8n API / CLI helpers (bootstrap, import/export, checks)
-│   │   └── wazuh.sh            # Wazuh API / indexer helpers (bootstrap, reset)
+│   │   ├── wazuh.sh            # Wazuh API / indexer helpers (bootstrap, reset)
+│   │   ├── cases.sh            # TheHive / Cortex API helpers, TheHive license
+│   │   ├── misp.sh             # MISP API helpers
+│   │   └── backup.sh           # shared by backup.sh / restore.sh
 │   ├── preflight.sh
 │   ├── render-env.sh
 │   ├── gen-certs.sh
@@ -736,7 +739,9 @@ asox-soc/
 │   ├── firewall-rules.ps1
 │   └── portproxy.ps1
 └── docs/
-    └── decisions.md
+    ├── decisions.md            # implementation choices (A1...), pinned versions
+    ├── handoff.md              # state between Claude Code sessions
+    └── mem-report-*.md         # memory measurements (mem-report.sh)
 ```
 
 Each `nodes/<node>/` directory must be runnable on its own. Nothing in it may reference files outside that directory.
@@ -845,7 +850,8 @@ These are the **design** decisions made while planning. Implementation choices m
 1. Teammates' Windows versions (10 or 11). Only matters for machines that host nodes of the shared instance in distributed mode (mirrored networking vs portproxy). Default: mirrored.
 2. Exact definitions of phases 2 and 3.
 3. How much RAM do the Wazuh, Grafana, TheHive and Cortex + MISP owners' machines have? This confirms who needs the `low` profile (the n8n owner uses the 32 GB machine). Default: keep it, since it costs little.
-4. Who hosts and maintains the optional shared instance, and on which machines? Default: none until the team needs whole-chain testing.
+4. Who hosts and maintains the optional shared instance, and on which machines? Default: none until the team needs whole-chain testing. Whoever hosts it runs `windows/firewall-rules.ps1` on each hosting machine (A71) and pastes the `__from:` values between machines (section 4).
+5. Can one TheHive Community license be re-activated on a new instance (after `soc.sh reset cases`, or for the fresh-clone and shared instances)? StrangeBee doesn't document it (A57). Default: avoid resets, restore backups instead; ask StrangeBee when requesting the license.
 
 ---
 

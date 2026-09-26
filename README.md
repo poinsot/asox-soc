@@ -31,6 +31,9 @@ The repo never contains secrets, certificates or data: `init` generates them on 
 | `scripts/preflight.sh [mode]` | Checks the machine is ready |
 | `scripts/render-env.sh` | Renders `nodes/<node>/.env` from `topology.env` (run after editing it) |
 | `scripts/soc.sh` | `init`, `up`, `down`, `status`, `info`, `reset` |
+| `scripts/healthcheck.sh [--cross-node]` | Health of the running nodes |
+| `scripts/contracts-check.sh [--only C3,C4]` | Integration contracts C1–C8 |
+| `scripts/backup.sh` / `scripts/restore.sh` | Back up and restore a node's data (`--with-secrets` for its `.env` and certificates) |
 | `scripts/ci-checks.sh all` | The CI checks, run locally (compose config, shellcheck, JSON/XML, secret scan) |
 
-Team workflow and onboarding: `CONTRIBUTING.md` (added at the end of Phase 1). Implementation choices and pinned versions: [docs/decisions.md](docs/decisions.md).
+Team workflow and onboarding: [CONTRIBUTING.md](CONTRIBUTING.md); each component's `README.md` is in its folder under `nodes/`. Implementation choices and pinned versions: [docs/decisions.md](docs/decisions.md).
