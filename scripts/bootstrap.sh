@@ -440,6 +440,7 @@ bootstrap_thehive() {
   r=$(thehive_admin PUT /api/v1/admin/config/cortex "$body")
   expect "TheHive: Cortex connector" "$r" 204 200 || return
   pass "TheHive: Cortex connector -> $(cases_env CORTEX_URL)"
+  thehive_license_check
 }
 
 bootstrap_cases() {

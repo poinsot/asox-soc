@@ -75,3 +75,49 @@ cortex_test_container() {
   compose cases exec -T cortex docker run --rm -v "$host_dir:/jobs" "$image" rm -rf "/jobs/$name" >/dev/null 2>&1 || true
   [[ $out == ok ]] || { echo "the container's output is not visible in Cortex's job directory"; return 1; }
 }
+
+# ---- TheHive license (docs/decisions.md A57) ----
+
+# Warn when a trial has this many days left or fewer.
+THEHIVE_LICENSE_WARN_DAYS=${THEHIVE_LICENSE_WARN_DAYS:-3}
+
+# Prints "<kind>|<plan>|<expires epoch s>|<isValid>" from /api/v1/status;
+# returns 1 if TheHive doesn't answer.
+thehive_license_status() {
+  local r
+  r=$(thehive_admin GET /api/v1/status)
+  [[ $(http_code "$r") == 200 ]] || return 1
+  http_body "$r" | jq -r '.license // {} | "\(.kind // "none")|\(.plan // "none")|\((.expiresAt // 0) / 1000 | floor)|\(.isValid // false)"'
+}
+
+# One-line description, e.g. "Platinum Trial, valid until 2026-10-11 (15 days left)".
+thehive_license_describe() {
+  local kind plan exp valid days
+  IFS='|' read -r kind plan exp valid <<<"$1"
+  days=$(( (exp - $(date +%s)) / 86400 ))
+  if [[ $valid == true ]]; then
+    printf '%s %s, valid until %s (%d days left)' "$plan" "$kind" "$(date -u -d "@$exp" +%F)" "$days"
+  else
+    printf '%s %s, NOT VALID (expiry date %s): TheHive is read-only' "$plan" "$kind" "$(date -u -d "@$exp" +%F)"
+  fi
+}
+
+# PASS, or WARN when TheHive is read-only (no valid license) or on a trial
+# with THEHIVE_LICENSE_WARN_DAYS days left or fewer. Never fails.
+thehive_license_check() {
+  local s kind plan exp valid days hint
+  if ! s=$(thehive_license_status); then
+    warn "TheHive license: status not available (is TheHive running?)"
+    return 0
+  fi
+  IFS='|' read -r kind plan exp valid <<<"$s"
+  days=$(( (exp - $(date +%s)) / 86400 ))
+  hint="request a free Community license and apply it (nodes/cases/thehive/README.md, section License)"
+  if [[ $valid != true ]]; then
+    warn "TheHive license: $(thehive_license_describe "$s"); $hint"
+  elif [[ $kind == Trial ]] && (( days <= THEHIVE_LICENSE_WARN_DAYS )); then
+    warn "TheHive license: $(thehive_license_describe "$s"); then TheHive becomes read-only: $hint"
+  else
+    pass "TheHive license: $(thehive_license_describe "$s")"
+  fi
+}

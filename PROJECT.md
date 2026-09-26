@@ -234,7 +234,7 @@ Each component section lists its long-term **role** and what Phase 1 delivers as
   - Bootstrap creates the SOC organization, an analyst user and an API user for n8n (C3).
   - Webhook to n8n configured (C4).
   - Cortex connector configured (C5).
-  - The TheHive 5 community license limits are recorded in `docs/decisions.md`.
+  - **License (D41):** a new instance runs a 14-day Platinum trial, then becomes read-only until a license is activated. Each person who runs the `cases` node requests a free **Community license** (2 users, 1 organisation, 1 Cortex server, 1 MISP server; Service accounts don't count) and activates it with a challenge from their instance. The key is bound to TheHive's **instance ID**, which lives in TheHive's database (Cassandra), not in the machine: `soc.sh reset cases` or a fresh `init` creates a new instance (new trial, license activated again); `restore.sh cases` brings back the backup's instance and license. `soc.sh info` shows the license; `bootstrap.sh` warns when it is read-only or a trial has 3 days or less left. Procedure: `nodes/cases/thehive/README.md`; details in `docs/decisions.md` A53, A57.
 - **How it uses storage:** Cassandra is the primary database. Elasticsearch is the search index, which can be rebuilt from Cassandra. The Elasticsearch instance is shared with Cortex, which uses separate indexes.
 
 ### 6.5 Cortex + MISP (`cases` + `intel`) — "Inteligencia de amenazas"
@@ -412,6 +412,7 @@ Git never carries data: TheHive cases, MISP events, Cortex job history, n8n exec
 **Rules:**
 - A backup is always a **whole node**, so volumes that belong together stay consistent: Cassandra + Elasticsearch in `cases`; MariaDB + MISP files in `intel`; indexer, manager, n8n and Grafana in `core`.
 - Restore only onto the same pinned image versions.
+- **TheHive license:** it lives in the `cases` data (bound to TheHive's instance ID in Cassandra), so `restore.sh cases` restores the license the instance had at backup time, on any machine. `soc.sh reset cases` loses it (new instance, new trial): activate it again afterwards with the new instance's challenge (6.4, D41).
 
 **Uses:**
 - Protecting the shared instance and the baseline machine against broken volumes.
@@ -530,6 +531,7 @@ Some components are configured in a UI and store their state in a database, so c
 
 - **Local (default):** each teammate completes `CHECKLIST.md`, clones the repo, sets `MEM_PROFILE` in `topology.env` for their machine (`low` on 8 GB), and runs `soc.sh init <mode>` once. After that, `soc.sh up <mode>` / `soc.sh down`. Secrets and API keys differ per teammate and stay in local `.env` files. The mode per component and the day-to-day loop are in 11.6.
 - **Shared (optional):** one instance deployed in distributed mode across team machines, used for integration testing and demos. It runs `main` only, so it changes only at checkpoints. Who hosts and maintains it is open (§16).
+  - Its TheHive needs its own Community license (activated by whoever hosts `cases`), which allows **only 2 Normal user accounts**: the team can't each have a personal TheHive login there. Use the bootstrapped analyst account (plus at most one more Normal user); API integrations use Service accounts, which don't count (6.4, D41).
 - **Every teammate develops on Windows + WSL2** (section 7, D18).
 - Before merging a change that touches a contract, run `contracts-check.sh` in `full` mode, locally or on the shared instance.
 
@@ -563,6 +565,7 @@ Everything else (setup, credentials, backlog) is in the repo or generated on the
 5. Run `./scripts/soc.sh init <mode>` with the mode for their component (table below). It takes 5–15 minutes the first time and ends with an all-green healthcheck.
 6. Run `soc.sh info` to see their URLs and UI logins. Credentials are generated on their machine, unique to them, and stored in `nodes/<node>/.env`.
 7. Read their component's `README.md`: backlog, contracts, how to export changes.
+8. **If their mode includes `cases`** (TheHive, Cortex + MISP and n8n owners): apply the TheHive Community license requested in `CHECKLIST.md` section 9 before the 14-day trial ends (TheHive is read-only after it). Log in to TheHive as `admin@thehive.local` (`soc.sh info`), copy the challenge from **Platform management → License → Update the current license**, generate the key on the StrangeBee portal (**Licenses → Activate**, paste the challenge), and paste the key back into TheHive. `soc.sh info cases` then shows the license; full steps in `nodes/cases/thehive/README.md`. After `soc.sh reset cases`, repeat steps 2–4 of that procedure (the instance is new).
 
 #### Daily workflow (everyone)
 
@@ -812,6 +815,7 @@ These are the **design** decisions made while planning. Implementation choices m
 | D38 | n8n memory raised to 0.6 / 0.5 GB (limits 640 / 448 MB) with an explicit Node.js heap (384 / 256 MB); revised by D40 to limits 750 / 650 MB and heap 384 / 320 MB | n8n 2.40 peaks at ~730 MB while starting (and ran out of heap at the planned 400 MB limit), then settles at ~350 MB; the explicit heap makes it start within the limit. The `low` profile total rises to ~6.4 GB, close to the ~6.5 GB target of step 1.7 |
 | D39 | Low-profile acceptance is per dev mode: `core`, `cases` and `cases-intel` must each start, pass their healthchecks and relevant contracts, and fit a 6 GB WSL allocation; `core-cases` and `full` on `low` are best effort (swap acceptable). Replaces "full stack ≤ ~6.5 GB" | Measured memory pushed the `low` totals well above 6 GB for modes that combine core and cases; teammates on 8 GB machines work in `core`, `cases` or `cases-intel` (11.6), and n8n development (`core-cases`) happens on the integrator's 32 GB machine or the shared instance |
 | D40 | Container memory limits are sized from measured need: anonymous memory peak (cgroup `memory.stat`, through start, bootstrap, activity and idle) × 1.15 + 64 MiB for page cache, rounded up to 50 MiB; `memswap_limit` equals `mem_limit` for every container | Peaks from `docker stats` include reclaimable cache, and with swap allowed an undersized limit only showed up as silent swapping (Elasticsearch and TheHive in step 1.5) while healthchecks stayed green. Measurements in `docs/decisions.md` A56 |
+| D41 | Each person who runs the `cases` node requests their own free TheHive Community license and activates it on their instance; the platform only reports the license state (`soc.sh info`) and warns (read-only, or trial with ≤ 3 days left) | TheHive 5 turns read-only after its 14-day trial. A license key is bound to the instance ID stored in TheHive's database, so it can't be shared or baked into the repo; activation needs the person's own StrangeBee portal account (A57) |
 
 ---
 

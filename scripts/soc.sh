@@ -18,6 +18,8 @@ set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
 # shellcheck source=scripts/lib/wazuh.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/wazuh.sh"
+# shellcheck source=scripts/lib/cases.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/cases.sh"
 
 SCRIPTS="$REPO_ROOT/scripts"
 UP_TIMEOUT=${SOC_UP_TIMEOUT:-900}
@@ -185,6 +187,13 @@ cmd_info() {
         "$(env_get "$envf" "$uvar")" "$(env_get "$envf" "$pvar")"
       shown=$((shown + 1))
     done
+    # TheHive's license decides whether it is writable (docs/decisions.md A57).
+    if [[ $node == cases ]] && grep -qx thehive <<<"$running"; then
+      local lic
+      if lic=$(thehive_license_status); then
+        printf '%-11s %s\n' "" "license: $(thehive_license_describe "$lic")"
+      fi
+    fi
   done
   (( shown > 0 )) || echo "No running services with a UI. Start them with: scripts/soc.sh up <mode>"
 }

@@ -4,9 +4,9 @@ Read after PROJECT.md, before starting work (CLAUDE.md). Update at the end of ea
 
 ## Current state (2026-09-25)
 
-- **Last completed step: 1.5** (`cases` node), done and verified but **not committed yet**: the integrator asked to see the final memory limits before the commit. After approval, commit as `step 1.5: cases node (TheHive, Cortex), bootstrap, C5, measured memory limits`. Next: **step 1.6** (`intel` node, MISP, C7).
+- **Last completed step: 1.5** (`cases` node, commit `a299289`), then TheHive license handling (commit "docs+cases: TheHive license handling"; D41, A57). Next: **step 1.6** (`intel` node, MISP, C7).
 - **Running:** `core-cases` in `standard` (core, lab, cases), single-host, instance `asox`. Contracts C1, C2, C5, C8 pass; C3, C4, C6 report SKIP (1.7), C7 SKIP (1.6).
-- The integrator reviews after each step; approved so far: Cortex 4.1 + ES 8 (D27), Grafana 12.4 (D34), n8n memory (D38), D39 as revised in 1.5 (`core-cases`/`full` best effort on `low`), D40 (limits from measured anon need, swap capped).
+- The integrator reviews after each step; approved so far: Cortex 4.1 + ES 8 (D27), Grafana 12.4 (D34), n8n memory (D38), D39 as revised in 1.5 (`core-cases`/`full` best effort on `low`), D40 (limits from measured anon need, swap capped), D41 (each person requests and activates their own TheHive Community license).
 - **Owners** (PROJECT.md section 3, 11.1): Wazuh Daniel (@dmelgar1110), n8n Inigo (@poinsot, also the integrator, on the 32 GB machine), Grafana Jesus (@JC-535), TheHive Park (@Jinhyuk-P), Cortex + MISP Diego (@DiegoGuerraA00835430). The integrator adds collaborators at step 1.9.
 
 ## Pending notes for later steps
@@ -18,7 +18,8 @@ Read after PROJECT.md, before starting work (CLAUDE.md). Update at the end of ea
 - **Step 1.7, n8n credentials for TheHive and Cortex:** add them to `n8n_credentials_json` in `scripts/bootstrap.sh` with fixed 16-char IDs; keys `THEHIVE_N8N_API_KEY` and `CORTEX_N8N_API_KEY` come from the cases `.env` via `__from:cases__` in the core `.env.example`. Nodes are rendered core, cases, intel, lab, so a core key copied from cases is empty until the next `render-env.sh` after cases is bootstrapped: re-run `render-env.sh` after `bootstrap.sh cases` (or render twice in `soc.sh init`). n8n's TheHive user is a **Service** account (API key, `Authorization: Bearer`).
 - **Step 1.7:** `healthcheck.sh` doesn't exist yet (`soc.sh init` prints SKIP); `mem-report.sh` too: base it on the D40 method (anon/file from `memory.stat`, not `docker stats`). Healthcheck for Cortex (14.1): reuse `cortex_test_container` from `scripts/lib/cases.sh`. Measure `core`, `cases`, `cases-intel` on `low` against 6 GB (D39); `.wslconfig memory=6GB` is a Windows-side change only the integrator can make.
 - **Step 1.9:** component READMEs exist for Wazuh, Grafana, n8n, TheHive, Cortex (operations, conventions, owner, "Local patches and deprecations" lists); complete them with contracts and backlog (11.3). MISP's README comes with step 1.6. **Keep the "Local patches and deprecations (re-check on upgrade)" list in every component README**, including new ones.
-- **TheHive license:** every instance runs a 14-day Platinum trial, then turns read-only without a (free, per-instance) Community license requested on StrangeBee's portal (A53). The build instance's trial ends 2026-10-11; if the build runs past it, ask the integrator for a license or `soc.sh reset cases` + `init cases` (starts a new trial, loses cases data).
+- **TheHive license (D41, A57):** every instance runs a 14-day Platinum trial, then turns read-only without a Community license. The key is bound to the instance ID in TheHive's Cassandra data: `reset`/fresh `init` → new instance and trial, `restore.sh cases` → the backup's license. The build instance's trial ends **2026-10-11**; if the build (1.7–1.9, backup round trip) runs past it, ask the integrator to activate a license, or `soc.sh reset cases` + `init cases` (new trial, loses cases data). The fresh-clone test (1.9) gets its own trial. `soc.sh info cases` shows the state; `bootstrap.sh cases` warns at ≤ 3 days / read-only.
+- **Step 1.7, healthcheck.sh:** call `thehive_license_check` (WARN only, never FAIL) from `scripts/lib/cases.sh`. Step 1.8: the backup round trip should show the license line unchanged after `restore.sh cases`.
 
 ## Gotchas learned
 

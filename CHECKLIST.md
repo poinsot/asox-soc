@@ -206,6 +206,8 @@ Claude Code chooses and pins the exact stable tags in step 1.0 and records them 
 - [ ] **GitHub account for every teammate**, added as collaborators on the project repo
 - [ ] **GitHub authentication from WSL** (SSH key added to GitHub, or HTTPS with a personal access token)
   Verify: `ssh -T git@github.com` (SSH) or a successful `git push`
+- [ ] **TheHive Community license, requested from StrangeBee by each person who runs the `cases` node** (TheHive, Cortex + MISP and n8n owners; anyone running `cases-intel`, `core-cases` or `full`). Free, at `portal.apps.strangebee.com`: register with a professional email, confirm it, wait for StrangeBee to validate the account, then **Request a Community license**.
+  **Request it early:** account validation is manual, and a new TheHive instance only runs a **14-day trial** before it becomes read-only. The license is activated on your own instance after `soc.sh init` (`PROJECT.md` 11.6, `nodes/cases/thehive/README.md`).
 
 **Phase 1 — optional**
 - [ ] Docker Hub account (pull rate limits)
