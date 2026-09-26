@@ -4,30 +4,24 @@ Read after PROJECT.md, before starting work (CLAUDE.md). Update at the end of ea
 
 ## Current state (2026-09-26)
 
-- **Step 1.7 done** (Part 1 `standard`, Part 2 `low`; see PROJECT.md section 17 and docs/decisions.md A70). **Next: step 1.8** (distribution simulation, `backup.sh` / `restore.sh`).
-- **Before 1.8, the integrator restores `.wslconfig` to `memory=16GB`, `swap=4GB`** (then `wsl --shutdown`), and `topology.env` goes back to `MEM_PROFILE=standard` + `scripts/render-env.sh` (it is still `low`, matching the current 6 GB VM).
-- **Running: nothing.** All nodes stopped (`soc.sh down`); volumes, images, certificates and `.env` files kept. The containers were last created with the `low` limits: the next `soc.sh up` after re-rendering with `standard` recreates them.
-- **Testing budget (integrator, 2026-09-26):** memory measurements = startup peak + 5 min steady state per mode (`mem-report.sh --sample` ≈ init time + 300 s), longer only if a value is still rising. Re-run a full reset+init or the whole contract suite only when a change touches that area; otherwise only the relevant checks. The fresh-clone test (1.9) and the backup round trip (1.8) stay as planned.
+- **Step 1.8 done** (PROJECT.md section 17, docs/decisions.md A71, A72). **Next: step 1.9** (component READMEs + `CONTRIBUTING.md`, fresh-clone test, then tag `v1.0-baseline` and owner branches locally; the integrator pushes).
+- **Running: `full`** in `single` / `standard` (WSL 16 GB), healthcheck green. `topology.env` is back to `DEPLOY_MODE=single` (hosts back to the example values); every published port is on `127.0.0.1`.
+- **Backups on disk (git-ignored):** `backups/cases-20260926-152640/` (with secrets; the TheHive instance still on its trial, the one to keep until the license is activated) and `backups/intel-20260926-152438/` (with secrets; test). Both contain credentials.
+- **Testing budget (integrator, 2026-09-26):** memory measurements = startup peak + 5 min steady state per mode, longer only if still rising. Re-run a full reset+init or the whole contract suite only when a change touches that area; otherwise only the relevant checks. The fresh-clone test (1.9) stays as planned.
 - The integrator reviews after each step; approved so far: Cortex 4.1 + ES 8 (D27), Grafana 12.4 (D34), n8n memory (D38, revised by D40), D39 as revised in 1.5, D40, D41, D42, D43.
 - **Owners** (PROJECT.md section 3, 11.1): Wazuh Daniel (@dmelgar1110), n8n Inigo (@poinsot, also the integrator, on the 32 GB machine), Grafana Jesus (@JC-535), TheHive Park (@Jinhyuk-P), Cortex + MISP Diego (@DiegoGuerraA00835430). The integrator adds collaborators at step 1.9.
-- **TheHive trial of the build instance ends 2026-10-11.** The integrator is requesting a Community license. Until it's activated, don't `soc.sh reset cases` (new instance, license lost, D41); once activated, back up `cases` with `--with-secrets` as soon as `backup.sh` exists (1.8). `soc.sh info cases` shows the license state. **Once the license is active, check C4 still passes** (webhooks need the capability `notification.webhook`; `healthcheck.sh` warns if it's missing, A64).
+- **TheHive trial of the build instance ends 2026-10-11.** The integrator is requesting a Community license. Until it's activated, don't `soc.sh reset cases` without restoring afterwards (D41). **Once activated: `scripts/backup.sh cases --with-secrets`**, and check C4 still passes (webhooks need the capability `notification.webhook`; `healthcheck.sh` warns if it's missing, A64).
 
-## Step 1.7 results on `low` (A70)
+## Step 1.8 results (A71, A72)
 
-- 6 GB WSL VM: `core`, `cases`, `cases-intel` each fit (VM peaks ~3.1 / ~4.6 / ~5.3 GB including Claude Code ~0.4 GB and VS Code ~0.6 GB); their contracts pass; no OOM kills. `core-cases` passes near the limit. **`full` on `low` stalled the VM** (the first Part 2 session hung there): never start it on a 6 GB VM.
-- Low limits raised: grafana 250m, cortex 550m, wazuh-indexer 1150m.
-
-## What Part 1 built (step 1.7)
-
-- n8n credentials "TheHive API (n8n)" / "Cortex API (n8n)" (keys via `__from:cases__` in the core `.env`) and "ASOX webhook token (Bearer)"; check workflows `chk-thehive-api` (C3) and `chk-cortex-api` (C6). n8n now joins `soc-net` (it didn't before, so it couldn't reach cases).
-- TheHive webhook (C4): global endpoint `n8n` (bearer auth = the token) + SOC notification rule "n8n (C4)" (AnyEvent), written by `bootstrap.sh cases` (A64, A65). TheHive webhooks can't send custom headers, and `application.conf` notification defaults are ignored (only stored org config counts).
-- `healthcheck.sh` (A67), `mem-report.sh` (A68), `contracts-check.sh` complete (no more SKIP).
-- PROJECT.md section 4 documents `__from:<node>__` (incl. the manual copy in distributed mode).
+- **Distribution simulation:** all hosts = 192.168.1.64 (mirrored LAN IP); C1–C8 and `healthcheck.sh --cross-node` pass through published ports; `soc-net` empty. Needed after switching mode either way: `render-env.sh`, `gen-certs.sh --force intel`, `soc.sh down` + `up`, `bootstrap.sh cases` (webhook URL, MISP analyzer URL) and `bootstrap.sh core` (n8n credential URLs).
+- **Windows firewall:** WSL's Hyper-V firewall has default inbound **Block** and no ASOX rules exist; the simulation didn't need them (traffic stays in the VM). A second computer would need, in an Administrator PowerShell: `powershell -ExecutionPolicy Bypass -File \\wsl.localhost\Ubuntu-24.04\home\poinsot\asox-soc\windows\firewall-rules.ps1` (check the distro name with `wsl -l`).
+- **Backups:** `backup.sh cases --with-secrets` ~1 min, 9 MB; `restore.sh cases` ~1 min, same TheHive instance and license, no re-bootstrap needed with secrets. `intel` ~0.6 GB; `core` would be large (Wazuh's vulnerability feed ~9.5 GB in `wazuh_queue`). Restores of core, intel and lab were not run.
 
 ## Pending notes for later steps
 
-- **Step 1.8 (backups):** `backup.sh intel --with-secrets` must include `nodes/intel/certs/` (like core's certs). `restore.sh cases` must bring back TheHive's license (compare the `soc.sh info cases` line before/after). After `soc.sh reset intel`, cases needs `render-env.sh` + `bootstrap.sh cases` (new MISP key, A61). Likewise after `soc.sh reset cases` or `restore.sh cases` without secrets: `render-env.sh` + `bootstrap.sh core` (new TheHive/Cortex keys for n8n, `__from:cases__`), and C4 needs `bootstrap.sh cases` (endpoint + rule; rules take up to 5 min to apply). In the distribution simulation the webhook URL becomes `http://<CORE_HOST>:5678/...` (re-run `bootstrap.sh cases` after `render-env.sh`), and `healthcheck.sh --cross-node` checks n8n → TheHive/Cortex, TheHive → n8n and analyzers → MISP through the published ports. Distribution simulation: C7 goes through `https://<INTEL_HOST>:9443` from the `bridge` network (A49); regenerate MISP's certificate for the new host (`gen-certs.sh --force intel`, A59); the TheHive and Cortex APIs are reached at `CASES_HOST` (contracts-check already switches, A55).
-- **Step 1.9:** component READMEs (Wazuh, n8n, Grafana, TheHive, Cortex, MISP) have owner, run mode, contracts with status, export notes and "Local patches and deprecations" lists; complete them with backlogs (11.3), update contract statuses after 1.7, and keep the patches list in every README. The fresh-clone test (`SOC_INSTANCE=fresh`) gets its own TheHive trial.
+- **Step 1.9:** component READMEs (Wazuh, n8n, Grafana, TheHive, Cortex, MISP) have owner, run mode, contracts with status, export notes and "Local patches and deprecations" lists; complete them with backlogs (11.3), update contract statuses after 1.7, and keep the patches list in every README. `CONTRIBUTING.md` gets 11.6 (including the 8 GB / VS Code note). The fresh-clone test (`SOC_INSTANCE=fresh`) gets its own TheHive trial; stop the build instance first (`soc.sh down`), and restart it afterwards.
+- After `soc.sh reset intel`, cases needs `render-env.sh` + `bootstrap.sh cases` (new MISP key, A61). After `soc.sh reset cases` or `restore.sh cases` **without** secrets: `render-env.sh` + `bootstrap.sh core` and `bootstrap.sh cases` (C4 rules take up to 5 min to apply).
 
 ## Gotchas learned
 
@@ -50,3 +44,5 @@ Read after PROJECT.md, before starting work (CLAUDE.md). Update at the end of ea
 - **`ps` in a pipe truncates `cgroup`** unless given a width (`cgroup:256`); `soc.sh down` removes containers, so exit codes / `memory.events` are gone afterwards: look for OOM kills in `journalctl -b -1 -k` instead. Don't edit a script while a background run of it is still going (bash reads it as it runs).
 - **TheHive notifications (A64):** rules live in the organisation's stored config (only an org-admin of SOC can write them: `bootstrap@asox.local`, key revoked after each run); `application.conf` defaults are ignored; changes take up to 5 min (cache). Webhook endpoints ignore `headers`: only `auth` (bearer) is sent.
 - **n8n executions store webhook request headers**, including the webhook token; executions are visible to the n8n owner only (lab; same as C1).
+- **Backups:** `restore.sh` renders before starting and uses `compose create` so volumes carry Compose's labels. Tar runs in `ubuntu:noble-20260911` (GNU tar, `--numeric-owner`); MISP's certificate key is owned by uid 101 (mode 400), so certs are archived from a container too.
+- **Windows side from WSL:** read-only PowerShell works through interop (`powershell.exe -NoProfile -Command ...`, from a Windows-visible cwd such as `/mnt/c`); anything that changes Windows (firewall rules) is the integrator's, as Administrator.

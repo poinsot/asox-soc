@@ -54,7 +54,7 @@ Re-activating for a new instance ID uses the same portal page ("Activate or View
 3. **Generate the key:** on the portal, **Licenses** tab → **Activate** (or **View details**) on your Community license → paste the challenge into **License key activation challenge** → **Activate license** → **Copy the key to clipboard**.
 4. **Apply it:** back in TheHive's drawer, paste the key into **License** → **Activate the license key**.
 5. **Check:** `scripts/soc.sh info cases` shows the license line (plan, kind, expiry). `scripts/bootstrap.sh cases` (also run by `soc.sh init`) prints a `WARN` when TheHive is read-only or its trial has 3 days or less left (`THEHIVE_LICENSE_WARN_DAYS`).
-6. **Back it up right away:** `scripts/backup.sh cases --with-secrets` (available from build step 1.8). From then on, to get a clean or repaired TheHive, **restore that backup instead of running `soc.sh reset cases`**: a reset creates a new instance and loses the license (PROJECT.md D41), while a restore keeps it.
+6. **Back it up right away:** `scripts/backup.sh cases --with-secrets`. From then on, to get a clean or repaired TheHive, **restore that backup instead of running `soc.sh reset cases`**: a reset creates a new instance and loses the license (PROJECT.md D41), while a restore keeps it.
 
 ## Contracts and exporting changes
 
