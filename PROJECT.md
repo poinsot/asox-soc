@@ -303,7 +303,7 @@ All development machines, including the baseline build machine and all five owne
   networkingMode=mirrored
   kernelCommandLine = sysctl.vm.max_map_count=262144
   ```
-  `vm.max_map_count=262144` is required by the Wazuh Indexer and Elasticsearch. `preflight.sh` verifies it and falls back to `sysctl -w` if needed.
+  `vm.max_map_count` of at least 262144 is required by the Wazuh Indexer and Elasticsearch. `preflight.sh` verifies it and falls back to `sysctl -w` if needed.
 
 ### 7.2 Networking for multi-host
 
