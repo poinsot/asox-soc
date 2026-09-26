@@ -1,6 +1,6 @@
 # Cortex — "Inteligencia de amenazas" (with MISP)
 
-Owner: Diego (@DiegoGuerraA00835430). Node: `cases` (MISP: `intel`, see `nodes/intel/misp/README.md`). Run mode: `cases-intel`.
+Owner: Diego (@DiegoGuerraA00835430). Branch: `cortex-misp`. Node: `cases` (MISP: `intel`, see `nodes/intel/misp/README.md`). Run mode: `cases-intel`.
 
 Cortex analyzes observables with analyzers, each run as a short-lived Docker container.
 
@@ -12,6 +12,13 @@ Cortex analyzes observables with analyzers, each run as a short-lived Docker con
 | `config/application.conf` | Cortex configuration; secrets come from the environment (`${VAR}`), never from this file |
 | `analyzers/` | Custom analyzers (backlog) |
 | `jobs/` | Job directory shared with analyzer containers (git-ignored) |
+
+UI: `http://localhost:9001`, login `Cortex SOC` from `scripts/soc.sh info` (the SOC organisation's admin, who enables analyzers).
+
+**Before you start:**
+
+- **TheHive license:** `cases-intel` runs TheHive too, which turns read-only after a 14-day trial. Request your free Community license on day one (`CHECKLIST.md` section 9: StrangeBee validates accounts by hand), activate it, and **back it up right after** with `./scripts/backup.sh cases --with-secrets` ([TheHive README](../thehive/README.md#license-important)).
+- **8 GB machine** (`MEM_PROFILE=low`): `cases-intel` fits, but close VS Code's WSL connection while it runs; with the VS Code server and Claude Code it peaks at ~5.3 of the WSL VM's 5.8 GB.
 
 ## What bootstrap creates
 

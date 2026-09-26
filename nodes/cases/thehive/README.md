@@ -1,6 +1,6 @@
 # TheHive — "Dashboard operativo"
 
-Owner: Park (@Jinhyuk-P). Node: `cases`. Run mode: `cases`.
+Owner: Park (@Jinhyuk-P). Branch: `thehive`. Node: `cases`. Run mode: `cases`.
 
 Alert triage and case management for analysts. **Apply your Community license before the 14-day trial ends** (section License).
 
@@ -11,6 +11,8 @@ Alert triage and case management for analysts. **Apply your Community license be
 | `compose.yml` | `thehive` (TheHive 5, served on port 9000 at the root path) |
 | `config/application.conf` | TheHive configuration; secrets come from the environment (`${VAR}`), never from this file |
 | `../storage.yml` (integrator-owned) | `cassandra` (TheHive's database) and `elasticsearch` (search index, shared with Cortex) |
+
+UI: `http://localhost:9000`, logins from `scripts/soc.sh info` (the analyst for daily work, `admin@thehive.local` for platform management and the license).
 
 ## What bootstrap creates
 

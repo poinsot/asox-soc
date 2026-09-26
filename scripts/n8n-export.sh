@@ -14,7 +14,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
 # shellcheck source=scripts/lib/n8n.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/n8n.sh"
 
-[[ ${1:-} == -h || ${1:-} == --help ]] && { sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//'; exit 0; }
+[[ ${1:-} == -h || ${1:-} == --help ]] && { print_usage "$0"; exit 0; }
 [[ -f "$(node_dir core)/.env" ]] || die "nodes/core/.env not found; run scripts/soc.sh init core"
 
 all=$(n8n_cli -- export:workflow --all 2>/dev/null) || die "n8n export failed (is the core node initialised?)"

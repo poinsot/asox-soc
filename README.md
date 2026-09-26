@@ -10,9 +10,9 @@ A containerized SOC built from open-source tools — Wazuh, n8n (SOAR), Grafana,
    git clone <repo-url> ~/asox-soc && cd ~/asox-soc
    cp topology.env.example topology.env   # set MEM_PROFILE: standard (16 GB+) or low (8 GB)
    ```
-3. First-time setup for a run mode (`core`, `cases`, `cases-intel`, `core-cases` or `full`):
+3. First-time setup for your run mode (`core`, `cases`, `cases-intel`, `core-cases` or `full`; which one is yours: the table in [CONTRIBUTING.md](CONTRIBUTING.md#who-owns-what)). `full` needs a 16 GB+ machine; it doesn't fit an 8 GB one.
    ```bash
-   ./scripts/soc.sh init full
+   ./scripts/soc.sh init <mode>
    ./scripts/soc.sh info          # URLs and the logins generated for this machine
    ```
 4. Day to day:
@@ -22,7 +22,9 @@ A containerized SOC built from open-source tools — Wazuh, n8n (SOAR), Grafana,
    ./scripts/soc.sh down
    ```
 
-The repo never contains secrets, certificates or data: `init` generates them on each machine, in git-ignored files (`nodes/<node>/.env`, `nodes/core/certs/`).
+The repo never contains secrets, certificates or data: `init` generates them on each machine, in git-ignored files (`nodes/<node>/.env`, `nodes/core/certs/`, `nodes/intel/certs/`).
+
+**Running the `cases` node** (modes `cases`, `cases-intel`, `core-cases`, `full`)? TheHive becomes read-only after a 14-day trial: request its free Community license on day one ([CHECKLIST.md](CHECKLIST.md) section 9) and activate it as in [nodes/cases/thehive/README.md](nodes/cases/thehive/README.md#license-important).
 
 ## Useful scripts
 

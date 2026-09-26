@@ -20,7 +20,7 @@ for arg in "$@"; do
   case $arg in
     --force) FORCE=1 ;;
     core|intel) NODE=$arg ;;
-    -h|--help) sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) print_usage "$0"; exit 0 ;;
     *) die "unknown argument: $arg" ;;
   esac
 done

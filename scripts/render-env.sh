@@ -19,7 +19,7 @@ set -euo pipefail
 # shellcheck source=scripts/lib/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
 
-usage() { sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { print_usage "$0"; }
 [[ ${1:-} == -h || ${1:-} == --help ]] && { usage; exit 0; }
 
 load_topology

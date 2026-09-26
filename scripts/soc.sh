@@ -28,7 +28,7 @@ UTIL_IMAGE=alpine:3.24.2
 # Bootstrap order: nodes that create values other nodes copy come first.
 BOOTSTRAP_ORDER=(intel cases core lab)
 
-usage() { sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { print_usage "$0"; }
 
 have_env() { [[ -f "$(node_dir "$1")/.env" ]]; }
 

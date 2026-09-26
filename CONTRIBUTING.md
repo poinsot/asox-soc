@@ -21,9 +21,9 @@ How the team works on the platform after the Phase 1 baseline (`v1.0-baseline`).
 2. **Push at the end of every work session** (`git push`), so your work is backed up and visible.
 3. **Only change your own folders.** Need a shared file changed (a new variable in an `.env.example`, a fix in `soc.sh`, ...)? Ask the integrator: they change it on `main`, and you pull it in.
 4. **Merge at checkpoints, not only at the end** (every ~2 weeks, or whenever something works):
-   1. `git pull origin main`
+   1. Export your UI changes, commit, then bring in `main`: `git pull --no-rebase --no-edit origin main` (merges `main` into your branch without opening an editor).
    2. Check it still runs: `scripts/healthcheck.sh`, plus `scripts/contracts-check.sh --only <contracts>` if you touched an integration.
-   3. On GitHub, open a pull request from your branch into `main` describing what changed.
+   3. `git push`, then open the pull request on GitHub: on the repo page, click **Compare & pull request** (or **Pull requests → New pull request**), choose base **`main`** ← compare **your branch**, describe what changed and tick the template's checklist, then **Create pull request**.
    4. CI runs; the integrator reviews and merges.
 5. **Talk before changing a contract.** Anything another component relies on (URL path, payload, auth, permissions; the table in PROJECT.md section 5) is agreed with that owner first and goes in at a checkpoint.
 
@@ -51,9 +51,9 @@ You receive the repo link (you're already a collaborator and your branch exists)
 
 1. Accept the GitHub invite.
 2. Complete [CHECKLIST.md](CHECKLIST.md): WSL, Docker, tools, GitHub access from WSL, and **request the TheHive Community license** if your mode includes `cases` (section 9: StrangeBee validates accounts by hand, so request it on day one).
-3. Clone into WSL's Linux filesystem and switch to your branch:
+3. Clone into WSL's Linux filesystem and switch to your branch (the SSH URL needs the SSH key from `CHECKLIST.md` section 9; with a personal access token use `https://github.com/poinsot/asox-soc.git`):
    ```bash
-   git clone <repo-url> ~/asox-soc && cd ~/asox-soc && git checkout <your-branch>
+   git clone git@github.com:poinsot/asox-soc.git ~/asox-soc && cd ~/asox-soc && git checkout <your-branch>
    ```
 4. `cp topology.env.example topology.env`, then set `MEM_PROFILE` (`standard` for 16 GB+, `low` for 8 GB) and leave `DEPLOY_MODE=single`.
 5. `./scripts/soc.sh init <mode>` with your mode (table above). The first time takes 5–15 minutes plus the image download (6–19 GB of images depending on the mode; `CHECKLIST.md` section 1), and ends with an all-green healthcheck.
@@ -61,7 +61,7 @@ You receive the repo link (you're already a collaborator and your branch exists)
 7. Read your component's `README.md`: backlog, contracts, how to export.
 8. **If your mode includes `cases`** (TheHive, Cortex + MISP, n8n): apply the Community license before the 14-day trial ends (TheHive becomes read-only after it), following `nodes/cases/thehive/README.md` (section License). **Right after activating it, run `./scripts/backup.sh cases --with-secrets`**, and later restore that backup instead of running `soc.sh reset cases`, which creates a new instance and loses the license.
 
-**8 GB machines** (`MEM_PROFILE=low`, WSL 6 GB): `core`, `cases` and `cases-intel` fit; `core-cases` barely does, and `full` doesn't (use a 16 GB+ machine or the shared instance). **Close VS Code's WSL connection while running `cases-intel`**: with the VS Code server and Claude Code running, it peaks at ~5.3 of the VM's 5.8 GB.
+**8 GB machines** (`MEM_PROFILE=low`, WSL 6 GB): `core`, `cases` and `cases-intel` fit; `core-cases` barely does, and `full` doesn't (use a 16 GB+ machine, or the shared instance once it exists: it's optional and not set up yet, PROJECT.md 11.4). **Close VS Code's WSL connection while running `cases-intel`**: with the VS Code server and Claude Code running, it peaks at ~5.3 of the VM's 5.8 GB.
 
 ### Daily loop
 
@@ -88,7 +88,7 @@ git add -A && git commit -m "<what changed>" && git push
 | Which branch? Anything unsaved? | `git status` |
 | Save and back up | `git add -A && git commit -m "message" && git push` |
 | Latest from my branch | `git pull` |
-| Bring in merged work from `main` | `git pull origin main` |
+| Bring in merged work from `main` | `git pull --no-rebase --no-edit origin main` |
 | Recent history | `git log --oneline -10` |
 | Conflict or anything unexpected | Stop and ask the integrator |
 
@@ -99,5 +99,5 @@ git add -A && git commit -m "<what changed>" && git push
 ## When everyone meets
 
 - **Checkpoints:** each owner opens a pull request; the integrator merges and runs `contracts-check.sh` in `full` mode on the result.
-- **Whole chain** (Wazuh → n8n → TheHive → Cortex → MISP): on the shared instance or a 16 GB+ machine in `full`.
+- **Whole chain** (Wazuh → n8n → TheHive → Cortex → MISP): on a 16 GB+ machine in `full` (or the optional shared instance, once it exists).
 - **Milestones:** the integrator tags `main` (e.g. `v1.1-detections`) once the combined result works end to end.

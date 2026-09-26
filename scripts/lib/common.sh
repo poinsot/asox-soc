@@ -17,6 +17,12 @@ skip() { printf 'SKIP  %s\n' "$*"; }
 info() { printf '....  %s\n' "$*"; }
 die()  { printf 'ERROR %s\n' "$*" >&2; exit 1; }
 
+# Print a script's usage: its header comment block after the shebang, up to
+# the first line that isn't a comment or is a shellcheck directive.
+print_usage() {
+  awk 'NR == 1 { next } !/^#/ || /^# shellcheck/ { exit } { sub(/^# ?/, ""); print }' "$1"
+}
+
 node_dir() { printf '%s/nodes/%s' "$REPO_ROOT" "$1"; }
 
 is_node() {

@@ -1,6 +1,6 @@
 # Wazuh — "Recolector y Clasificador"
 
-Owner: Daniel (@dmelgar1110). Node: `core` (plus the `lab` test agent). Run mode: `core`.
+Owner: Daniel (@dmelgar1110). Branch: `wazuh`. Node: `core` (plus the `lab` test agent). Run mode: `core`.
 
 Collects events from agents and syslog, decodes them, classifies them with rules, stores alerts in the Wazuh indexer and forwards relevant alerts to n8n.
 
@@ -14,6 +14,8 @@ Collects events from agents and syslog, decodes them, classifies them with rules
 | `config/certs.yml` | Nodes for the certificate generator (`scripts/gen-certs.sh`) |
 | `config/entrypoint-scripts/` | Scripts the manager image runs before Wazuh starts (writes the agent enrollment password) |
 | `rules/`, `decoders/` | Custom rules and decoders (`local_rules.xml` holds the Phase 1 test rule `100100`) |
+
+No Wazuh web UI (the Wazuh dashboard isn't deployed): alerts are in Grafana (`http://localhost:3000`) and `scripts/wazuh-query.sh`; the Wazuh API is `https://localhost:55000` (self-signed certificate), login from `scripts/soc.sh info`. Agents connect on 1514/tcp and enroll on 1515/tcp; syslog on 514/udp.
 
 In the commands below, `<instance>` is `SOC_INSTANCE` from `topology.env` (default `asox`), so the manager container is `<instance>-core-wazuh-manager-1`.
 

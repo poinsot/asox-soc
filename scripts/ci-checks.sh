@@ -14,7 +14,7 @@ SHELLCHECK_IMAGE=koalaman/shellcheck:v0.11.0
 GITLEAKS_IMAGE=zricethezav/gitleaks:v8.30.1
 PYTHON_IMAGE=python:3.14.7-slim
 
-usage() { sed -n '2,9p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { print_usage "$0"; }
 
 SNAP=""
 cleanup() { [[ -n $SNAP && -d $SNAP ]] && rm -rf "$SNAP"; return 0; }

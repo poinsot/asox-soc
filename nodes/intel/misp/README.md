@@ -1,6 +1,6 @@
 # MISP — "Inteligencia de amenazas" (with Cortex)
 
-Owner: Diego (@DiegoGuerraA00835430). Node: `intel`. Run mode: `cases-intel`.
+Owner: Diego (@DiegoGuerraA00835430). Branch: `cortex-misp`. Node: `intel`. Run mode: `cases-intel`.
 
 MISP stores threat intelligence (events, IOCs, tags, galaxies) and can share it; Cortex's MISP analyzer searches it (contract C7).
 
@@ -13,6 +13,8 @@ MISP stores threat intelligence (events, IOCs, tags, galaxies) and can share it;
 | `../certs/` (generated, git-ignored) | MISP's self-signed certificate (`scripts/gen-certs.sh intel`) |
 
 UI: `https://localhost:9443` (a certificate warning is expected), login from `scripts/soc.sh info` (`MISP_ADMIN_EMAIL`).
+
+`cases-intel` also runs TheHive (license) and needs care on 8 GB machines: see "Before you start" in the [Cortex README](../../cases/cortex/README.md).
 
 ## What bootstrap creates
 

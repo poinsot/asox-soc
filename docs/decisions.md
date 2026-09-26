@@ -1,6 +1,6 @@
 # Implementation decisions
 
-Choices made while building Phase 1: pinned versions and resolved **[ASSUMPTION]** / **[OPEN]** items. Design decisions (D1–D26) are in `PROJECT.md` section 15.
+Choices made while building Phase 1: pinned versions and resolved **[ASSUMPTION]** / **[OPEN]** items. Design decisions (D1–D43) are in `PROJECT.md` section 15.
 
 ## Pinned images (step 1.0)
 
@@ -52,7 +52,7 @@ Tooling images (not part of the stack):
 | A8 | 1.0 | Non-interactive reset | `soc.sh reset <nodes> --yes` skips the confirmation prompt, for the backup round trip (step 1.8) and the fresh-clone test (step 1.9). |
 | A9 | 1.0 | Extra scripts | `scripts/lib/common.sh` (shared helpers) and `scripts/ci-checks.sh` (the CI checks of section 11.5, run the same way locally and in GitHub Actions through pinned Docker images, on a snapshot of the non-ignored files so local secrets are never scanned). Neither is in section 12's tree; both are integrator-owned. |
 | A10 | 1.0 | `preflight.sh` thresholds | RAM: >= 9 GiB for `standard`, >= 5.5 GiB for `low` (what WSL reports for `memory=10GB` / `6GB`). Disk: fail below 20 GiB free, warn below 60 GiB. A required port counts as free if a container of this `SOC_INSTANCE` already holds it, so `init` stays idempotent. |
-| A11 | 1.0 | `WAZUH_INDEXER_URL` | Always `https://wazuh-indexer:9200`: the indexer is internal to `core` and never published (section 3.1). |
+| A11 | 1.0 | `WAZUH_INDEXER_URL` | **Superseded by A15** (now `https://wazuh.indexer:9200`, PROJECT.md D32). Originally: always `https://wazuh-indexer:9200`, since the indexer is internal to `core` and never published (section 3.1). |
 | A12 | 1.0 | Startup | `soc.sh init` / `up` use `docker compose up --wait` (timeout 900 s, override with `SOC_UP_TIMEOUT`), so bootstrap only runs once services are healthy. Nodes with no services yet are skipped. Helper scripts added in later steps (`gen-certs.sh`, `bootstrap.sh`, `healthcheck.sh`) are skipped with a `SKIP` line until they exist. |
 | A13 | 1.0 | Windows 10 fallback | `netsh portproxy` forwards TCP only, so syslog on 514/udp isn't reachable from the LAN on Windows 10 machines; use syslog over TCP there, or Windows 11 mirrored networking. |
 | A14 | 1.0 | `soc.sh info` credential variables | UI logins are read from these `.env` keys, which later steps must use: `GRAFANA_ADMIN_USER`/`_PASSWORD`, `N8N_OWNER_EMAIL`/`N8N_OWNER_PASSWORD`, `WAZUH_API_ADMIN_USER`/`_PASSWORD`, `THEHIVE_ADMIN_USER`/`_PASSWORD`, `CORTEX_ADMIN_USER`/`_PASSWORD`, `MISP_ADMIN_EMAIL`/`MISP_ADMIN_PASSWORD`. |

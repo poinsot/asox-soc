@@ -13,10 +13,10 @@
 
 ## Checklist (CONTRIBUTING.md, light rules)
 
-- [ ] I merged the latest `main` into my branch (`git pull origin main`) before opening this PR.
+- [ ] I merged the latest `main` into my branch (`git pull --no-rebase --no-edit origin main`) before opening this PR.
 - [ ] I only changed my own folders (or this is an integrator change).
 - [ ] UI changes are exported to files (`n8n-export.sh`, `grafana-export.sh`, component export scripts).
-- [ ] No secrets, `.env` files, certificates, API keys or data in the diff; exported n8n workflows reference credentials by name only.
+- [ ] No secrets, `.env` files, certificates, API keys or data in the diff; exported n8n workflows reference credentials by ID and name only, never their values.
 - [ ] `scripts/healthcheck.sh` is green for my run mode.
 - [ ] `scripts/ci-checks.sh all` passes locally.
 

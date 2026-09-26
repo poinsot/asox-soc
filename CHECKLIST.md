@@ -46,7 +46,23 @@
 - [ ] **WSL 2 installed and up to date** (WSL 2.0+ needed for mirrored networking).
   Install: `wsl --install` · Update: `wsl --update`
   Verify: `wsl --version` and `wsl --status` (default version must be 2)
-- [ ] **`%UserProfile%\.wslconfig` created** as in `PROJECT.md` §7.1 (`memory` and `swap` per the machine's RAM: 16GB/4GB on the 32 GB build machine, 6GB/8GB on 8 GB machines; `processors=4`, `networkingMode=mirrored`, `kernelCommandLine = sysctl.vm.max_map_count=262144`), followed by `wsl --shutdown`.
+- [ ] **`%UserProfile%\.wslconfig` created** (Windows side; the same content as `windows/wslconfig.example` in the repo), then run `wsl --shutdown` in PowerShell so WSL restarts with it. Set `memory` and `swap` for the machine's RAM:
+
+  | Machine RAM | `memory` | `swap` | `MEM_PROFILE` |
+  |---|---|---|---|
+  | 32 GB | `16GB` | `4GB` | `standard` |
+  | 16 GB | `10GB` | `4GB` | `standard` |
+  | 8 GB | `6GB` | `8GB` | `low` |
+
+  ```ini
+  [wsl2]
+  memory=16GB
+  swap=4GB
+  processors=4
+  # Windows 11 22H2+. On Windows 10 remove this line (PROJECT.md 7.2).
+  networkingMode=mirrored
+  kernelCommandLine = sysctl.vm.max_map_count=262144
+  ```
 - [ ] **Docker Desktop not installed, or its WSL integration disabled for the project distro.** It conflicts with Docker Engine inside WSL and consumes extra RAM.
 - [ ] **Windows Firewall inbound rules** for published ports, via `windows/firewall-rules.ps1` (created in step 1.0, run as Administrator):
   - core: 1514/tcp, 1515/tcp, 514/udp, 55000/tcp, 5678/tcp, 3000/tcp
@@ -79,13 +95,13 @@
 - [ ] **Mirrored networking active** (Windows 11).
   Verify: `ip addr` shows the same LAN IP as Windows (`ipconfig`)
 - [ ] **System updated**: `sudo apt update && sudo apt upgrade -y`
-- [ ] **Work in the Linux filesystem** (`~`), never under `/mnt/c/`. The builder creates `~/asox-soc` and runs `git init` there (section 6); teammates `git clone` the repo into `~/asox-soc`.
+- [ ] **Work in the Linux filesystem** (`~`), never under `/mnt/c/`: the repo is cloned into `~/asox-soc` (`CONTRIBUTING.md`, Onboarding).
 
 ---
 
 ## 4. Docker (inside WSL)
 
-- [ ] **Docker Engine installed from Docker's official apt repository**, with packages `docker-ce`, `docker-ce-cli`, `containerd.io`, `docker-buildx-plugin`, `docker-compose-plugin`.
+- [ ] **Docker Engine installed from Docker's official apt repository**, with packages `docker-ce`, `docker-ce-cli`, `containerd.io`, `docker-buildx-plugin`, `docker-compose-plugin`. Follow "Install using the apt repository" at https://docs.docker.com/engine/install/ubuntu/ (inside WSL; not Docker Desktop).
   Verify: `docker version` shows both Client and Server
 - [ ] **Docker Compose v2.20 or later** (the project uses per-node compose files and profiles).
   Verify: `docker compose version`
@@ -132,7 +148,7 @@ Used by the project scripts (`preflight.sh`, `bootstrap.sh`, `healthcheck.sh`, `
 - [ ] *(Optional)* **GitHub CLI** (`gh`) for opening checkpoint pull requests from the terminal (the GitHub website works just as well). Verify: `gh auth status`
 - [ ] *(Optional)* **shellcheck** to run the CI script checks locally: `sudo apt install -y shellcheck`
 - [ ] **Git configured**:
-  `git config --global user.name "..."`, `git config --global user.email "..."` and `git config --global init.defaultBranch main` (so new repos start on `main`, as the project expects)
+  `git config --global user.name "..."`, `git config --global user.email "..."`, `git config --global init.defaultBranch main` (so new repos start on `main`, as the project expects) and `git config --global pull.rebase false` (so a plain `git pull` merges instead of stopping with "Need to specify how to reconcile divergent branches"; the documented checkpoint command already passes `--no-rebase`)
 
 ---
 
@@ -155,6 +171,7 @@ Used by the project scripts (`preflight.sh`, `bootstrap.sh`, `healthcheck.sh`, `
   Read PROJECT.md fully before doing anything. Build Phase 1 by following
   section 10 in order and the working rules in 10.1. Commit locally after
   each step, never push, and update section 17 (Status) as you go.
+  If docs/handoff.md exists, read it after PROJECT.md and before starting work; update it at the end of each session.
   ```
 - [ ] **RAM awareness:** Claude Code runs inside the same WSL memory as the stack. On the 32 GB build machine with WSL at 16 GB there is ample headroom; on smaller machines, close other heavy processes during the `full` run mode.
 
@@ -178,35 +195,7 @@ Reference: https://code.claude.com/docs/en/setup
 
 ## 8. Container images (Phase 1)
 
-Claude Code chooses and pins the exact stable tags in step 1.0 and records them in `docs/decisions.md`.
-
-**core node**
-- [ ] `wazuh/wazuh-manager`
-- [ ] `wazuh/wazuh-indexer`
-- [ ] `wazuh/wazuh-certs-generator` (certificate generation)
-- [ ] `n8nio/n8n`
-- [ ] `grafana/grafana` (the OpenSearch datasource plugin is downloaded at startup via `GF_INSTALL_PLUGINS`, which is fine since internet is available)
-
-**cases node**
-- [ ] `strangebee/thehive` (5.x)
-- [ ] `thehiveproject/cortex` (4.1; `PROJECT.md` D27)
-- [ ] `cassandra` (version required by the chosen TheHive release)
-- [ ] `docker.elastic.co/elasticsearch/elasticsearch` (8.x, required by Cortex 4)
-- [ ] **Cortex analyzer images** (at least the MISP analyzer). Cortex runs analyzers as separate Docker containers, so:
-  - the Cortex container needs access to the Docker socket (or an equivalent job runner setup);
-  - each enabled analyzer image is pulled ahead of time by `bootstrap.sh`, so the first analysis isn't slow.
-
-**intel node**
-- [ ] `ghcr.io/misp/misp-docker/misp-core`
-- [ ] `ghcr.io/misp/misp-docker/misp-nginx` (HTTPS front end; `PROJECT.md` D28)
-- [ ] `ghcr.io/misp/misp-docker/misp-modules`
-- [ ] `mariadb`
-- [ ] `redis` (or `valkey`, as used by the chosen misp-docker release)
-
-**lab node**
-- [ ] Base image for the agent (e.g. `ubuntu:24.04`) + Wazuh agent package matching the manager version, built locally from `nodes/lab/Dockerfile`.
-
-- [ ] **Total image size recorded** after pulling (`docker system df`), so teammates know the first-pull download size.
+Nothing to install by hand: `soc.sh init` pulls (or, for the lab agent, builds) every image the chosen mode needs. The exact pinned tags are in each node's `.env.example` (`nodes/<node>/.env.example`, where compose reads them from) and in [docs/decisions.md](docs/decisions.md) (Pinned images). The first pull is 6–19 GB depending on the mode (section 1).
 
 ---
 
@@ -216,7 +205,13 @@ Claude Code chooses and pins the exact stable tags in step 1.0 and records them 
 - [ ] **[Builder]** Claude account with Claude Code access (section 6)
 - [ ] **GitHub account for every teammate**, added as collaborators on the project repo
 - [ ] **GitHub authentication from WSL** (SSH key added to GitHub, or HTTPS with a personal access token)
-  Verify: `ssh -T git@github.com` (SSH) or a successful `git push`
+  SSH (recommended), inside WSL:
+  ```bash
+  ssh-keygen -t ed25519 -C "you@example.com"   # Enter for the default path; a passphrase is optional
+  cat ~/.ssh/id_ed25519.pub                      # copy this line
+  ```
+  On GitHub: your picture → **Settings** → **SSH and GPG keys** → **New SSH key**, paste the line, **Add SSH key**.
+  Verify: `ssh -T git@github.com` → "Hi <username>! You've successfully authenticated". (With a passphrase, run `eval "$(ssh-agent -s)" && ssh-add` once per terminal so git doesn't fail with "Permission denied (publickey)".)
 - [ ] **TheHive Community license, requested from StrangeBee by each person who runs the `cases` node** (TheHive, Cortex + MISP and n8n owners; anyone running `cases-intel`, `core-cases` or `full`). Free, at `portal.apps.strangebee.com`: register with a professional email, confirm it, wait for StrangeBee to validate the account, then **Request a Community license**.
   **Request it early:** account validation is manual, and a new TheHive instance only runs a **14-day trial** before it becomes read-only. The license is activated on your own instance after `soc.sh init` (`PROJECT.md` 11.6, `nodes/cases/thehive/README.md`).
 
@@ -248,6 +243,7 @@ Credentials generated by the platform itself (Wazuh, TheHive, Cortex, MISP, n8n,
 - [ ] `topology.env` created from `topology.env.example`, with `MEM_PROFILE` set for this machine
 - [ ] Required ports are free
 - [ ] ≥ 60 GB free disk
+- [ ] `./scripts/preflight.sh <mode>` (in `~/asox-soc`) prints no FAIL line
 
 **[Builder] gate** (before starting build step 1.0 with Claude Code): the same checks, except the clone and `topology.env` items (they don't exist yet), plus:
 

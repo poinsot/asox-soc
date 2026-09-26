@@ -14,7 +14,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
 # shellcheck source=scripts/lib/n8n.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/n8n.sh"
 
-[[ ${1:-} == -h || ${1:-} == --help ]] && { sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//'; exit 0; }
+[[ ${1:-} == -h || ${1:-} == --help ]] && { print_usage "$0"; exit 0; }
 [[ -f "$(node_dir core)/.env" ]] || die "nodes/core/.env not found; run scripts/soc.sh init core"
 
 if (( $# > 0 )); then files=("$@"); else files=("$N8N_WORKFLOW_DIR"/*.json); fi

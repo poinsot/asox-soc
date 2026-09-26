@@ -12,15 +12,15 @@
 #                   a credential: store it privately, never commit it.
 # The node is stopped while its volumes are archived, then started again if
 # it was running. Restore with scripts/restore.sh <node> <backup-dir>.
-# Commands run inside containers expand their own variables ('$1').
 # shellcheck disable=SC2016
+# (commands run inside containers expand their own variables: '$1')
 set -euo pipefail
 # shellcheck source=scripts/lib/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
 # shellcheck source=scripts/lib/backup.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/backup.sh"
 
-usage() { sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { print_usage "$0"; }
 
 NODE="" OUT_PARENT="$REPO_ROOT/backups" WITH_SECRETS=0
 while (( $# > 0 )); do

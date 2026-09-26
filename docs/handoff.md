@@ -4,12 +4,13 @@ Read after PROJECT.md, before starting work (CLAUDE.md). Update at the end of ea
 
 ## Current state (2026-09-26)
 
-- **Phase 1 built locally: steps 1.0–1.9 done** (PROJECT.md section 17; docs/decisions.md up to A75). Tag `v1.0-baseline` and owner branches `wazuh`, `n8n`, `thehive`, `grafana`, `cortex-misp` exist **locally only**. **Next (integrator):** push `main`, the tag and the branches to the private `asox-soc` repo, add collaborators, check CI is green on GitHub; then component work starts (CONTRIBUTING.md).
+- **Phase 1 complete and pushed: steps 1.0–1.9 done** (PROJECT.md section 17; docs/decisions.md up to A75). The integrator pushed `main`, tag `v1.0-baseline` (at 67016c1) and the owner branches `wazuh`, `n8n`, `thehive`, `grafana`, `cortex-misp` to `github.com/poinsot/asox-soc`; CI is green on `main` and every branch.
+- **Docs review before onboarding (2026-09-26):** fixes committed on `main` as "docs: review fixes before onboarding" (clone URL, PR steps, `git pull --no-rebase --no-edit origin main`, CHECKLIST setup steps, branch/URL/license notes in the component READMEs, clean `--help` via `print_usage` in `scripts/lib/common.sh`). The five owner branches were fast-forwarded to that commit locally; the tag stays at the baseline. **Next (integrator):** push `main` and the five branches (normal pushes, no force), then invite the teammates as collaborators; component work starts from CONTRIBUTING.md.
 - **Running: `full`** in `single` / `standard` (WSL 16 GB), healthcheck green, ports on `127.0.0.1`.
 - **Backups on disk (git-ignored, contain credentials except core's):** `backups/cases-20260926-152640/` (with secrets; the TheHive trial instance, keep it until the license is activated), `backups/intel-20260926-152438/` (with secrets), `backups/core-20260926-153828/` (no secrets, 1.1 GB, made to measure the size).
-- **TheHive trial of the build instance ends 2026-10-11.** Once the Community license is activated: `scripts/backup.sh cases --with-secrets`, and check C4 still passes (webhooks need the capability `notification.webhook`; `healthcheck.sh` warns if it's missing, A64). Until then, don't `soc.sh reset cases` without restoring afterwards (D41).
+- **Still open (integrator):** invite collaborators; **TheHive trial of the build instance ends 2026-10-11.** Once the Community license is activated: `scripts/backup.sh cases --with-secrets`, and check C4 still passes (webhooks need the capability `notification.webhook`; `healthcheck.sh` warns if it's missing, A64). Until then, don't `soc.sh reset cases` without restoring afterwards (D41).
 - **Testing budget (integrator, 2026-09-26):** memory measurements = startup peak + 5 min steady state per mode, longer only if still rising. Re-run a full reset+init or the whole contract suite only when a change touches that area; otherwise only the relevant checks.
-- The integrator reviews after each step; approved so far: Cortex 4.1 + ES 8 (D27), Grafana 12.4 (D34), n8n memory (D38, revised by D40), D39 as revised in 1.5, D40, D41, D42, D43. Not yet reviewed: A73 (the `__from:` fix in `render-env.sh`).
+- The integrator reviews after each step; approved so far: Cortex 4.1 + ES 8 (D27), Grafana 12.4 (D34), n8n memory (D38, revised by D40), D39 as revised in 1.5, D40, D41, D42, D43. A73 (the `__from:` fix in `render-env.sh`) reviewed and approved.
 - **Owners** (PROJECT.md section 3, 11.1; CONTRIBUTING.md): Wazuh Daniel (@dmelgar1110), n8n Inigo (@poinsot, also the integrator, on the 32 GB machine), Grafana Jesus (@JC-535), TheHive Park (@Jinhyuk-P), Cortex + MISP Diego (@DiegoGuerraA00835430).
 
 ## Step 1.9 results (A73–A75)
@@ -18,13 +19,13 @@ Read after PROJECT.md, before starting work (CLAUDE.md). Update at the end of ea
 - **Disk (A74):** images core 8.5 / cases 5.6 / intel 4.6 / lab 0.3 GB; volumes core 10.2 GB (Wazuh vulnerability feed 9.5 GB) / intel 1.9 / cases 0.1 GB; per mode ~19 / 6 / 12 / 25 / 31 GB (core / cases / cases-intel / core-cases / full). `backup.sh core` 1.1 GB in under 3 min.
 - **Fresh-clone test (A75):** `init full` with `SOC_INSTANCE=fresh` green in ~7 min; C1–C8 pass; fresh instance reset and deleted; build instance restarted.
 
-## Integrator backlog (after the push)
+## Integrator backlog
 
 - **Exclude the re-downloadable Wazuh vulnerability feed** (`wazuh_queue` → `queue/vd/feed`, ~9.5 GB, possibly `queue/vd_updater` with it) **from core backups**, then test a core restore: the manager must re-download the feed on its own (A72, A74). Today core backups are ~1.1 GB, so this saves time and space, not correctness.
 - Restores of `core`, `intel` and `lab` haven't been run (only `cases`, A72).
 - Windows Firewall: `windows/firewall-rules.ps1` hasn't been run on any machine; a real multi-host deployment (e.g. the shared instance) needs it on each hosting machine (A71), plus the manual `__from:` copies (PROJECT.md section 4).
 - `COMPOSE_PROFILES=pg` for n8n's optional Postgres isn't managed by `soc.sh` (n8n README).
-- Open questions: PROJECT.md section 16 (shared instance host, license re-activation, teammates' RAM and Windows versions).
+- Open questions: PROJECT.md section 16 (shared instance host, license re-activation, teammates' RAM and Windows versions, the build instance's license and C4).
 - `healthcheck.sh` right after `soc.sh up` can report the lab agent `pending` for a few seconds (manager reconnection, A75); a short wait for `active` in `check_lab` would avoid the false FAIL.
 
 ## Pending notes
@@ -54,4 +55,5 @@ Read after PROJECT.md, before starting work (CLAUDE.md). Update at the end of ea
 - **TheHive notifications (A64):** rules live in the organisation's stored config (only an org-admin of SOC can write them: `bootstrap@asox.local`, key revoked after each run); `application.conf` defaults are ignored; changes take up to 5 min (cache). Webhook endpoints ignore `headers`: only `auth` (bearer) is sent.
 - **n8n executions store webhook request headers**, including the webhook token; executions are visible to the n8n owner only (lab; same as C1).
 - **Backups:** `restore.sh` renders before starting and uses `compose create` so volumes carry Compose's labels. Tar runs in `ubuntu:noble-20260911` (GNU tar, `--numeric-owner`); MISP's certificate key is owned by uid 101 (mode 400), so certs are archived from a container too.
+- **Git remote from Claude Code's shell:** the integrator's SSH key has a passphrase and no agent runs there, so `git fetch`/`ls-remote` fail with "Permission denied (publickey)"; ask the integrator for `git ls-remote origin` output instead.
 - **Windows side from WSL:** read-only PowerShell works through interop (`powershell.exe -NoProfile -Command ...`, from a Windows-visible cwd such as `/mnt/c`); anything that changes Windows (firewall rules) is the integrator's, as Administrator.

@@ -13,7 +13,7 @@ set -euo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TEST_LOG=/var/log/asox-lab/test.log
 
-usage() { sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//'; }
 
 id=""
 while (( $# > 0 )); do

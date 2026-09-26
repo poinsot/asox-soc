@@ -1,6 +1,6 @@
 # Grafana — "Dashboard analitico"
 
-Owner: Jesus (@JC-535). Node: `core`. Run mode: `core`.
+Owner: Jesus (@JC-535). Branch: `grafana`. Node: `core`. Run mode: `core`.
 
 Analytic dashboards and SOC metrics; the replacement for the Wazuh dashboard.
 

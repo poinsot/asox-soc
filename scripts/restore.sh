@@ -12,15 +12,15 @@
 # archived ones; start the node and run healthcheck.sh on it.
 # The node gets this machine's SOC_INSTANCE, so a backup can move between
 # machines and instances.
-# Commands run inside containers expand their own variables ('$1').
 # shellcheck disable=SC2016
+# (commands run inside containers expand their own variables: '$1')
 set -euo pipefail
 # shellcheck source=scripts/lib/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
 # shellcheck source=scripts/lib/backup.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/backup.sh"
 
-usage() { sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { print_usage "$0"; }
 
 NODE="" SRC="" FORCE=0 YES=0
 while (( $# > 0 )); do

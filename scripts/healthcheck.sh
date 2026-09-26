@@ -10,8 +10,8 @@
 #                  mode, a dependency on a node that isn't running (a dev
 #                  mode without it) is skipped.
 # One PASS/FAIL line per check (WARN never fails); exit code 1 on failure.
-# Commands run inside containers expand their own variables ('$VAR').
 # shellcheck disable=SC2016
+# (commands run inside containers expand their own variables: '$VAR')
 set -euo pipefail
 # shellcheck source=scripts/lib/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
@@ -24,7 +24,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib/cases.sh"
 # shellcheck source=scripts/lib/misp.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/misp.sh"
 
-usage() { sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { print_usage "$0"; }
 
 CROSS=0
 ARGS=()

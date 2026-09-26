@@ -171,7 +171,7 @@ Contracts are the interfaces between components. Phase 1 makes each one **connec
 
 | # | From → To | Interface | Phase 1 check (`contracts-check.sh`) | Owners |
 |---|---|---|---|---|
-| C1 | Wazuh → n8n | `custom-n8n` integration: HTTP POST of the raw Wazuh alert JSON to `${N8N_WEBHOOK_URL}/webhook/wazuh-alert` for `level >= ${WAZUH_ALERT_MIN_LEVEL}` (default 7), with header `X-ASOX-Token: ${N8N_WEBHOOK_TOKEN}` (D36) | Requests without the token, or with a wrong one, are rejected (HTTP 403); `lab/trigger.sh` fires the test rule and the n8n stub workflow `recv-wazuh-alert` records an execution with that alert's ID | Wazuh, n8n |
+| C1 | Wazuh → n8n | `custom-n8n` integration: HTTP POST of the raw Wazuh alert JSON to `${N8N_WEBHOOK_URL}/webhook/wazuh-alert` for `level >= ${WAZUH_ALERT_MIN_LEVEL}` (default 7), with header `X-ASOX-Token: ${N8N_WEBHOOK_TOKEN}` (D36) | Requests without the token, or with a wrong one, are rejected (HTTP 403); `nodes/lab/trigger.sh` fires the test rule and the n8n stub workflow `recv-wazuh-alert` records an execution with that alert's ID | Wazuh, n8n |
 | C2 | n8n → Wazuh API | REST API on 55000, dedicated user `n8n-api` with a **read-only** role in Phase 1 (agents, alerts, rules). Active-response permission is added only through C9. | n8n credential test, through the `chk-wazuh-api` check workflow: authenticate and list agents; an active-response call is **rejected** (proves the role is read-only) | n8n, Wazuh |
 | C3 | n8n → TheHive | TheHive v1 API, Service account `n8n@asox.local` (profile `analyst`) in the SOC org, n8n credential "TheHive API (n8n)" | Through the check workflow `chk-thehive-api` (n8n's credential): create a test alert (`source: contract-check`), read it back, delete it | n8n, TheHive |
 | C4 | TheHive → n8n | TheHive webhook (endpoint `n8n` and the SOC notification rule "n8n (C4)": every event) to `${N8N_WEBHOOK_URL}/webhook/thehive-event`, with header `Authorization: Bearer ${N8N_WEBHOOK_TOKEN}` (D36, D43) | Requests without the token, or with a wrong one, are rejected (HTTP 403); creating the C3 test alert produces an execution of stub workflow `recv-thehive-event` for that alert | TheHive, n8n |
@@ -204,7 +204,7 @@ Each component section lists its long-term **role** and what Phase 1 delivers as
   - The `custom-n8n` integration (C1).
   - API user `n8n-api` with a read-only role (C2) and indexer read-only user `grafana-ro` (C8).
   - `wazuh-query.sh` for command-line alert queries.
-- **Lab agent:** one containerized Wazuh agent enrolled via `${WAZUH_MANAGER_ADDR}` with the enrollment password, plus `lab/trigger.sh` to produce test alerts. It's also the reference for how real endpoints will enroll.
+- **Lab agent:** one containerized Wazuh agent enrolled via `${WAZUH_MANAGER_ADDR}` with the enrollment password, plus `nodes/lab/trigger.sh` to produce test alerts. It's also the reference for how real endpoints will enroll.
 
 ### 6.2 n8n (`core`) — SOAR, "Orchestrador"
 
@@ -214,7 +214,7 @@ Each component section lists its long-term **role** and what Phase 1 delivers as
   - **Response:** playbooks execute response actions on endpoints through the Wazuh active-response API (C9, Phase 2), gated by analyst approval.
 - **Single execution point:** n8n is the **only** component that executes automated actions that change systems, such as blocking an IP, isolating a host or disabling a user (D12). Other components detect, store, analyze or display; they do not act.
 - **Baseline:**
-  - n8n with SQLite storage, kept in n8n's data volume. Postgres is defined in the same `n8n/compose.yml` under the optional profile `pg` (off by default, adds ~0.1–0.2 GB); switching is the n8n owner's decision.
+  - n8n with SQLite storage, kept in n8n's data volume. Postgres (service `n8n-postgres`) is defined in the same `n8n/compose.yml` under the optional profile `pg` (off by default, adds ~0.1–0.2 GB); switching is the n8n owner's decision.
   - Credentials created from env vars for Wazuh API, TheHive and Cortex (C2, C3, C6), with fixed IDs so exported workflows work on every machine. The webhook token is a credential too.
   - Two **stub** workflows that only receive and log: `recv-wazuh-alert` (C1) and `recv-thehive-event` (C4), plus the check workflows `chk-wazuh-api`, `chk-thehive-api` and `chk-cortex-api` used by `contracts-check.sh` for C2, C3 and C6.
   - **Webhooks require a shared token** (`X-ASOX-Token`, header authentication; D36). TheHive sends it as `Authorization: Bearer` instead (D43).
@@ -485,7 +485,7 @@ The team workflow is deliberately simple: one branch per owner, merged into `mai
 
 **Branches**
 - `main` is the integrated, working version of the platform. Only the integrator merges into it.
-- One long-lived branch per owner: `wazuh`, `n8n`, `thehive`, `grafana`, `cortex-misp`. They are created from `v1.0-baseline` at step 1.9 and pushed by the integrator.
+- One long-lived branch per owner: `wazuh`, `n8n`, `thehive`, `grafana`, `cortex-misp`. They were created at step 1.9 from `v1.0-baseline`, then moved forward to the reviewed `main` (commit "docs: review fixes before onboarding") before onboarding, so teammates start with the corrected docs.
 
 **Folder ownership**
 
@@ -503,13 +503,13 @@ The team workflow is deliberately simple: one branch per owner, merged into `mai
 2. **Push at the end of every work session** (`git push`). Your work is backed up on GitHub, and the integrator can see progress.
 3. **Only change your own folders.** If you need a shared file changed (e.g. a new variable in `.env.example`, a fix in `soc.sh`), ask the integrator. They change it on `main`, and you pull it in.
 4. **Merge at checkpoints, not only at the end:** every ~2 weeks, or whenever something works.
-   1. Bring `main` into your branch: `git pull origin main`.
+   1. Bring `main` into your branch: `git pull --no-rebase --no-edit origin main` (a merge that works without git configuration and never opens an editor).
    2. Check that everything still runs (`healthcheck.sh`, and `contracts-check.sh` if you touched an integration).
    3. On GitHub, open a pull request from your branch into `main`, describing what changed.
    4. CI runs automatically. The integrator reviews and clicks **Merge**.
 5. **Talk before changing a contract.** Agree with the other owner (section 5) before changing anything another component relies on, then include it in a checkpoint.
 
-**Conflicts:** if `git pull origin main` reports a conflict you're unsure about, stop and ask the integrator rather than guessing. Following rule 3 makes conflicts rare.
+**Conflicts:** if pulling `main` reports a conflict you're unsure about, stop and ask the integrator rather than guessing. Following rule 3 makes conflicts rare.
 
 **Protecting `main`:** by **team agreement**: only the integrator merges into `main`, and nobody pushes to it directly. No GitHub branch protection is used, since that requires a paid plan for private repos (D20).
 
@@ -591,7 +591,7 @@ Everything else (setup, credentials, backlog) is in the repo or generated on the
 5. Save and back up: `git add -A && git commit -m "<what changed>" && git push`.
 6. `soc.sh down` when done for the day.
 
-At a **checkpoint** (every ~2 weeks, or when something works), follow rule 4 in 11.1: `git pull origin main`, re-test, open a pull request on GitHub, and the integrator merges it.
+At a **checkpoint** (every ~2 weeks, or when something works), follow rule 4 in 11.1: `git pull --no-rebase --no-edit origin main`, re-test, open a pull request on GitHub, and the integrator merges it.
 
 **Git cheat sheet**
 
@@ -600,7 +600,7 @@ At a **checkpoint** (every ~2 weeks, or when something works), follow rule 4 in 
 | Which branch am I on? Anything unsaved? | `git status` |
 | Save and back up my work | `git add -A && git commit -m "message" && git push` |
 | Get the latest from my own branch | `git pull` |
-| Bring in the integrator's and others' merged work | `git pull origin main` |
+| Bring in the integrator's and others' merged work | `git pull --no-rebase --no-edit origin main` |
 | See recent history | `git log --oneline -10` |
 | Conflict or anything unexpected | Stop and ask the integrator |
 
@@ -608,9 +608,9 @@ At a **checkpoint** (every ~2 weeks, or when something works), follow rule 4 in 
 
 | Owner | `init` mode | Works in | Test loop | Contracts | Coordinates with |
 |---|---|---|---|---|---|
-| **Wazuh** | `core` (~3.8 GB) | Files in `nodes/core/wazuh/` (no Wazuh dashboard) | Edit rule → restart manager → `lab/trigger.sh` → `wazuh-query.sh` or Grafana | C1, C2, C8, later C9 | n8n (alert fields playbooks rely on) |
-| **n8n (SOAR)** | `core-cases` (~10.35 GB; best effort on `low`, so on an 8 GB machine use the shared instance for integration work; the current n8n owner uses the 32 GB machine) | n8n UI `localhost:5678` (stub workflows and credentials pre-created) | Edit playbook → `lab/trigger.sh` → check execution and TheHive alert → `n8n-export.sh` | C1–C4, C6, later C9 | Wazuh (alert input), TheHive (alert/case format) |
-| **Grafana** | `core` (~3.8 GB) | Grafana UI `localhost:3000` (datasource and starter dashboard pre-provisioned; lab agent provides data) | Edit dashboard → `lab/trigger.sh` if more data is needed → `grafana-export.sh` | C8 | n8n and TheHive, later (case metrics such as response times) |
+| **Wazuh** | `core` (~3.8 GB) | Files in `nodes/core/wazuh/` (no Wazuh dashboard) | Edit rule → restart manager → `nodes/lab/trigger.sh` → `wazuh-query.sh` or Grafana | C1, C2, C8, later C9 | n8n (alert fields playbooks rely on) |
+| **n8n (SOAR)** | `core-cases` (~10.35 GB; best effort on `low`, so on an 8 GB machine use the shared instance for integration work; the current n8n owner uses the 32 GB machine) | n8n UI `localhost:5678` (stub workflows and credentials pre-created) | Edit playbook → `nodes/lab/trigger.sh` → check execution and TheHive alert → `n8n-export.sh` | C1–C4, C6, later C9 | Wazuh (alert input), TheHive (alert/case format) |
+| **Grafana** | `core` (~3.8 GB) | Grafana UI `localhost:3000` (datasource and starter dashboard pre-provisioned; lab agent provides data) | Edit dashboard → `nodes/lab/trigger.sh` if more data is needed → `grafana-export.sh` | C8 | n8n and TheHive, later (case metrics such as response times) |
 | **TheHive** | `cases` (~6.55 GB) | TheHive UI `localhost:9000` (org, users and Cortex connector pre-created) | Configure → create test alerts via the API (Wazuh isn't running in this mode) → check alert and case flow | C3, C4, C5 | n8n (alert format), Cortex + MISP (analyzers shown to analysts) |
 | **Cortex + MISP** | `cases-intel` (~8.6 GB) | Cortex `localhost:9001` (MISP analyzer enabled); MISP `https://localhost:9443` (self-signed certificate warning is expected) | Add intel in MISP → run analyzers on test observables → check reports | C5, C6, C7 | Wazuh, later (MISP IOCs into Wazuh CDB lists) |
 
@@ -638,7 +638,7 @@ Each node's root compose file only `include`s per-component compose files. That 
 | Compose file | Services it defines |
 |---|---|
 | `core/wazuh/compose.yml` | wazuh-manager, wazuh-indexer |
-| `core/n8n/compose.yml` | n8n (SQLite in its data volume, by default); **postgres** under the optional profile `pg` |
+| `core/n8n/compose.yml` | n8n (SQLite in its data volume, by default); **n8n-postgres** under the optional profile `pg` |
 | `core/grafana/compose.yml` | grafana |
 | `cases/storage.yml` | cassandra, elasticsearch |
 | `cases/thehive/compose.yml` | thehive |
@@ -673,7 +673,7 @@ asox-soc/
 │   │   │   ├── decoders/
 │   │   │   └── integrations/   # custom-n8n (+ .py): Wazuh -> n8n (C1)
 │   │   ├── n8n/                # owner: n8n
-│   │   │   ├── compose.yml     # n8n (+ postgres, profile pg)
+│   │   │   ├── compose.yml     # n8n (+ n8n-postgres, profile pg)
 │   │   │   ├── README.md
 │   │   │   └── workflows/      # recv-wazuh-alert, recv-thehive-event, chk-wazuh-api, chk-thehive-api, chk-cortex-api
 │   │   └── grafana/            # owner: Grafana
@@ -832,7 +832,7 @@ These are the **design** decisions made while planning. Implementation choices m
 | D31 | The `lab` node has its own `.env.example` (rendered to `.env` like the other nodes) | Each node must run on its own (section 12); the lab agent needs `SOC_INSTANCE`, `WAZUH_MANAGER_ADDR` and its memory limit |
 | D32 | The Wazuh indexer is addressed as `wazuh.indexer` (network alias of `wazuh-indexer`), the DNS name in its certificate | The official Wazuh certificate tool only accepts dotted DNS names; clients verify the certificate, so `WAZUH_INDEXER_URL` must use that name (same as upstream `wazuh-docker`) |
 | D33 | Agent enrollment requires a password (`WAZUH_ENROLLMENT_PASSWORD`), generated per machine like the other secrets and written to `authd.pass` at every manager start; the lab agent uses it (step 1.2) | Without it, anything that can reach port 1515 can enroll as an agent and inject events once `core` is exposed on a LAN; syslog source restriction stays in the Wazuh backlog |
-| D34 | Grafana pinned to 12.4 (latest 12.x) instead of 13 | Measured on 13.2.2: each browser session left ~100 MiB of retained heap that was never freed (74 → 532 MiB live after five sessions), so any memory limit is eventually hit; 12.4.11 stays flat at ~175 MiB. Grafana's RAM in section 8 was also raised from 0.2 / 0.1 GB to 0.3 / 0.2 GB after measuring |
+| D34 | Grafana pinned to 12.4 (latest 12.x) instead of 13 | Measured on 13.2.2: each browser session left ~100 MiB of retained heap that was never freed (74 → 532 MiB live after five sessions), so any memory limit is eventually hit; 12.4.11 stays flat at ~175 MiB. Grafana's RAM in section 8 was also raised from 0.2 / 0.1 GB to 0.3 / 0.2 GB after measuring (now 0.25 / 0.25 GB, sized by D40) |
 | D35 | The Grafana datasource uses the daily index pattern `[wazuh-alerts-4.x-]YYYY.MM.DD` (interval Daily) instead of `wazuh-alerts-*` | The OpenSearch plugin's health check can't pass with a wildcard pattern (it looks up the pattern itself as an index name); the daily pattern matches Wazuh's index naming and limits queries to the days in the time range |
 | D36 | n8n webhooks require a shared token: header `X-ASOX-Token: ${N8N_WEBHOOK_TOKEN}` (n8n Header Auth), generated per machine like the other secrets. Wazuh's `custom-n8n` integration sends it (C1); TheHive's webhook sends it as `Authorization: Bearer` (C4, D43). Contract checks verify that requests without it are rejected | Webhooks trigger playbooks that will change systems (C9); in distributed mode port 5678 is reachable on the LAN, so anyone could otherwise inject fake alerts |
 | D37 | n8n workflows read service URLs from n8n's environment (`$env.WAZUH_API_URL`, ...), so `N8N_BLOCK_ENV_ACCESS_IN_NODE=false`; the environment holds no secrets: API credentials are n8n credentials, and the encryption key is a Compose secret file | Exported workflows stay portable across machines and modes without hardcoded hosts; n8n's env access is all-or-nothing, so secrets must not be in the environment at all |
@@ -852,6 +852,7 @@ These are the **design** decisions made while planning. Implementation choices m
 3. How much RAM do the Wazuh, Grafana, TheHive and Cortex + MISP owners' machines have? This confirms who needs the `low` profile (the n8n owner uses the 32 GB machine). Default: keep it, since it costs little.
 4. Who hosts and maintains the optional shared instance, and on which machines? Default: none until the team needs whole-chain testing. Whoever hosts it runs `windows/firewall-rules.ps1` on each hosting machine (A71) and pastes the `__from:` values between machines (section 4).
 5. Can one TheHive Community license be re-activated on a new instance (after `soc.sh reset cases`, or for the fresh-clone and shared instances)? StrangeBee doesn't document it (A57). Default: avoid resets, restore backups instead; ask StrangeBee when requesting the license.
+6. The build instance's TheHive runs on its trial until **2026-10-11**. Once the integrator's Community license is activated: back up `cases` (`backup.sh cases --with-secrets`) and confirm C4 still passes, i.e. that the Community license includes the `notification.webhook` capability (`healthcheck.sh` warns if not; docs/decisions.md A64). If it doesn't, C4 needs another design.
 
 ---
 
@@ -868,4 +869,6 @@ These are the **design** decisions made while planning. Implementation choices m
 | 1.6 | Done (2026-09-25) | MISP 2.5.47 (`misp-docker`: core, nginx, modules, MariaDB 10.11.19, Valkey 7.2.14; no mail relay, no misp-guard), self-signed certificate per machine (`gen-certs.sh intel`). `bootstrap.sh intel`: admin API key, Read Only user for Cortex and its key, published seed event (`nodes/intel/misp/seed/`). `bootstrap.sh cases` enables Cortex's MISP analyzer (`MISP_2_1`, certificate check off, image pulled). C7 passes (forced new job; the analyzer container on `soc-net` reaches `misp-nginx` and finds the seed event); all contracts built so far (C1, C2, C5, C7, C8) pass in `full`. `soc.sh init` bootstraps intel → cases → core with a render before each. Intel limits measured (D40, A63); `cases-intel` on `low` uses ~4.0 GB. |
 | 1.7 | Done (2026-09-26) | n8n credentials for TheHive and Cortex (keys via `__from:cases__`) and check workflows `chk-thehive-api` / `chk-cortex-api`; n8n joins `soc-net`. TheHive webhook (C4): endpoint + SOC notification rule written by the Service account `bootstrap@asox.local`, whose key is revoked after each run; the analyst is org-admin (D42); the token goes as `Authorization: Bearer`, since TheHive's webhooks can't send custom headers (D43, A64). `healthcheck.sh` (incl. `--cross-node`, license warning), `mem-report.sh`, `contracts-check.sh` complete. `__from:<node>__` documented in section 4. In `full` on `standard`: `soc.sh init full` clean, `healthcheck.sh` all green, **C1–C8 pass**, no OOM kills; `docs/mem-report-standard.md`; `CORTEX_MEM` 600m → 650m (A69). Part 2, `low` in a 6 GB WSL VM, each dev mode alone (A70): `core` (C1, C2, C8), `cases` (C5) and `cases-intel` (C5, C7) pass with healthchecks green, no OOM kills and no container swap; whole-VM peaks ~3.1 / ~4.6 / ~5.3 GB including Claude Code and VS Code; `docs/mem-report-low-*.md`. Low limits raised to D40: grafana 250m, cortex 550m, wazuh-indexer 1150m. Best effort: `core-cases` passes C1–C6 and C8 near the limit; `full` stalled the VM (memory pressure, no OOM kill) and doesn't fit 6 GB. `healthcheck.sh --cross-node` skips nodes a dev mode leaves out; `mem-report.sh` reports VM peaks and processes outside containers. |
 | 1.8 | Done (2026-09-26) | Distribution simulation (A71): all `*_HOST` = the host's LAN IP, `render-env.sh`, MISP certificate regenerated, nodes restarted without `soc-net`, `bootstrap.sh cases` and `core`: ports on `0.0.0.0`, `healthcheck.sh --cross-node` green, **C1–C8 pass through published ports only**. WSL's Hyper-V firewall blocks inbound by default, so a second computer needs `windows/firewall-rules.ps1` (not used: traffic stayed in the VM). Restored to `single`: ports back on `127.0.0.1`, C1, C3–C7 pass. `backup.sh` / `restore.sh` (A72): round trip marker case → `backup.sh cases --with-secrets` → `soc.sh reset cases` → `restore.sh cases`: marker case present, same TheHive instance and license, `healthcheck.sh` green, C3–C7 pass without re-bootstrapping. `backup.sh intel --with-secrets` includes MISP's certificate. Onboarding note for 8 GB machines (close VS Code during `cases-intel`) in 11.6 and `CHECKLIST.md`. |
-| 1.9 | Done locally (2026-09-26); push by the integrator | Component READMEs completed (start here, contracts at `v1.0-baseline`, export, local patches, backlogs from 11.3) and `CONTRIBUTING.md` (11.1, 11.2, 11.6). Before them, 1.8 follow-ups: the `__from:` manual copy checked on a cases-only copy of the repo, which found and fixed a bug (a pasted `N8N_WEBHOOK_TOKEN` was replaced on multi-host machines, A73); 14.3 lists what the simulation doesn't cover; disk per mode and backup sizes measured (`core` backup ~1.1 GB; A74). **Fresh-clone test passed** (A75): `soc.sh init full` with `SOC_INSTANCE=fresh` reached a green healthcheck in ~7 min (C1–C8 also pass), then the fresh instance was reset and deleted and the build instance restarted. Tag `v1.0-baseline` and branches `wazuh`, `n8n`, `thehive`, `grafana`, `cortex-misp` created locally from it. Remaining (integrator): push, collaborators, CI green on GitHub. |
+| 1.9 | Done (2026-09-26); pushed, CI green | Component READMEs completed (start here, contracts at `v1.0-baseline`, export, local patches, backlogs from 11.3) and `CONTRIBUTING.md` (11.1, 11.2, 11.6). Before them, 1.8 follow-ups: the `__from:` manual copy checked on a cases-only copy of the repo, which found and fixed a bug (a pasted `N8N_WEBHOOK_TOKEN` was replaced on multi-host machines, A73); 14.3 lists what the simulation doesn't cover; disk per mode and backup sizes measured (`core` backup ~1.1 GB; A74). **Fresh-clone test passed** (A75): `soc.sh init full` with `SOC_INSTANCE=fresh` reached a green healthcheck in ~7 min (C1–C8 also pass), then the fresh instance was reset and deleted and the build instance restarted. Tag `v1.0-baseline` and branches `wazuh`, `n8n`, `thehive`, `grafana`, `cortex-misp` created from it; the integrator pushed `main`, the tag and the branches, and CI is green on `main` and every branch. Docs review before onboarding (2026-09-26): fixes committed on `main` ("docs: review fixes before onboarding"), owner branches fast-forwarded to it; the tag stays at the baseline. |
+
+**Phase 1 is complete and pushed.** Still open (integrator): invite the teammates as collaborators; activate the TheHive Community license of the build instance (trial ends 2026-10-11), then back up `cases` and confirm C4 with it (section 16, question 6).

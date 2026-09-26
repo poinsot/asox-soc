@@ -9,7 +9,7 @@ set -euo pipefail
 # shellcheck source=scripts/lib/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
 
-[[ ${1:-} == -h || ${1:-} == --help ]] && { sed -n '2,7p' "$0" | sed 's/^# \{0,1\}//'; exit 0; }
+[[ ${1:-} == -h || ${1:-} == --help ]] && { print_usage "$0"; exit 0; }
 
 mapfile -t NODES < <(resolve_nodes "${@:-full}")
 

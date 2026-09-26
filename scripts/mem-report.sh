@@ -18,7 +18,7 @@ set -euo pipefail
 # shellcheck source=scripts/lib/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
 
-usage() { sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { print_usage "$0"; }
 
 SAMPLE=0 INTERVAL=2 OUT=""
 ARGS=()

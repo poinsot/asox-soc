@@ -14,7 +14,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib/n8n.sh"
 # shellcheck source=scripts/lib/cases.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/cases.sh"
 
-usage() { sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { print_usage "$0"; }
 
 ONLY=""
 while (( $# > 0 )); do

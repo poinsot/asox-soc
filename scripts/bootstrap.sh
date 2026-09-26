@@ -29,7 +29,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib/cases.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/lib/misp.sh"
 trap n8n_cleanup EXIT
 
-usage() { sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { print_usage "$0"; }
 
 # ---------------------------------------------------------------- core ---
 
@@ -637,6 +637,7 @@ bootstrap_intel() {
 # ---------------------------------------------------------------- main ---
 
 main() {
+  [[ ${1:-} == -h || ${1:-} == --help ]] && { usage; exit 0; }
   (( $# == 1 )) || { usage; exit 1; }
   local node=$1
   is_node "$node" || die "unknown node: $node"

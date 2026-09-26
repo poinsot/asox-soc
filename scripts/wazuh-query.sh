@@ -17,7 +17,7 @@ set -euo pipefail
 # shellcheck source=scripts/lib/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
 
-usage() { sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { print_usage "$0"; }
 err() { printf 'ERROR %s\n' "$*" >&2; exit 2; }
 
 SIZE=10 SINCE=24h RULE="" MIN_LEVEL="" AGENT="" MATCH="" ALERT_ID="" JSON=0

@@ -1,10 +1,12 @@
 # n8n — SOAR, "Orchestrador"
 
-Owner: Inigo (@poinsot), also the integrator. Node: `core`. Run mode: `core-cases` (`core` is enough for C1/C2 work).
+Owner: Inigo (@poinsot), also the integrator. Branch: `n8n`. Node: `core`. Run mode: `core-cases` (`core` is enough for C1/C2 work).
 
 n8n is the platform's SOAR and integration hub, and the **only** component that executes automated actions that change systems (PROJECT.md 6.2, D12).
 
 **Start here:** [CONTRIBUTING.md](../../../CONTRIBUTING.md) (light rules, exporting changes, onboarding), then this file. First time: `./scripts/soc.sh init core-cases`; then `soc.sh up core-cases` / `soc.sh down`. Test loop: edit a playbook → `nodes/lab/trigger.sh` → check the execution and the TheHive alert → `scripts/n8n-export.sh` (`core-cases` is best effort on 8 GB machines: use a 16 GB+ machine or the shared instance). Details: [PROJECT.md](../../../PROJECT.md) 6.2.
+
+`core-cases` includes TheHive, which turns read-only after a 14-day trial: request and activate your Community license, then back it up right away ([TheHive README](../../cases/thehive/README.md#license-important)).
 
 | Folder / file | What it is |
 |---|---|

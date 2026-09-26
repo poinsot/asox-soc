@@ -10,7 +10,7 @@ set -euo pipefail
 # shellcheck source=scripts/lib/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
 
-[[ ${1:-} == -h || ${1:-} == --help ]] && { sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//'; exit 0; }
+[[ ${1:-} == -h || ${1:-} == --help ]] && { print_usage "$0"; exit 0; }
 
 ENV_FILE="$(node_dir core)/.env"
 [[ -f $ENV_FILE ]] || die "nodes/core/.env not found; run scripts/soc.sh init core"
