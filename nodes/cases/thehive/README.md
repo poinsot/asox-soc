@@ -10,6 +10,8 @@ Alert triage and case management for analysts. **Apply your Community license be
 |---|---|
 | `compose.yml` | `thehive` (TheHive 5, served on port 9000 at the root path) |
 | `config/application.conf` | TheHive configuration; secrets come from the environment (`${VAR}`), never from this file |
+| `scripts/` | `thehive-export.sh` / `thehive-import.sh` (UI configuration ↔ `entities/`) and their shared `lib.sh` |
+| `entities/` | Exported configuration: custom fields, observable types, case templates (JSON, committed) |
 | `../storage.yml` (integrator-owned) | `cassandra` (TheHive's database) and `elasticsearch` (search index, shared with Cortex) |
 
 UI: `http://localhost:9000`, logins from `scripts/soc.sh info` (the analyst for daily work, `admin@thehive.local` for platform management and the license).
@@ -68,7 +70,32 @@ Re-activating for a new instance ID uses the same portal page ("Activate or View
 | C4 TheHive → n8n | Webhook (endpoint `n8n` + notification rule "n8n (C4)"), token as `Authorization: Bearer` | Passes |
 | C5 TheHive → Cortex | Cortex connector (server "Cortex") | Passes |
 
-Check: `scripts/contracts-check.sh --only C3,C4,C5` (C3 and C4 create a test alert with `source: contract-check` and delete it). **Exporting changes:** TheHive's configuration (case templates, custom fields, ...) lives in its database; export/import scripts in this folder are the owner's first task (PROJECT.md 11.2, 11.6). Changing a contract needs the other owner's agreement first (PROJECT.md 5).
+Check: `scripts/contracts-check.sh --only C3,C4,C5` (C3 and C4 create a test alert with `source: contract-check` and delete it). **Exporting changes:** see the next section. Changing a contract needs the other owner's agreement first (PROJECT.md 5).
+
+## Exporting and importing the configuration
+
+TheHive keeps its configuration in its database, so changes made in the UI reach git only through these scripts (PROJECT.md 11.2). Run them on the machine hosting `cases`, while it is up.
+
+| What (kind) | Scope | File in `entities/` |
+|---|---|---|
+| `custom-fields` | Platform (Entities management → Custom fields) | `custom-fields.json` |
+| `observable-types` | Platform (Entities management → Observables) | `observable-types.json` |
+| `case-templates` | Organisation `SOC` (Organisation → Templates) | `case-templates.json` |
+
+```bash
+nodes/cases/thehive/scripts/thehive-export.sh              # TheHive -> entities/*.json
+nodes/cases/thehive/scripts/thehive-import.sh --dry-run    # what would change
+nodes/cases/thehive/scripts/thehive-import.sh              # entities/*.json -> TheHive
+```
+
+Both take kinds as arguments (default: all), e.g. `thehive-export.sh case-templates`.
+
+- **Export** leaves out IDs, dates and authors and sorts every list by name, so the files are identical on every machine and `git diff` shows only real changes. Export before committing, and before pulling someone else's changes.
+- **Import** matches objects by name: it creates what's missing and updates what differs, and never deletes anything (safe to re-run; no duplicates). Custom fields are imported before case templates, which refer to them. Objects that exist only in TheHive are listed and left as they are.
+- **Accounts:** the platform admin for custom fields and observable types; for case templates (organisation settings the admin can't reach) the Service account `THEHIVE_BOOTSTRAP_USER`, through a temporary API key revoked when the script exits, as `bootstrap.sh` does (D42). No password or key is written anywhere.
+- **Limits:** a custom field's `type` and an observable type's `isAttachment` can't be changed through the API (import warns; change them in the UI). If TheHive refuses to update a case template, import deletes and recreates it; cases already created from it keep their own copy.
+
+After a `restore.sh cases`, nothing needs re-importing (the configuration is in the backup); after a reset or on a new machine, run `thehive-import.sh`.
 
 ## Local patches and deprecations (re-check on upgrade)
 
@@ -91,7 +118,7 @@ Pinned: `strangebee/thehive` 5.7.6, `cassandra` 4.1.12, `elasticsearch` 8.19.21 
 
 Pick from this list; Phase 1 only built the baseline.
 
-- **First task:** export/import scripts for the UI configuration (case templates, custom fields), in this folder, so your work reaches git (PROJECT.md 11.2).
+- ~~**First task:** export/import scripts for the UI configuration~~: done (`scripts/thehive-export.sh`, `scripts/thehive-import.sh`, section above).
 - Case templates and tasks; custom fields; severity / TLP / PAP mapping.
 - Alert-to-case rules (with the n8n owner: alert format).
 - Users and roles for the team (the Community license allows 2 Normal users); triage procedures.
