@@ -2,7 +2,7 @@
 
 Owner: Daniel (@dmelgar1110). Branch `wazuh`. Folders `nodes/core/wazuh/` and `nodes/lab/`. Plan as of 2026-09-29.
 
-Priorities: P1 needed for a working component, P2 should have, P3 nice to have. Contracts: PROJECT.md section 5.
+**Delivery: 2026-12-01.** Feature freeze 2026-11-24. Priorities: P1 is the delivery, P2 should have, P3 nice to have; if behind, drop P3 first, then P2. M6 is after the delivery. Contracts: PROJECT.md section 5.
 
 Tick a box (`[x]`) when its "done when" check passes, and commit this file with the work. The interactive version of this list can regenerate it with **Copy as Markdown**.
 
@@ -64,7 +64,7 @@ Close the known gaps before core is exposed on a LAN, and build the tools the la
   - Files: `nodes/lab/trigger.sh`
   - With: Tell Inigo and Jesus: they get realistic data for playbooks and dashboards
 
-## M2 · Detection content v1 (target: 2026-10-23)
+## M2 · Detection content v1 (target: 2026-10-20)
 
 The first real detections, tuned and mapped, merged at checkpoint 1 (milestone tag `v1.1-detections`).
 
@@ -85,11 +85,11 @@ The first real detections, tuned and mapped, merged at checkpoint 1 (milestone t
   - Done when: README section listing the fields in the C1 payload (`id`, `timestamp`, `rule.id/level/description/groups/mitre`, `agent.id/name/ip`, `data.srcip/srcuser`, `full_log`, `location`) with an example alert. Documenting is not a contract change; changing the payload is.
   - Files: `nodes/core/wazuh/README.md`
   - With: Inigo (n8n owner)
-- [ ] **W2.6** Checkpoint 1 pull request · P1, C1, C2, C8
+- [ ] **W2.6** Checkpoint 1 pull request (by 2026-10-20) · P1, C1, C2, C8
   - Done when: `git pull --no-rebase --no-edit origin main`, `healthcheck.sh` green, `contracts-check.sh --only C1,C2,C8` passes, `ci-checks.sh all` passes, pull request `wazuh` → `main` opened and merged by the integrator.
   - With: Inigo (review and merge)
 
-## M3 · Network sources: pfSense and routers (target: 2026-11-06)
+## M3 · Network sources: pfSense and routers (target: 2026-11-03)
 
 Syslog from network devices is decoded and classified, ready for the real devices of Phase 2.
 
@@ -103,7 +103,7 @@ Syslog from network devices is decoded and classified, ready for the real device
 - [ ] **W3.3** pfSense rules · P1
   - Done when: Port scan (many blocked ports from one source, frequency rule), bursts of blocked connections, failed GUI logins, configuration changes. Test cases and MITRE IDs.
   - Files: `nodes/core/wazuh/rules/`
-- [ ] **W3.4** Router rules · P2
+- [ ] **W3.4** Router rules · P3
   - Done when: Login failures, interface or configuration changes, and whatever the samples show matters. Test cases and MITRE IDs.
   - Files: `nodes/core/wazuh/rules/`, `nodes/core/wazuh/decoders/`
 - [ ] **W3.5** End-to-end syslog test · P1, C1
@@ -113,7 +113,7 @@ Syslog from network devices is decoded and classified, ready for the real device
   - Done when: Jesus has the rule groups and fields for network panels.
   - With: Jesus (Grafana owner)
 
-## M4 · Agents and endpoints (target: 2026-11-20)
+## M4 · Agents and endpoints (target: 2026-11-12)
 
 Real endpoints can enroll into groups with policies that fit them.
 
@@ -131,15 +131,15 @@ Real endpoints can enroll into groups with policies that fit them.
   - Files: `nodes/core/wazuh/ENROLLMENT.md`
 - [ ] **W4.5** Enroll your own Windows host · P1
   - Done when: Following the guide exactly: the Windows agent is `active` in `windows-desktops`, and a failed Windows logon shows up as an alert. With mirrored networking the ports on 127.0.0.1 are reachable from Windows.
-- [ ] **W4.6** Alert on disconnected agents · P2
+- [ ] **W4.6** Alert on disconnected agents · P3
   - Done when: `agents_disconnection_alert_time` set (it is 0 now); stopping the lab agent produces an alert at the agreed level.
   - Files: `nodes/core/wazuh/config/ossec.conf`
 
-## M5 · Threat intel: MISP IOCs as CDB lists (target: 2026-12-04)
+## M5 · Threat intel: MISP IOCs as CDB lists (target: 2026-11-20)
 
-Wazuh flags events that match IOCs kept in MISP (joint work with the Cortex + MISP owner).
+Wazuh flags events that match IOCs kept in MISP (joint work with the Cortex + MISP owner). W5.1 depends on two teammates, so start it during M2 (agreement by 2026-10-16).
 
-- [ ] **W5.1** Agree the design as a new contract · P1
+- [ ] **W5.1** Agree the design as a new contract (by 2026-10-16) · P1
   - Done when: With Diego: which attributes (IPs, domains, MD5/SHA-256), which events (published, `to_ids`, a tag), refresh cadence, a read-only MISP key for core (a new `__from:intel__` value). Written up and sent to Inigo, who adds the contract to PROJECT.md 5 and the shared env files.
   - With: Diego (Cortex + MISP) and Inigo (shared files)
 - [ ] **W5.2** MISP to CDB export script · P1
@@ -156,11 +156,32 @@ Wazuh flags events that match IOCs kept in MISP (joint work with the Cortex + MI
   - Files: `nodes/core/wazuh/README.md`
   - With: Inigo, if a limit must change
 
-## M6 · Phase 2 preparation (target: when Phase 2 opens)
+## DL · Delivery (target: 2026-12-01)
 
-Designs ready for response actions (C9) and Snort, so Phase 2 starts from agreed plans.
+Everything merged into `main`, tested end to end and ready to show one day early. No new features after the freeze.
 
-- [ ] **W6.1** Design C9 with the n8n owner · P2, C2, C9
+- [ ] **WD.1** Feature freeze (2026-11-24) · P1
+  - Done when: Every P1 task of M1–M5 is done, or dropped with the integrator's agreement and noted in the README. From here on, only fixes.
+  - Files: `nodes/core/wazuh/README.md`
+  - With: Inigo (integrator)
+- [ ] **WD.2** Final checkpoint pull request merged (by 2026-11-26) · P1, C1, C2, C8
+  - Done when: `wazuh` → `main` merged; CI green; teammates told about any rule file they must `rm` on their machines.
+  - With: Inigo (review and merge)
+- [ ] **WD.3** End-to-end run in `full` (by 2026-11-27) · P1, C1, C2, C8
+  - Done when: On the 32 GB machine or the shared instance, from `main`: `healthcheck.sh` green, C1–C8 pass, and `trigger.sh --scenario ssh-bruteforce` and `--scenario ioc-ip` show up in Grafana and as n8n executions.
+  - With: Inigo (runs `full`), Jesus (Grafana)
+- [ ] **WD.4** Evidence for the delivery (by 2026-11-30) · P1
+  - Done when: README final; a table of custom rules with level and MITRE ID; test runner output; screenshots of the alerts in Grafana and of an n8n execution; the enrolled Windows agent.
+  - Files: `nodes/core/wazuh/README.md`
+- [ ] **WD.5** Rehearse the demo (by 2026-11-30) · P1
+  - Done when: A short script that runs start to finish without surprises: attack scenario → Wazuh alert → Grafana → n8n; IOC from MISP → alert; syslog from pfSense → alert.
+  - With: Team
+
+## M6 · Phase 2 preparation (target: after 2026-12-01)
+
+Not part of the 1 December delivery. Designs for response actions (C9) and Snort, only if everything else is done early.
+
+- [ ] **W6.1** Design C9 with the n8n owner · P3, C2, C9
   - Done when: Allowed commands (`firewall-drop`, `host-deny`, `disable-account`), timeouts, a whitelist that protects the SOC's own hosts, and the exact permissions to add to `n8n-api`. Agreed and handed to Inigo (role in `scripts/lib/wazuh.sh`, check in `contracts-check.sh`).
   - With: Inigo (n8n owner and integrator)
 - [ ] **W6.2** Active response in the lab · P3, C9
