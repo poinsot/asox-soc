@@ -118,7 +118,7 @@ Pinned: `strangebee/thehive` 5.7.6, `cassandra` 4.1.12, `elasticsearch` 8.19.21 
 
 Pick from this list; Phase 1 only built the baseline.
 
-- ~~**First task:** export/import scripts for the UI configuration~~: done (`scripts/thehive-export.sh`, `scripts/thehive-import.sh`, section above).
+- **First task:** export/import scripts for the UI configuration (case templates, custom fields), in this folder, so your work reaches git (PROJECT.md 11.2).
 - Case templates and tasks; custom fields; severity / TLP / PAP mapping.
 - Alert-to-case rules (with the n8n owner: alert format).
 - Users and roles for the team (the Community license allows 2 Normal users); triage procedures.
