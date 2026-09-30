@@ -12,6 +12,9 @@
 #   -o, --only KIND    with --all: only wazuh or only thehive fixtures
 #   -t, --times N      POST each fixture N times (idempotency test, N8N-3.3; default 1)
 #   -n, --no-token     send without the token: every POST must get HTTP 403 (N8N-1.6)
+#   -r, --fresh-id     Wazuh alerts only: replace the alert id with a new unique
+#                      one (once per file and run, so --times N still sends the
+#                      same id N times); payloads without an id are left alone
 #   -h, --help         show this help
 # One PASS/FAIL line per POST with the HTTP code (expected: 200, or 403 with
 # --no-token). Exit code 1 if any POST failed, 2 on usage errors.
@@ -31,7 +34,7 @@ source "$REPO_ROOT/scripts/lib/n8n.sh"
 usage() { print_usage "$0"; }
 usage_error() { printf 'ERROR %s\n' "$*" >&2; usage >&2; exit 2; }
 
-files=() ALL=0 ONLY="" TIMES=1 NO_TOKEN=0
+files=() ALL=0 ONLY="" TIMES=1 NO_TOKEN=0 FRESH_ID=0
 while (( $# > 0 )); do
   case $1 in
     -f|--file)     files+=("${2:?--file needs a path}"); shift ;;
@@ -39,6 +42,7 @@ while (( $# > 0 )); do
     -o|--only)     ONLY=${2:?--only needs wazuh or thehive}; shift ;;
     -t|--times)    TIMES=${2:?--times needs a number}; shift ;;
     -n|--no-token) NO_TOKEN=1 ;;
+    -r|--fresh-id) FRESH_ID=1 ;;
     -h|--help)     usage; exit 0 ;;
     *) usage_error "unknown argument: $1" ;;
   esac
@@ -75,6 +79,20 @@ post() {
   fi
 }
 
+# --fresh-id: "<epoch>.<pid><counter>", the shape of a Wazuh alert id, unique
+# per file within the run and across runs.
+TMP_DIR="" FRESH_COUNT=0
+cleanup() { [[ -n $TMP_DIR ]] && rm -rf "$TMP_DIR"; return 0; }
+trap cleanup EXIT
+with_fresh_id() {
+  local file=$1 out
+  [[ -n $TMP_DIR ]] || TMP_DIR=$(mktemp -d)
+  FRESH_COUNT=$(( FRESH_COUNT + 1 ))
+  out="$TMP_DIR/$FRESH_COUNT.json"
+  jq --arg id "$(date +%s).$$$(printf '%04d' "$FRESH_COUNT")" 'if has("id") then .id = $id else . end' "$file" > "$out"
+  printf '%s' "$out"
+}
+
 expected=200 note=""
 (( NO_TOKEN )) && expected=403 note=", no token"
 for file in "${files[@]}"; do
@@ -86,7 +104,8 @@ for file in "${files[@]}"; do
     continue
   fi
   if [[ $kind == wazuh ]]; then
-    path=wazuh-alert name=X-ASOX-Token prefix="" ref="alert $(jq -r '.id' "$file")"
+    (( FRESH_ID )) && file=$(with_fresh_id "$file")
+    path=wazuh-alert name=X-ASOX-Token prefix="" ref="alert $(jq -r '.id // "(no id)"' "$file")"
   else
     path=thehive-event name=Authorization prefix="Bearer " ref="$(jq -r '"\(.action) \(.objectType) \(.objectId)"' "$file")"
   fi
