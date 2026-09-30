@@ -1,0 +1,405 @@
+{
+  "id": "asoxPbGeneric001",
+  "name": "pb-generic",
+  "active": true,
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## pb-generic (N8N-4.1)\n**Trigger:** called by recv-wazuh-alert through Execute Workflow, not waited for (the single call site the router replaces in N8N-1.3).\n**Inputs:** `{alert: <raw Wazuh alert>, config: <lib-config>, recv_execution_id}`.\n**Actions taken:** lib-normalize-wazuh-alert -> lib-thehive-upsert-alert (one TheHive alert per Wazuh alert, dedup by sourceRef) -> ENRICHMENT STUB (no-op until lib-enrich-observable, N8N-2.3/2.4) -> lib-thehive-writeback (comment with this execution id). Malformed input and TheHive failures are parked by lib-error.\n**Systems changed:** TheHive only (alert and comment).\n**Approval:** not needed (no system changes).\n**Owner:** n8n.\nResult of the execution: `outcome` = created / duplicate / parked. Error workflow: recv-n8n-error.",
+        "height": 340,
+        "width": 520
+      },
+      "id": "302f28f9-1a63-5ec9-a8e4-208637d0b839",
+      "name": "About this workflow",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -40,
+        -380
+      ]
+    },
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "id": "b6c7fdf4-97e7-59a7-b724-f78e5637ca3d",
+      "name": "Called by a workflow",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Everything this execution needs: the pb's own execution id goes to the\n// TheHive custom field and the writeback (sub-workflows have their own ids).\nconst input = $input.first().json;\nif (!input.config || !input.config.writeback) throw new Error('pb-generic needs the lib-config output as `config`');\nreturn [{ json: {\n  alert: input.alert,\n  config: input.config,\n  context: { playbook: $workflow.name, n8n_execution_id: $execution.id, recv_execution_id: input.recv_execution_id ?? null },\n} }];\n"
+      },
+      "id": "088c48d3-0b88-528d-ade3-820e5d4f485b",
+      "name": "Context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        260,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const c = $('Context').first().json;\nreturn [{ json: { alert: c.alert, context: c.context } }];\n"
+      },
+      "id": "e840ebb9-1471-5d0d-b222-b6d8ed7ab64d",
+      "name": "Normalize input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        520,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "asoxLibNormWazAl",
+          "cachedResultName": "lib-normalize-wazuh-alert"
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "094c94ab-ff0a-5eb4-aafa-dd17b85ecfa2",
+      "name": "Normalize (lib-normalize-wazuh-alert)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        780,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "a7e59c65-b6df-5a55-911a-82857df38ad2",
+              "leftValue": "={{ $json.ok === true }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a802ac73-3dad-5b18-931f-a4473fdd7fef",
+      "name": "Normalized?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1040,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const c = $('Context').first().json;\nreturn [{ json: { canonical: $input.first().json.canonical, config: c.config, context: c.context } }];\n"
+      },
+      "id": "59200f8b-1d76-58ee-985c-025b897d7a7b",
+      "name": "Upsert input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1300,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "asoxLibThUpsertA",
+          "cachedResultName": "lib-thehive-upsert-alert"
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "aadcec92-ea66-5508-a2af-5a2f7f1bd7cc",
+      "name": "Upsert (lib-thehive-upsert-alert)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1560,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "e2589e91-70a1-529b-b512-2cd86957fd6d",
+              "leftValue": "={{ $json.ok === true }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "0b1133c4-ca6d-550c-9828-093d71f6c6bc",
+      "name": "In TheHive?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1820,
+        -100
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "5c8f2b43-0a07-56d4-9331-04effe9bc35a",
+      "name": "ENRICHMENT STUB: no-op (lib-enrich-observable, N8N-2.3/2.4)",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        2080,
+        -200
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Actions taken, as written to TheHive (lib-thehive-writeback).\nconst c = $('Context').first().json;\nconst u = $('Upsert (lib-thehive-upsert-alert)').first().json;\nconst actions = [];\nif (u.duplicate) {\n  actions.push(`TheHive alert already existed for Wazuh alert ${u.wazuh_alert_id} (duplicate sourceRef): nothing created.`);\n} else {\n  actions.push(`TheHive alert created: source ${u.source}, severity ${u.severity}, case template requested ${u.case_template}, observables: ${u.observables.join(', ') || 'none'}.`);\n  for (const s of u.skipped_observables) actions.push(`Observable not sent: ${s.dataType} ${s.data} (${s.reason}).`);\n  for (const wmsg of u.warnings) actions.push(`Warning: ${wmsg}.`);\n}\nactions.push('Enrichment: not run (stub until lib-enrich-observable, N8N-2.3/2.4).');\nactions.push('Systems changed: TheHive only.');\nreturn [{ json: {\n  thehive_alert_id: u.thehive_alert_id, wazuh_alert_id: u.wazuh_alert_id,\n  config: c.config, context: c.context, actions,\n} }];\n"
+      },
+      "id": "0e05478d-120e-5f63-8599-859a1e0a622d",
+      "name": "Writeback input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2340,
+        -200
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "asoxLibThWriteBk",
+          "cachedResultName": "lib-thehive-writeback"
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "7e9f1197-f296-5df6-a143-cb74c6f683df",
+      "name": "Writeback (lib-thehive-writeback)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        2600,
+        -200
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const u = $('Upsert (lib-thehive-upsert-alert)').first().json;\nconst r = $input.first().json;\nreturn [{ json: {\n  outcome: u.duplicate ? 'duplicate' : 'created',\n  wazuh_alert_id: u.wazuh_alert_id,\n  thehive_alert_id: u.thehive_alert_id,\n  writeback: r.ok ? (r.written ? 'written' : 'already written') : 'failed (parked by lib-error)',\n  playbook: $workflow.name,\n} }];\n"
+      },
+      "id": "85eac449-e6c7-577b-b84b-f2186266ab2d",
+      "name": "Outcome",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2860,
+        -200
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Normalize or upsert handed the alert to lib-error, which parked it.\nconst r = $input.first().json;\nconst alert = $('Context').first().json.alert;\nreturn [{ json: {\n  outcome: 'parked',\n  wazuh_alert_id: r.wazuh_alert_id ?? (typeof alert?.id === 'string' ? alert.id : null),\n  error: r.error_class ?? r.stage ?? null,\n  message: r.message ?? null,\n  playbook: $workflow.name,\n} }];\n"
+      },
+      "id": "ec0eca37-d89e-5864-bb80-62ccf5f35215",
+      "name": "Parked outcome",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2080,
+        120
+      ]
+    }
+  ],
+  "connections": {
+    "Called by a workflow": {
+      "main": [
+        [
+          {
+            "node": "Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Context": {
+      "main": [
+        [
+          {
+            "node": "Normalize input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize input": {
+      "main": [
+        [
+          {
+            "node": "Normalize (lib-normalize-wazuh-alert)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize (lib-normalize-wazuh-alert)": {
+      "main": [
+        [
+          {
+            "node": "Normalized?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalized?": {
+      "main": [
+        [
+          {
+            "node": "Upsert input",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Parked outcome",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upsert input": {
+      "main": [
+        [
+          {
+            "node": "Upsert (lib-thehive-upsert-alert)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upsert (lib-thehive-upsert-alert)": {
+      "main": [
+        [
+          {
+            "node": "In TheHive?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "In TheHive?": {
+      "main": [
+        [
+          {
+            "node": "ENRICHMENT STUB: no-op (lib-enrich-observable, N8N-2.3/2.4)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Parked outcome",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ENRICHMENT STUB: no-op (lib-enrich-observable, N8N-2.3/2.4)": {
+      "main": [
+        [
+          {
+            "node": "Writeback input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Writeback input": {
+      "main": [
+        [
+          {
+            "node": "Writeback (lib-thehive-writeback)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Writeback (lib-thehive-writeback)": {
+      "main": [
+        [
+          {
+            "node": "Outcome",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataSuccessExecution": "all",
+    "saveDataErrorExecution": "all",
+    "saveManualExecutions": true,
+    "errorWorkflow": "asoxRecvN8nError"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "nodeGroups": [],
+  "tags": [],
+  "pinData": {}
+}
