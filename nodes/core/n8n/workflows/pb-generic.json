@@ -193,7 +193,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Actions taken, as written to TheHive (lib-thehive-writeback).\nconst c = $('Context').first().json;\nconst u = $('Upsert (lib-thehive-upsert-alert)').first().json;\nconst actions = [];\nif (u.duplicate) {\n  actions.push(`TheHive alert already existed for Wazuh alert ${u.wazuh_alert_id} (duplicate sourceRef): nothing created.`);\n} else {\n  actions.push(`TheHive alert created: source ${u.source}, severity ${u.severity}, case template requested ${u.case_template}, observables: ${u.observables.join(', ') || 'none'}.`);\n  for (const s of u.skipped_observables) actions.push(`Observable not sent: ${s.dataType} ${s.data} (${s.reason}).`);\n  for (const wmsg of u.warnings) actions.push(`Warning: ${wmsg}.`);\n}\nactions.push('Enrichment: not run (stub until lib-enrich-observable, N8N-2.3/2.4).');\nactions.push('Systems changed: TheHive only.');\nreturn [{ json: {\n  thehive_alert_id: u.thehive_alert_id, wazuh_alert_id: u.wazuh_alert_id,\n  config: c.config, context: c.context, actions,\n} }];\n"
+        "jsCode": "// Actions taken, as written to TheHive (lib-thehive-writeback).\nconst c = $('Context').first().json;\nconst u = $('Upsert (lib-thehive-upsert-alert)').first().json;\nconst actions = [];\nif (u.duplicate) {\n  actions.push(`TheHive alert already existed for Wazuh alert ${u.wazuh_alert_id} (duplicate sourceRef): nothing created.`);\n  if (u.after_retry) actions.push('The create call was retried (timeout or TheHive error): the alert may have been created by the first call.');\n} else {\n  actions.push(`TheHive alert created: source ${u.source}, severity ${u.severity}, case template requested ${u.case_template}, observables: ${u.observables.join(', ') || 'none'}.`);\n  for (const s of u.skipped_observables) actions.push(`Observable not sent: ${s.dataType} ${s.data} (${s.reason}).`);\n  for (const wmsg of u.warnings) actions.push(`Warning: ${wmsg}.`);\n}\nactions.push('Enrichment: not run (stub until lib-enrich-observable, N8N-2.3/2.4).');\nactions.push('Systems changed: TheHive only.');\nreturn [{ json: {\n  thehive_alert_id: u.thehive_alert_id, wazuh_alert_id: u.wazuh_alert_id,\n  config: c.config, context: c.context, actions,\n} }];\n"
       },
       "id": "0e05478d-120e-5f63-8599-859a1e0a622d",
       "name": "Writeback input",
@@ -227,7 +227,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const u = $('Upsert (lib-thehive-upsert-alert)').first().json;\nconst r = $input.first().json;\nreturn [{ json: {\n  outcome: u.duplicate ? 'duplicate' : 'created',\n  wazuh_alert_id: u.wazuh_alert_id,\n  thehive_alert_id: u.thehive_alert_id,\n  writeback: r.ok ? (r.written ? 'written' : 'already written') : 'failed (parked by lib-error)',\n  playbook: $workflow.name,\n} }];\n"
+        "jsCode": "const u = $('Upsert (lib-thehive-upsert-alert)').first().json;\nconst r = $input.first().json;\nreturn [{ json: {\n  outcome: u.duplicate ? 'duplicate' : 'created',\n  after_retry: u.after_retry === true, // duplicate found by a retried create (N8N-6.2)\n  wazuh_alert_id: u.wazuh_alert_id,\n  thehive_alert_id: u.thehive_alert_id,\n  writeback: r.ok ? (r.written ? 'written' : 'already written') : 'failed (parked by lib-error)',\n  playbook: $workflow.name,\n} }];\n"
       },
       "id": "85eac449-e6c7-577b-b84b-f2186266ab2d",
       "name": "Outcome",

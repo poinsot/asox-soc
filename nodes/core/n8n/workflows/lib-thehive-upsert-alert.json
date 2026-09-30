@@ -5,7 +5,7 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## lib-thehive-upsert-alert (N8N-2.1, 3.1)\n**Trigger:** called by playbooks through Execute Workflow, waiting for the result.\n**Inputs:** `{canonical (lib-normalize-wazuh-alert), config (lib-config), context: {playbook, n8n_execution_id}}`.\n**Actions taken:** when lib-config says TheHive isn't deployed here (`THEHIVE_ENABLED=false`), returns `{skipped: true, reason: \"TheHive not configured\"}` without any call. Otherwise builds the TheHive alert (ALERT-FORMAT §1-§5: caseTemplate and customFields are sent even though TheHive drops them until T1.3) and creates it; sourceRef = Wazuh alert id. HTTP 400 CreateError \"already exists\" = already done: the existing alert is looked up by type+source+sourceRef and returned with `duplicate: true`. Any other failure goes to lib-error (parked) and `{ok: false}` is returned. Returns `{ok, outcome, skipped}`.\n**Systems changed:** TheHive (creates one alert).\n**Approval:** not needed (no system changes outside TheHive).\n**Owner:** n8n.\nSuccessful executions are not saved (N8N-6.5): the calling playbook records the result; failed ones are kept.",
+        "content": "## lib-thehive-upsert-alert (N8N-2.1, 3.1)\n**Trigger:** called by playbooks through Execute Workflow, waiting for the result.\n**Inputs:** `{canonical (lib-normalize-wazuh-alert), config (lib-config), context: {playbook, n8n_execution_id}}`.\n**Actions taken:** when lib-config says TheHive isn't deployed here (`THEHIVE_ENABLED=false`), returns `{skipped: true, reason: \"TheHive not configured\"}` without any call. Otherwise builds the TheHive alert (ALERT-FORMAT §1-§5: caseTemplate and customFields are sent even though TheHive drops them until T1.3) and creates it; sourceRef = Wazuh alert id. HTTP 400 CreateError \"already exists\" = already done: the existing alert is looked up by type+source+sourceRef and returned with `duplicate: true`. Each TheHive call has lib-config's timeout and is retried on a connection error, timeout or 5xx (`thehive_http.retry_waits_s`, N8N-6.2), never on 4xx; a duplicate refusal after a retried create returns `after_retry: true` (the timed-out call may have created it). Any other failure, or the last call failing, goes to lib-error (parked) and `{ok: false}` is returned. Returns `{ok, outcome, skipped}`.\n**Systems changed:** TheHive (creates one alert).\n**Approval:** not needed (no system changes outside TheHive).\n**Owner:** n8n.\nSuccessful executions are not saved (N8N-6.5): the calling playbook records the result; failed ones are kept.",
         "height": 340,
         "width": 520
       },
@@ -52,9 +52,9 @@
         "nodeCredentialType": "theHiveProjectApi",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify($json.body) }}",
+        "jsonBody": "={{ JSON.stringify($('Build alert').first().json.body) }}",
         "options": {
-          "timeout": 10000,
+          "timeout": "={{ $('Called by a workflow').first().json.config.thehive_http.timeout_ms }}",
           "response": {
             "response": {
               "fullResponse": true,
@@ -81,14 +81,14 @@
     },
     {
       "parameters": {
-        "jsCode": "// 201 = created; 400 CreateError \"already exists\" = already done (duplicate\n// sourceRef, ALERT-TO-THEHIVE.md §2); anything else = failed.\nconst r = $input.first().json;\nconst body = r.body ?? {};\nconst sent = $('Build alert').first().json.body;\nif (r.statusCode === 201) {\n  const warnings = [];\n  if (sent.caseTemplate && !body.caseTemplate) warnings.push(`caseTemplate ${sent.caseTemplate} dropped by TheHive (templates not loaded, T1.3)`);\n  if (sent.customFields.length > 0 && (body.customFields ?? []).length === 0) warnings.push('customFields dropped by TheHive (fields not loaded, T1.3)');\n  return [{ json: { outcome: 'created', thehive_alert_id: body._id, returned_custom_fields: (body.customFields ?? []).length, warnings } }];\n}\nif (r.statusCode === 400 && body.type === 'CreateError' && /already exists/.test(body.message ?? '')) {\n  return [{ json: { outcome: 'duplicate', message: body.message } }];\n}\nreturn [{ json: { outcome: 'failed', http_status: r.statusCode, stage: 'Create TheHive alert',\n  message: `HTTP ${r.statusCode}: ${typeof r.body === 'string' ? r.body : JSON.stringify(r.body)}`.slice(0, 1000),\n  payload: sent } }];\n"
+        "jsCode": "// 201 = created; 400 CreateError \"already exists\" = already done (duplicate\n// sourceRef, ALERT-TO-THEHIVE.md §2); anything else = failed.\nconst r = $input.first().json;\nconst body = r.body ?? {};\nconst sent = $('Build alert').first().json.body;\nif (r.statusCode === 201) {\n  const warnings = [];\n  if (sent.caseTemplate && !body.caseTemplate) warnings.push(`caseTemplate ${sent.caseTemplate} dropped by TheHive (templates not loaded, T1.3)`);\n  if (sent.customFields.length > 0 && (body.customFields ?? []).length === 0) warnings.push('customFields dropped by TheHive (fields not loaded, T1.3)');\n  return [{ json: { outcome: 'created', attempts: r.attempts, thehive_alert_id: body._id, returned_custom_fields: (body.customFields ?? []).length, warnings } }];\n}\nif (r.statusCode === 400 && body.type === 'CreateError' && /already exists/.test(body.message ?? '')) {\n  // A retried create whose first call timed out may have created it after all.\n  return [{ json: { outcome: 'duplicate', message: body.message, after_retry: r.attempts > 1 } }];\n}\nreturn [{ json: { outcome: 'failed', http_status: r.statusCode, stage: 'Create TheHive alert',\n  message: `HTTP ${r.statusCode}: ${typeof r.body === 'string' ? r.body : JSON.stringify(r.body)}`.slice(0, 1000),\n  payload: sent, attempts: r.attempts } }];\n"
       },
       "id": "166b155d-badb-5aa7-8467-1cc459e71c8a",
       "name": "Interpret create",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1040,
+        1820,
         -100
       ]
     },
@@ -122,20 +122,20 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        1300,
+        2080,
         -100
       ]
     },
     {
       "parameters": {
-        "jsCode": "const r = $input.first().json;\nconst b = $('Build alert').first().json;\nreturn [{ json: {\n  ok: true, outcome: 'created', duplicate: false, thehive_alert_id: r.thehive_alert_id,\n  wazuh_alert_id: b.wazuh_alert_id, source: b.body.source, severity: b.body.severity,\n  case_template: b.body.caseTemplate, tags: b.body.tags,\n  observables: b.body.observables.map((o) => `${o.dataType}:${o.data}`),\n  skipped_observables: b.skipped_observables, warnings: r.warnings,\n} }];\n"
+        "jsCode": "const r = $input.first().json;\nconst b = $('Build alert').first().json;\nreturn [{ json: {\n  ok: true, outcome: 'created', duplicate: false, attempts: r.attempts, thehive_alert_id: r.thehive_alert_id,\n  wazuh_alert_id: b.wazuh_alert_id, source: b.body.source, severity: b.body.severity,\n  case_template: b.body.caseTemplate, tags: b.body.tags,\n  observables: b.body.observables.map((o) => `${o.dataType}:${o.data}`),\n  skipped_observables: b.skipped_observables, warnings: r.warnings,\n} }];\n"
       },
       "id": "8548af72-281d-5fdb-8743-8bf5e81253b9",
       "name": "Created result",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1560,
+        2340,
         -200
       ]
     },
@@ -169,7 +169,7 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        1560,
+        2340,
         0
       ]
     },
@@ -183,7 +183,7 @@
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify({ query: [ { _name: 'listAlert' }, { _name: 'filter', _and: [ { _field: 'type', _value: $('Build alert').first().json.body.type }, { _field: 'source', _value: $('Build alert').first().json.body.source }, { _field: 'sourceRef', _value: $('Build alert').first().json.body.sourceRef } ] }, { _name: 'page', from: 0, to: 2 } ] }) }}",
         "options": {
-          "timeout": 10000,
+          "timeout": "={{ $('Called by a workflow').first().json.config.thehive_http.timeout_ms }}",
           "response": {
             "response": {
               "fullResponse": true,
@@ -197,7 +197,7 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        1820,
+        2600,
         -60
       ],
       "credentials": {
@@ -210,28 +210,28 @@
     },
     {
       "parameters": {
-        "jsCode": "// Already done: return the existing alert; nothing is created or repeated.\nconst r = $input.first().json;\nconst b = $('Build alert').first().json;\nconst found = r.statusCode === 200 && Array.isArray(r.body) ? r.body : [];\nif (found.length !== 1) {\n  throw new Error(`TheHive refused a duplicate of ${b.body.source}:${b.body.sourceRef} but the lookup returned HTTP ${r.statusCode} with ${found.length} alert(s)`);\n}\nreturn [{ json: {\n  ok: true, outcome: 'duplicate', duplicate: true, thehive_alert_id: found[0]._id,\n  wazuh_alert_id: b.wazuh_alert_id, source: b.body.source, severity: found[0].severity,\n  case_template: b.body.caseTemplate, tags: found[0].tags, observables: [], skipped_observables: [], warnings: [],\n} }];\n"
+        "jsCode": "// Already done: return the existing alert; nothing is created or repeated.\nconst r = $input.first().json;\nconst b = $('Build alert').first().json;\nconst found = r.statusCode === 200 && Array.isArray(r.body) ? r.body : [];\nif (found.length !== 1) {\n  throw new Error(`TheHive refused a duplicate of ${b.body.source}:${b.body.sourceRef} but the lookup returned HTTP ${r.statusCode} with ${found.length} alert(s)`);\n}\nreturn [{ json: {\n  ok: true, outcome: 'duplicate', duplicate: true,\n  after_retry: $('Interpret create').first().json.after_retry === true, thehive_alert_id: found[0]._id,\n  wazuh_alert_id: b.wazuh_alert_id, source: b.body.source, severity: found[0].severity,\n  case_template: b.body.caseTemplate, tags: found[0].tags, observables: [], skipped_observables: [], warnings: [],\n} }];\n"
       },
       "id": "6d40692d-212e-508f-b845-5ca8b9773d67",
       "name": "Duplicate result",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        2080,
+        3640,
         -100
       ]
     },
     {
       "parameters": {
-        "jsCode": "// Explicit lib-error input (N8N-2.5): keeps the Wazuh alert ID, which n8n's\n// Error Trigger would not have. Handles both a failed HTTP status (item from\n// the interpreting Code node) and a connection error (HTTP node error output).\nconst j = $input.first().json;\nconst ctx = (() => { const b = $('Build alert').first().json; return { context: b.context, wazuh_alert_id: b.wazuh_alert_id, thehive_alert_id: null, payload: b.body }; })();\nconst err = j.error;\nconst message = j.message ?? (typeof err === 'string' ? err : err?.message) ?? JSON.stringify(j).slice(0, 500);\nreturn [{ json: {\n  stage: 'thehive: ' + (j.stage ?? $prevNode.name),\n  workflow: $workflow.name,\n  execution_id: ctx.context?.n8n_execution_id ?? $execution.id,\n  sub_execution_id: $execution.id,\n  node: j.node ?? $prevNode.name,\n  wazuh_alert_id: ctx.wazuh_alert_id ?? null,\n  thehive_alert_id: ctx.thehive_alert_id ?? null,\n  http_status: j.http_status ?? err?.httpCode ?? null,\n  error_code: err?.code ?? err?.cause?.code ?? null,\n  message,\n  // What was being sent, for a later replay (N8N-6.3): kept on every failure.\n  payload: j.payload ?? ctx.payload ?? null,\n} }];\n"
+        "jsCode": "// Explicit lib-error input (N8N-2.5): keeps the Wazuh alert ID, which n8n's\n// Error Trigger would not have. Handles both a failed HTTP status (item from\n// the interpreting Code node) and a connection error (HTTP node error output).\nconst j = $input.first().json;\nconst ctx = (() => { const b = $('Build alert').first().json; return { context: b.context, wazuh_alert_id: b.wazuh_alert_id, thehive_alert_id: null, payload: b.body }; })();\nconst err = j.error;\nconst message = j.message ?? (typeof err === 'string' ? err : err?.message) ?? JSON.stringify(j).slice(0, 500);\nreturn [{ json: {\n  stage: 'thehive: ' + (j.stage ?? $prevNode.name),\n  workflow: $workflow.name,\n  execution_id: ctx.context?.n8n_execution_id ?? $execution.id,\n  sub_execution_id: $execution.id,\n  node: j.node ?? $prevNode.name,\n  wazuh_alert_id: ctx.wazuh_alert_id ?? null,\n  thehive_alert_id: ctx.thehive_alert_id ?? null,\n  http_status: j.http_status ?? err?.httpCode ?? null,\n  error_code: j.error_code ?? err?.code ?? err?.cause?.code ?? null,\n  message,\n  // Calls made (N8N-6.2); retry_exhausted = TheHive stayed unreachable or 5xx.\n  attempts: j.attempts ?? null,\n  retry_exhausted: j.retry_exhausted === true,\n  // What was being sent, for a later replay (N8N-6.3): kept on every failure.\n  payload: j.payload ?? ctx.payload ?? null,\n} }];\n"
       },
       "id": "f2edbe00-ff2c-5f6b-9551-94e9ea46963a",
       "name": "Error input",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1820,
-        200
+        3380,
+        400
       ]
     },
     {
@@ -251,8 +251,8 @@
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.2,
       "position": [
-        2080,
-        200
+        3640,
+        400
       ]
     },
     {
@@ -264,8 +264,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        2340,
-        200
+        3900,
+        400
       ]
     },
     {
@@ -314,6 +314,200 @@
         520,
         -200
       ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Retry policy for TheHive calls (N8N-6.2; lib-config thehive_http): a\n// connection error, a timeout or HTTP 5xx -> wait and call again; anything\n// else (2xx, and 4xx, which a retry never fixes) -> passed on. A transient\n// failure on the last call goes to lib-error with the number of calls.\nconst r = $input.first().json;\nconst policy = $('Called by a workflow').first().json.config.thehive_http;\nconst NODE = 'Create TheHive alert';\nconst attempt = $runIndex + 1; // this node runs once per call\nconst status = typeof r.statusCode === 'number' ? r.statusCode : null;\nconst thrown = r.error !== undefined && status === null; // HTTP node error output\nconst NETWORK = /ECONNREFUSED|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|ECONNRESET|EHOSTUNREACH|ENETUNREACH|ECONNABORTED|timeout|timed out|socket hang up|connection cannot be established/i;\nconst transient = thrown ? NETWORK.test(JSON.stringify(r)) : status >= 500;\nconst calls = policy.retry_waits_s.length + 1;\nif (transient && attempt < calls) {\n  return [{ json: { decision: 'retry', stage: NODE, attempt, wait_s: policy.retry_waits_s[attempt - 1],\n    reason: thrown ? 'connection error or timeout' : `HTTP ${status}` } }];\n}\nif (thrown || transient) {\n  const e = r.error;\n  const detail = thrown\n    ? (typeof e === 'string' ? e : [e?.message, e?.description].filter(Boolean).join(': ') || JSON.stringify(r))\n    : `HTTP ${status}: ${typeof r.body === 'string' ? r.body : JSON.stringify(r.body)}`;\n  return [{ json: { decision: 'error', stage: NODE, node: NODE, attempts: attempt, retry_exhausted: transient,\n    http_status: status, error_code: e?.code ?? e?.cause?.code ?? null,\n    message: `${detail}`.slice(0, 1000) + (transient ? ` (${attempt} calls)` : '') } }];\n}\nreturn [{ json: { ...r, decision: 'response', attempts: attempt } }];\n"
+      },
+      "id": "328eefdb-cfed-5f55-991e-294ef14b1f04",
+      "name": "Assess: Create TheHive alert",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1040,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "0b8d7f1a-bd20-5162-a0cb-64465309c27b",
+              "leftValue": "={{ $json.decision === 'retry' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "013fee98-a83a-5850-a960-c6d273e2c809",
+      "name": "Retry: Create TheHive alert?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1300,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "resume": "timeInterval",
+        "amount": "={{ $json.wait_s }}",
+        "unit": "seconds"
+      },
+      "id": "c0142f97-ad50-5e7d-a365-4a443bc45d08",
+      "name": "Wait before retry: Create TheHive alert",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1300,
+        -200
+      ],
+      "webhookId": "b4c2e26c-e6a0-523a-a7d4-92bfb3911ec5"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "80b20a78-a6ff-51e1-bb09-0dd7364e70ce",
+              "leftValue": "={{ $json.decision === 'response' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "98e5e3bb-3e8f-58e4-b689-d5d75da89d91",
+      "name": "Answered: Create TheHive alert?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1560,
+        60
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Retry policy for TheHive calls (N8N-6.2; lib-config thehive_http): a\n// connection error, a timeout or HTTP 5xx -> wait and call again; anything\n// else (2xx, and 4xx, which a retry never fixes) -> passed on. A transient\n// failure on the last call goes to lib-error with the number of calls.\nconst r = $input.first().json;\nconst policy = $('Called by a workflow').first().json.config.thehive_http;\nconst NODE = 'Find existing TheHive alert';\nconst attempt = $runIndex + 1; // this node runs once per call\nconst status = typeof r.statusCode === 'number' ? r.statusCode : null;\nconst thrown = r.error !== undefined && status === null; // HTTP node error output\nconst NETWORK = /ECONNREFUSED|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|ECONNRESET|EHOSTUNREACH|ENETUNREACH|ECONNABORTED|timeout|timed out|socket hang up|connection cannot be established/i;\nconst transient = thrown ? NETWORK.test(JSON.stringify(r)) : status >= 500;\nconst calls = policy.retry_waits_s.length + 1;\nif (transient && attempt < calls) {\n  return [{ json: { decision: 'retry', stage: NODE, attempt, wait_s: policy.retry_waits_s[attempt - 1],\n    reason: thrown ? 'connection error or timeout' : `HTTP ${status}` } }];\n}\nif (thrown || transient) {\n  const e = r.error;\n  const detail = thrown\n    ? (typeof e === 'string' ? e : [e?.message, e?.description].filter(Boolean).join(': ') || JSON.stringify(r))\n    : `HTTP ${status}: ${typeof r.body === 'string' ? r.body : JSON.stringify(r.body)}`;\n  return [{ json: { decision: 'error', stage: NODE, node: NODE, attempts: attempt, retry_exhausted: transient,\n    http_status: status, error_code: e?.code ?? e?.cause?.code ?? null,\n    message: `${detail}`.slice(0, 1000) + (transient ? ` (${attempt} calls)` : '') } }];\n}\nreturn [{ json: { ...r, decision: 'response', attempts: attempt } }];\n"
+      },
+      "id": "74a00dd8-918d-5acd-a997-215b2c773f6e",
+      "name": "Assess: Find existing TheHive alert",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2600,
+        -60
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "4e3ffb76-5d6a-517b-8c6b-4b9e194266b9",
+              "leftValue": "={{ $json.decision === 'retry' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "7d34fd8c-fd7a-53e8-a894-943bf498254c",
+      "name": "Retry: Find existing TheHive alert?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2860,
+        -60
+      ]
+    },
+    {
+      "parameters": {
+        "resume": "timeInterval",
+        "amount": "={{ $json.wait_s }}",
+        "unit": "seconds"
+      },
+      "id": "ae0220f7-c789-50d8-bbba-194ce2a2b646",
+      "name": "Wait before retry: Find existing TheHive alert",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        2860,
+        -260
+      ],
+      "webhookId": "051ee5de-be91-586f-83d0-8b3793ea1b1d"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "fb5189ea-5341-5554-8d76-4586394e5baa",
+              "leftValue": "={{ $json.decision === 'response' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "dfa9fc41-b3a2-5834-9e9d-c93591910a48",
+      "name": "Answered: Find existing TheHive alert?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        3120,
+        0
+      ]
     }
   ],
   "connections": {
@@ -322,24 +516,6 @@
         [
           {
             "node": "Create TheHive alert",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Create TheHive alert": {
-      "main": [
-        [
-          {
-            "node": "Interpret create",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Error input",
             "type": "main",
             "index": 0
           }
@@ -380,24 +556,6 @@
         [
           {
             "node": "Find existing TheHive alert",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Error input",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Find existing TheHive alert": {
-      "main": [
-        [
-          {
-            "node": "Duplicate result",
             "type": "main",
             "index": 0
           }
@@ -456,6 +614,158 @@
         [
           {
             "node": "Not configured result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create TheHive alert": {
+      "main": [
+        [
+          {
+            "node": "Assess: Create TheHive alert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Assess: Create TheHive alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Assess: Create TheHive alert": {
+      "main": [
+        [
+          {
+            "node": "Retry: Create TheHive alert?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Retry: Create TheHive alert?": {
+      "main": [
+        [
+          {
+            "node": "Wait before retry: Create TheHive alert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Answered: Create TheHive alert?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait before retry: Create TheHive alert": {
+      "main": [
+        [
+          {
+            "node": "Create TheHive alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Answered: Create TheHive alert?": {
+      "main": [
+        [
+          {
+            "node": "Interpret create",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Error input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find existing TheHive alert": {
+      "main": [
+        [
+          {
+            "node": "Assess: Find existing TheHive alert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Assess: Find existing TheHive alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Assess: Find existing TheHive alert": {
+      "main": [
+        [
+          {
+            "node": "Retry: Find existing TheHive alert?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Retry: Find existing TheHive alert?": {
+      "main": [
+        [
+          {
+            "node": "Wait before retry: Find existing TheHive alert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Answered: Find existing TheHive alert?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait before retry: Find existing TheHive alert": {
+      "main": [
+        [
+          {
+            "node": "Find existing TheHive alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Answered: Find existing TheHive alert?": {
+      "main": [
+        [
+          {
+            "node": "Duplicate result",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Error input",
             "type": "main",
             "index": 0
           }
