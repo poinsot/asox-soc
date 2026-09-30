@@ -30,3 +30,4 @@ __pycache__/
 # MISP certificate (per intel host)
 nodes/intel/certs/*
 !nodes/intel/certs/.gitkeep
+CLAUDE.md
