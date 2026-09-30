@@ -90,10 +90,10 @@ Close the known gaps before core is exposed on a LAN, and build the tools the la
 The first real detections, tuned and mapped, merged at checkpoint 1 (milestone tag `v1.1-detections`).
 
 - [ ] **W2.1** Write the alert level policy and agree the forwarding threshold · P1, C1
-  - Done when: README table: what levels 0–15 mean in ASOX, with the shared cut-offs (0–6 low, 7–9 medium, 10–11 high, 12–15 critical) that TheHive's severity mapping (ALERT-FORMAT.md §2) and Grafana's buckets (D-G4) already use; which levels reach n8n. `WAZUH_ALERT_MIN_LEVEL` agreed with the n8n owner (default 7).
+  - Done when: README table: what levels 0–15 mean in ASOX, with the shared cut-offs (0–6 low, 7–9 medium, 10–11 high, 12–15 critical) that TheHive's severity mapping (ALERT-FORMAT.md §2) and Grafana's buckets (D-G4) already use; which levels reach n8n. `WAZUH_ALERT_MIN_LEVEL` agreed with the n8n owner (default 7). Level 12+ is Critical, and D-N4 lets n8n auto-promote Critical alerts of named playbooks straight to TheHive cases: reserve 12+ for detections that deserve a case without an analyst looking first.
   - Files: `nodes/core/wazuh/README.md`
   - With: Inigo (n8n), Park (ALERT-FORMAT.md §2), Jesus (D-G4)
-  - Refs: X-09
+  - Refs: X-09, D-N4, D-G4
 - [ ] **W2.2** Linux authentication detections · P1
   - Done when: Rules (or checks that built-ins already fire) for SSH brute force, a successful login after failures (correlation), sudo failures, new user or group, direct root login. Each has test cases in the runner and a lab scenario.
   - Files: `nodes/core/wazuh/rules/`, `nodes/core/wazuh/tests/`
@@ -186,6 +186,7 @@ Real endpoints can enroll into groups with policies that fit them.
 - [ ] **W5.4** Enrollment guide for real endpoints · P1
   - Done when: `nodes/core/wazuh/ENROLLMENT.md`: Linux (apt) and Windows (MSI) with `WAZUH_MANAGER`, `WAZUH_REGISTRATION_PASSWORD` and `WAZUH_AGENT_GROUP`; agent version equal to the manager (4.14.8); ports 1514/1515; what distributed mode needs; removing an old registration.
   - Files: `nodes/core/wazuh/ENROLLMENT.md`
+  - Refs: D33
 - [ ] **W5.5** Enroll your own Windows host · P1
   - Done when: Following the guide exactly: the Windows agent is `active` in `windows-desktops`, and a failed Windows logon shows up as an alert. With mirrored networking the ports on 127.0.0.1 are reachable from Windows.
 - [ ] **W5.6** Alert on disconnected agents · P3
@@ -202,9 +203,9 @@ Real endpoints can enroll into groups with policies that fit them.
 Wazuh flags events that match IOCs kept in MISP. This is contract C14 (proposed); its design with Diego is the earliest cross-owner deadline of the whole team (2026-10-16).
 
 - [ ] **W6.1** Design C14 with Diego (by 2026-10-16) · P1, C14
-  - Done when: Written and sent to Inigo for PROJECT.md 5: which attributes (IPs, domains, MD5/SHA-256), which events (published, `to_ids`, a tag), refresh cadence, and who runs the sync: (a) a Wazuh-side script with its own read-only MISP key (R-08, a new `__from:intel__` value), or (b) an n8n scheduled workflow reusing C10's key (R-08 dropped; C10 waits for MISP's warninglist memory fix, R-14). Either way the CDB lists and the rules live in your folder.
+  - Done when: Written and sent to Inigo for PROJECT.md 5: which attributes (IPs, domains, MD5/SHA-256), which events (published, `to_ids`, a tag), refresh cadence, and who runs the sync: (a) a Wazuh-side script with its own read-only MISP key (R-08, a new `__from:intel__` value), or (b) an n8n scheduled workflow reusing C10's key (D45) (R-08 dropped; C10 waits for MISP's warninglist memory fix, R-14). Either way the CDB lists and the rules live in your folder.
   - With: Diego (Cortex + MISP), Inigo (PROJECT.md; R-08 or the n8n side)
-  - Refs: X-24, R-08, R-14
+  - Refs: X-24, R-08, R-14, D45
 - [ ] **W6.2** MISP to CDB export · P1, C14
   - Done when: Per the C14 design, either `nodes/core/wazuh/lists/misp-sync.sh` (option a) or Inigo's n8n workflow (option b) writes `misp-ip`, `misp-domain`, `misp-hash` in CDB `key:value` format into your folder; the generated lists are git-ignored (IOCs are data). A script of yours has PASS/FAIL output and is `shellcheck` clean.
   - Files: `nodes/core/wazuh/lists/`
@@ -212,8 +213,9 @@ Wazuh flags events that match IOCs kept in MISP. This is contract C14 (proposed)
   - Done when: Lists mounted and copied at start, declared as `<list>` in ossec.conf; a list update plus a manager restart applies it.
   - Files: `nodes/core/wazuh/config/ossec.conf`, `nodes/core/wazuh/compose.yml`
 - [ ] **W6.4** IOC match rules · P1, C1, C14
-  - Done when: Rules with `<list field="srcip" lookup="address_match_key">` (and dstip, Suricata's `src_ip`/`dest_ip`, domains, FIM hashes). The seed IOC 203.0.113.66 in a lab event fires the rule at level 12 and reaches n8n through C1.
+  - Done when: Rules with `<list field="srcip" lookup="address_match_key">` (and dstip, Suricata's `src_ip`/`dest_ip`, domains, FIM hashes). The seed IOC 203.0.113.66 in a lab event fires the rule at level 12 and reaches n8n through C1. Detection only: a match raises an alert, and any blocking stays an n8n playbook (D12).
   - Files: `nodes/core/wazuh/rules/`
+  - Refs: D12
 - [ ] **W6.5** Schedule the sync and measure memory · P2, C14
   - Done when: How and where the sync runs is decided and documented; `scripts/mem-report.sh` shows the manager still fits `WAZUH_MANAGER_MEM` (700m) with the lists loaded.
   - Files: `nodes/core/wazuh/README.md`
@@ -247,7 +249,7 @@ Not part of the 1 December delivery. C9 as decided in D44 (useful once Phase 2 b
 - [ ] **W7.1** Build C9 with the n8n owner (D44) · P3, C2, C9
   - Done when: Separate Wazuh API user and role `n8n-response` (`active-response:command` plus `agent:read`, limited to actionable agent groups, never the SOC's own hosts), created by Inigo in `scripts/lib/wazuh.sh` (R-17); `n8n-api` stays read-only, so C2 still passes. Catalog v1 = built-in `firewall-drop`, `host-deny`, `disable-account`, each with a timeout; Wazuh's `<white_list>` matches n8n's allowlist of protected hosts.
   - With: Inigo (n8n owner and integrator)
-  - Refs: X-20, X-21, R-17, D44
+  - Refs: X-20, X-21, R-17, D44, D12
 - [ ] **W7.2** Active response in the lab · P3, C9
   - Done when: `<active-response>` blocks prepared; the lab image can run `firewall-drop` (iptables, `NET_ADMIN`); C9's check `chk-wazuh-response` passes: `firewall-drop` of `192.0.2.1` on the lab agent with a 60 s timeout succeeds, and a non-AR call as `n8n-response` gets 403.
   - Files: `nodes/core/wazuh/config/ossec.conf`, `nodes/lab/Dockerfile`, `nodes/lab/docker-compose.yml`
@@ -256,10 +258,10 @@ Not part of the 1 December delivery. C9 as decided in D44 (useful once Phase 2 b
   - Done when: Guide and test for Suricata plus a Wazuh agent (`network-sensors`) on its own machine, fed by a mirror (SPAN) port of the router, as planned for Phase 2.
   - Files: `nodes/core/wazuh/ENROLLMENT.md`
 - [ ] **W7.4** Custom active-response scripts for isolation and file removal · P3, C9
-  - Done when: Scripts for host isolation and file removal, so TheHive's `containment-action` values `host-isolated` / `file-removed` stop being manual-only. Adding them to C9's catalog is a contract change with the n8n owner.
+  - Done when: Scripts for host isolation and file removal, so TheHive's `containment-action` values `host-isolated` / `file-removed` stop being manual-only. Adding them to C9's catalog is a contract change with the n8n owner. They run only when an n8n playbook calls them (D12).
   - Files: `nodes/core/wazuh/`
   - With: Inigo (n8n), Park (TheHive)
-  - Refs: X-21
+  - Refs: X-21, D12
 
 ## OPS · Every session and every checkpoint (target: ongoing)
 
