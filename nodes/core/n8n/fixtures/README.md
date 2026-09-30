@@ -80,11 +80,12 @@ Observations (details in `../docs/ALERT-TO-THEHIVE.md`):
 nodes/core/n8n/fixtures/replay.sh --file nodes/core/n8n/fixtures/wazuh/100100-asox-test-c1.json
 nodes/core/n8n/fixtures/replay.sh --all --only wazuh --times 2   # idempotency test (N8N-3.3)
 nodes/core/n8n/fixtures/replay.sh --all --no-token               # every POST must get 403 (N8N-1.6)
-nodes/core/n8n/fixtures/replay.sh --fresh-id --times 2 --file nodes/core/n8n/fixtures/wazuh/100100-asox-test-c1.json
-                                  # new unique alert id, sent twice: one TheHive alert, second run = duplicate (N8N-3.3)
+nodes/core/n8n/fixtures/replay.sh --fresh-id --times 2 --delay 5 --file nodes/core/n8n/fixtures/wazuh/100100-asox-test-c1.json
+                                  # new unique alert id, sent twice 5 s apart: one TheHive alert, one writeback,
+                                  # second run = duplicate (N8N-3.3)
 ```
 
-With playbooks attached, a replayed Wazuh fixture creates a real TheHive alert (source `asox-test` for rule 100100, `wazuh` otherwise), and TheHive refuses a second alert with the same `sourceRef`. Use `--fresh-id` to replay a fixture as a new alert; the id is replaced once per file and run, so `--times N` still tests deduplication. Delete the test alerts afterwards (source `asox-test`).
+With playbooks attached, a replayed Wazuh fixture creates a real TheHive alert (source `asox-test` for rule 100100, `wazuh` otherwise), and TheHive refuses a second alert with the same `sourceRef`. Use `--fresh-id` to replay a fixture as a new alert; the id is replaced once per file and run, so `--times N` still tests deduplication. Give `--delay` so the first run finishes first: **without it, the copies reach TheHive concurrently and TheHive creates one alert per copy** (its duplicate refusal isn't atomic; `../docs/ALERT-TO-THEHIVE.md` §2). Delete the test alerts afterwards (source `asox-test`).
 
 It picks the webhook and the auth header from the payload (Wazuh → `wazuh-alert` + `X-ASOX-Token`, TheHive → `thehive-event` + `Authorization: Bearer`), reads the token from `nodes/core/.env` without printing it, and reaches n8n on its published port (`N8N_URL`, default `http://127.0.0.1:5678`, as the other scripts). Once playbooks are attached, a replay runs them for real.
 

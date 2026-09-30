@@ -11,6 +11,8 @@
 #   -a, --all          replay every fixture under fixtures/wazuh and fixtures/thehive
 #   -o, --only KIND    with --all: only wazuh or only thehive fixtures
 #   -t, --times N      POST each fixture N times (idempotency test, N8N-3.3; default 1)
+#   -d, --delay S      with --times: wait S seconds between the POSTs of one
+#                      fixture (sequential duplicates; default 0 = back to back)
 #   -n, --no-token     send without the token: every POST must get HTTP 403 (N8N-1.6)
 #   -r, --fresh-id     Wazuh alerts only: replace the alert id with a new unique
 #                      one (once per file and run, so --times N still sends the
@@ -34,13 +36,14 @@ source "$REPO_ROOT/scripts/lib/n8n.sh"
 usage() { print_usage "$0"; }
 usage_error() { printf 'ERROR %s\n' "$*" >&2; usage >&2; exit 2; }
 
-files=() ALL=0 ONLY="" TIMES=1 NO_TOKEN=0 FRESH_ID=0
+files=() ALL=0 ONLY="" TIMES=1 DELAY=0 NO_TOKEN=0 FRESH_ID=0
 while (( $# > 0 )); do
   case $1 in
     -f|--file)     files+=("${2:?--file needs a path}"); shift ;;
     -a|--all)      ALL=1 ;;
     -o|--only)     ONLY=${2:?--only needs wazuh or thehive}; shift ;;
     -t|--times)    TIMES=${2:?--times needs a number}; shift ;;
+    -d|--delay)    DELAY=${2:?--delay needs a number of seconds}; shift ;;
     -n|--no-token) NO_TOKEN=1 ;;
     -r|--fresh-id) FRESH_ID=1 ;;
     -h|--help)     usage; exit 0 ;;
@@ -49,6 +52,7 @@ while (( $# > 0 )); do
   shift
 done
 [[ $TIMES =~ ^[1-9][0-9]*$ ]] || usage_error "--times must be a positive number"
+[[ $DELAY =~ ^[0-9]+$ ]] || usage_error "--delay must be a whole number of seconds"
 [[ -z $ONLY || $ONLY == wazuh || $ONLY == thehive ]] || usage_error "--only must be wazuh or thehive"
 [[ -z $ONLY || $ALL == 1 ]] || usage_error "--only goes with --all"
 if (( ALL )); then
@@ -110,6 +114,7 @@ for file in "${files[@]}"; do
     path=thehive-event name=Authorization prefix="Bearer " ref="$(jq -r '"\(.action) \(.objectType) \(.objectId)"' "$file")"
   fi
   for (( i = 1; i <= TIMES; i++ )); do
+    (( i > 1 && DELAY > 0 )) && sleep "$DELAY"
     code=$(post "$file" "$path" "$name" "$prefix")
     msg="$label -> /webhook/$path ($ref, $i/$TIMES$note): HTTP $code"
     if [[ $code == "$expected" ]]; then pass "$msg"; else fail "$msg (expected $expected)"; fi
