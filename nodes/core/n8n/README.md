@@ -12,6 +12,10 @@ n8n is the platform's SOAR and integration hub, and the **only** component that 
 |---|---|
 | `compose.yml` | `n8n` (SQLite in the `n8n-data` volume); `n8n-postgres` under the optional profile `pg` |
 | `workflows/*.json` | Workflows as code, one file per workflow (exported by `scripts/n8n-export.sh`) |
+| `fixtures/` | Real payloads for tests (N8N-0.2): Wazuh alerts (`wazuh/`) and TheHive webhook events (`thehive/`), described in `fixtures/README.md` with the list of missing rule types |
+| `fixtures/replay.sh` | POSTs fixtures to `wazuh-alert` / `thehive-event` with the right token header; `--all`, `--times N` (idempotency), `--no-token` (must get 403) (N8N-0.6) |
+| `docs/WAZUH-FIELDS.md` | Wazuh alert fields n8n relies on, with types and which are optional, verified against the fixtures (N8N-0.3; draft to agree with Wazuh, X-01) |
+| `docs/ALERT-TO-THEHIVE.md` | n8n's side of `nodes/cases/thehive/docs/ALERT-FORMAT.md`: the Wazuh path behind each TheHive field, gaps, duplicate `sourceRef` handling, C4 event shapes, questions for TheHive (N8N-0.4) |
 
 Baseline workflows:
 

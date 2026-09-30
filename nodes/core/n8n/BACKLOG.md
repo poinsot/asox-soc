@@ -25,11 +25,11 @@ Based on PROJECT.md (v2.2), docs/decisions.md, docs/handoff.md (2026-09-30), CHE
 | ID | Item | P | Size | Meets with |
 |---|---|---|---|---|
 | N8N-0.1 | License activation, backup, and the C4 capability check (see risk 1) | P0 | S | TheHive |
-| N8N-0.2 | Capture real payload fixtures (Wazuh alerts of several rule types; TheHive alert, case, task and status events) into `nodes/core/n8n/fixtures/` | P0 | S | Wazuh, TheHive |
-| N8N-0.3 | Agree the alert field set n8n relies on (`id`, `timestamp`, `rule.id/level/groups/mitre`, `agent.*`, `data.srcip`, `syscheck.*`, `full_log`). C1's payload shape doesn't change, but the fields become a documented promise | P0 | S | Wazuh |
-| N8N-0.4 | Alert → TheHive mapping spec: severity, TLP/PAP, tags, custom fields, `sourceRef`, observable types | P0 | M | TheHive |
+| N8N-0.2 | ~~Capture real payload fixtures (Wazuh alerts of several rule types; TheHive alert, case, task and status events) into `nodes/core/n8n/fixtures/`~~ Done 2026-09-30 (`fixtures/README.md`): 4 Wazuh rule types (all that exist at level ≥ 7, plus one level-3 sample) and 20 TheHive events. **Missing, from Wazuh (X-05):** sshd, sudo, FIM, rootcheck, Suricata, any rule with `rule.mitre`; add them as `trigger.sh --scenario` lands | P0 | S | Wazuh, TheHive |
+| N8N-0.3 | ~~Agree the alert field set n8n relies on (`id`, `timestamp`, `rule.id/level/groups/mitre`, `agent.*`, `data.srcip`, `syscheck.*`, `full_log`). C1's payload shape doesn't change, but the fields become a documented promise~~ Draft done 2026-09-30 (`docs/WAZUH-FIELDS.md`, verified against the fixtures); agreement with Wazuh pending (X-01, W2.5, 2026-10-20) | P0 | S | Wazuh |
+| N8N-0.4 | ~~Alert → TheHive mapping spec: severity, TLP/PAP, tags, custom fields, `sourceRef`, observable types~~ n8n side done 2026-09-30 (`docs/ALERT-TO-THEHIVE.md`: paths, gaps, duplicate handling, questions for ALERT-FORMAT §7); agreement with TheHive pending (X-02, T2.4/T2.5, 2026-10-20) | P0 | M | TheHive |
 | N8N-0.5 | ~~Record decisions D-N1…N6 (below) in `docs/decisions.md`~~ Done 2026-09-30 ("Owner design decisions"); close each as its partner agrees | P0 | S | All |
-| N8N-0.6 | Test strategy: fixture replay script (POST with token), per-playbook test cases, and which checks go into `contracts-check.sh` versus a new end-to-end check | P1 | M | Integrator |
+| N8N-0.6 | Test strategy: ~~fixture replay script (POST with token)~~, per-playbook test cases, and which checks go into `contracts-check.sh` versus a new end-to-end check. **Partial:** replay done 2026-09-30 (`fixtures/replay.sh`); per-playbook tests and contracts-check changes pending (R-02) | P1 | M | Integrator |
 | N8N-0.7 | CI lint for workflows: naming, header note present, credentials by ID, no hardcoded hosts or secrets (extends `ci-checks.sh`) | P1 | M | Integrator |
 
 ## E1: Ingestion and Router de Playbooks
