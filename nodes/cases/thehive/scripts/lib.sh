@@ -144,3 +144,21 @@ th_expect() {
   fail "$what: HTTP $code $(http_body "$r" | head -c 200)"
   return 1
 }
+
+# ---- Severity mapping (docs/ALERT-FORMAT.md) ----
+# Reference implementation of the Wazuh level -> TheHive severity table, used
+# by thehive-test-alert.sh; n8n's playbooks implement the same table.
+#   level 12-15 -> 4 Critical, 10-11 -> 3 High, 7-9 -> 2 Medium, 0-6 -> 1 Low
+# asset-criticality high or critical raises it by one (max 4).
+th_severity() {
+  local level=$1 criticality=${2:-} sev
+  if (( level >= 12 )); then sev=4
+  elif (( level >= 10 )); then sev=3
+  elif (( level >= 7 )); then sev=2
+  else sev=1
+  fi
+  if [[ $criticality == high || $criticality == critical ]] && (( sev < 4 )); then
+    sev=$((sev + 1))
+  fi
+  printf '%s' "$sev"
+}

@@ -60,6 +60,10 @@
     "isAttachment": false
   },
   {
+    "name": "user-account",
+    "isAttachment": false
+  },
+  {
     "name": "user-agent",
     "isAttachment": false
   }
