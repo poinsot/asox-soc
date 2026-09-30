@@ -21,7 +21,7 @@ Baseline workflows:
 
 | Workflow | Trigger | Purpose |
 |---|---|---|
-| `recv-wazuh-alert` | `POST /webhook/wazuh-alert` (Wazuh `custom-n8n` integration, C1) | Stub: records a summary of each alert (level >= `WAZUH_ALERT_MIN_LEVEL`). The Router de Playbooks attaches here. |
+| `recv-wazuh-alert` | `POST /webhook/wazuh-alert` (Wazuh `custom-n8n` integration, C1) | Stub: records a summary of every alert it receives. It doesn't filter on level: only Wazuh's `custom-n8n` integration does (`WAZUH_ALERT_MIN_LEVEL`). The Router de Playbooks attaches here. |
 | `recv-thehive-event` | `POST /webhook/thehive-event` (TheHive webhook, C4: every event of the SOC organisation) | Stub: records a summary of each TheHive event (operation, object type and ID, source). |
 | `chk-wazuh-api` | `POST /webhook/chk-wazuh-api` (`scripts/contracts-check.sh`) | Contract check C2: logs in with the n8n-api credential, lists agents, and verifies that active response is refused. Don't change it without the integrator. |
 | `chk-thehive-api` | `POST /webhook/chk-thehive-api` (`scripts/contracts-check.sh`) | Contract check C3: creates a test alert (`source: contract-check`) with the TheHive credential and reads it back; a second call deletes it (only alerts whose source is `contract-check`). Don't change it without the integrator. |
@@ -55,7 +55,7 @@ Every webhook uses **Header Auth** with the shared token `N8N_WEBHOOK_TOKEN` (fr
   | `Cortex API (n8n)` (`asoxCortexApi001`) | Cortex API | Cortex nodes, or HTTP Request nodes with `$env.CORTEX_URL`; Cortex user `n8n`, roles read + analyze (C6). Its key is `CORTEX_N8N_API_KEY` in `nodes/core/.env`, copied from the cases node |
 
   The TheHive and Cortex keys arrive through `__from:cases__` (PROJECT.md section 4): `soc.sh init` bootstraps cases before core. After `soc.sh reset cases` (new keys), run `scripts/render-env.sh && scripts/bootstrap.sh core`. A workflow that needs a **new** credential: ask the integrator to add it to `bootstrap.sh` (a credential created only in your UI gets a random ID and breaks on teammates' machines).
-- **Service URLs** are available to workflows as environment variables: `{{ $env.WAZUH_API_URL }}`, `{{ $env.THEHIVE_URL }}`, `{{ $env.CORTEX_URL }}`, `{{ $env.N8N_WEBHOOK_URL }}`. Never hardcode a host or IP (PROJECT.md section 4).
+- **Service URLs** are available to workflows as environment variables: `{{ $env.WAZUH_API_URL }}`, `{{ $env.THEHIVE_URL }}`, `{{ $env.CORTEX_URL }}`, `{{ $env.N8N_WEBHOOK_URL }}`, plus the C1 threshold `{{ $env.WAZUH_ALERT_MIN_LEVEL }}` (default 7). Never hardcode a host or IP (PROJECT.md section 4).
 - **Rule: never put secrets in the n8n container's environment** (`environment:` in `compose.yml`), because every workflow can read it (`$env`). Secrets go in n8n credentials or in secret files (Compose secrets, read through `*_FILE` variables, like the encryption key; docs/decisions.md A42).
 - The Wazuh API and the Wazuh indexer use self-signed/internal certificates in the lab: enable "Ignore SSL issues" on HTTP Request nodes that call them (PROJECT.md 4.1).
 
