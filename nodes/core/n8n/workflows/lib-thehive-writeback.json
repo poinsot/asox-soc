@@ -1,0 +1,463 @@
+{
+  "id": "asoxLibThWriteBk",
+  "name": "lib-thehive-writeback",
+  "active": true,
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## lib-thehive-writeback (N8N-2.2)\n**Trigger:** called by playbooks through Execute Workflow, waiting for the result.\n**Inputs:** `{thehive_alert_id, wazuh_alert_id, config, context: {playbook, n8n_execution_id}, actions: [text]}`.\n**Actions taken:** comments on the TheHive alert: first line `[asox-n8n writeback] wazuh-alert-id=<id>`, then playbook, n8n execution id and the actions taken. Idempotent: if a comment by n8n@asox.local with that first line exists, nothing is written. Failures go to lib-error (parked).\n**Systems changed:** TheHive (one comment on the alert).\n**Approval:** not needed (no system changes outside TheHive).\n**Owner:** n8n.",
+        "height": 300,
+        "width": 520
+      },
+      "id": "4bc7a11b-6973-52c3-b5bc-c40a14852c71",
+      "name": "About this workflow",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -40,
+        -380
+      ]
+    },
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "id": "c4ab9489-d1fe-5ea3-a66d-6dd0ff5b589f",
+      "name": "Called by a workflow",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.THEHIVE_URL }}/api/v1/query",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "theHiveProjectApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ query: [ { _name: 'getAlert', idOrName: $json.thehive_alert_id }, { _name: 'comments' }, { _name: 'page', from: 0, to: 500 } ] }) }}",
+        "options": {
+          "timeout": 10000,
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "60e0fbdb-381a-583b-83cf-58fc6299e55a",
+      "name": "List TheHive comments",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        260,
+        0
+      ],
+      "credentials": {
+        "theHiveProjectApi": {
+          "id": "asoxTheHiveApi01",
+          "name": "TheHive API (n8n)"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// A writeback exists when a comment's first line is exactly the marker line\n// and its author is n8n's account (lib-config), not by fuzzy text.\nconst r = $input.first().json;\nconst input = $('Called by a workflow').first().json;\nconst wb = input.config.writeback;\nconst firstLine = `${wb.marker} wazuh-alert-id=${input.wazuh_alert_id}`;\nif (r.statusCode !== 200 || !Array.isArray(r.body)) {\n  return [{ json: { status: 'failed', http_status: r.statusCode, stage: 'List TheHive comments',\n    message: `HTTP ${r.statusCode}: ${JSON.stringify(r.body)}`.slice(0, 1000) } }];\n}\nconst existing = r.body.find((cm) => (cm.createdBy ?? cm._createdBy) === wb.author\n  && typeof cm.message === 'string' && cm.message.split('\\n')[0] === firstLine);\nif (existing) return [{ json: { status: 'already', comment_id: existing._id } }];\nconst lines = [\n  firstLine,\n  '',\n  `n8n playbook **${input.context.playbook}**, execution ${input.context.n8n_execution_id}.`,\n  '',\n  'Actions taken:',\n  ...input.actions.map((a) => `- ${a}`),\n];\nreturn [{ json: { status: 'write', message: lines.join('\\n') } }];\n"
+      },
+      "id": "ab0f91f8-0af4-5be5-ac1c-9b31d19a7649",
+      "name": "Check existing writeback",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        520,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "65b3a3f2-6ec8-5a92-81e9-42a0d7d6c1aa",
+              "leftValue": "={{ $json.status === 'write' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "7d0b674c-d169-5036-95ec-ca127e2829f2",
+      "name": "Write it?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        780,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.THEHIVE_URL }}/api/v1/alert/{{ encodeURIComponent($('Called by a workflow').first().json.thehive_alert_id) }}/comment",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "theHiveProjectApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ message: $json.message }) }}",
+        "options": {
+          "timeout": 10000,
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "dacaf7b2-c268-54aa-9635-650c5cba4390",
+      "name": "Post TheHive comment",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1040,
+        -200
+      ],
+      "credentials": {
+        "theHiveProjectApi": {
+          "id": "asoxTheHiveApi01",
+          "name": "TheHive API (n8n)"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const r = $input.first().json;\nif (r.statusCode === 201) return [{ json: { ok: true, written: true, comment_id: r.body._id } }];\nreturn [{ json: { ok: false, status: 'failed', http_status: r.statusCode, stage: 'Post TheHive comment',\n  message: `HTTP ${r.statusCode}: ${JSON.stringify(r.body)}`.slice(0, 1000) } }];\n"
+      },
+      "id": "47d01c0a-3095-5157-81cf-e125fc2e3dd6",
+      "name": "Written result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1300,
+        -300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "2bdd0d3f-9636-51bb-8775-150351a27499",
+              "leftValue": "={{ $json.ok === true }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "995adb71-48dd-5637-9791-ae5eba13fd65",
+      "name": "Posted?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1560,
+        -300
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "bf215ea4-70ef-5d83-adad-b87fc67a7c8d",
+      "name": "Return written",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1820,
+        -380
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "0ca53be2-26cc-530d-b018-8e34f5514751",
+              "leftValue": "={{ $json.status === 'already' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "ac7ecc74-ce9c-53a8-875e-05c0f60491e4",
+      "name": "Already written?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1040,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: { ok: true, written: false, reason: 'writeback already on the alert', comment_id: $input.first().json.comment_id } }];\n"
+      },
+      "id": "2fd73c65-b6ec-5432-9be7-31bced2db17e",
+      "name": "Already written result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1300,
+        -60
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Explicit lib-error input (N8N-2.5): keeps the Wazuh alert ID, which n8n's\n// Error Trigger would not have. Handles both a failed HTTP status (item from\n// the interpreting Code node) and a connection error (HTTP node error output).\nconst j = $input.first().json;\nconst ctx = (() => { const i = $('Called by a workflow').first().json; return { context: i.context, wazuh_alert_id: i.wazuh_alert_id, thehive_alert_id: i.thehive_alert_id }; })();\nconst err = j.error;\nconst message = j.message ?? (typeof err === 'string' ? err : err?.message) ?? JSON.stringify(j).slice(0, 500);\nreturn [{ json: {\n  stage: 'thehive: ' + (j.stage ?? $prevNode.name),\n  workflow: $workflow.name,\n  execution_id: ctx.context?.n8n_execution_id ?? $execution.id,\n  sub_execution_id: $execution.id,\n  node: j.node ?? $prevNode.name,\n  wazuh_alert_id: ctx.wazuh_alert_id ?? null,\n  thehive_alert_id: ctx.thehive_alert_id ?? null,\n  http_status: j.http_status ?? err?.httpCode ?? null,\n  error_code: err?.code ?? err?.cause?.code ?? null,\n  message,\n  payload: j.payload ?? null,\n} }];\n"
+      },
+      "id": "0c988845-b9a0-544f-8d30-875b13c2cc7e",
+      "name": "Error input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1560,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "asoxLibError0001",
+          "cachedResultName": "lib-error"
+        },
+        "options": {
+          "waitForSubWorkflow": false
+        }
+      },
+      "id": "71321cc0-332a-598e-89fd-c1f7c116294e",
+      "name": "Park (lib-error)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1820,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Handed to lib-error (parked there); the caller stops without further actions.\nconst e = $('Error input').first().json;\nreturn [{ json: { ok: false, parked: true, stage: e.stage, http_status: e.http_status, message: e.message } }];\n"
+      },
+      "id": "08a357a2-ea46-5a3f-84bc-e5174cc47c63",
+      "name": "Failed result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2080,
+        200
+      ]
+    }
+  ],
+  "connections": {
+    "Called by a workflow": {
+      "main": [
+        [
+          {
+            "node": "List TheHive comments",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "List TheHive comments": {
+      "main": [
+        [
+          {
+            "node": "Check existing writeback",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Error input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check existing writeback": {
+      "main": [
+        [
+          {
+            "node": "Write it?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write it?": {
+      "main": [
+        [
+          {
+            "node": "Post TheHive comment",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Already written?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post TheHive comment": {
+      "main": [
+        [
+          {
+            "node": "Written result",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Error input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Written result": {
+      "main": [
+        [
+          {
+            "node": "Posted?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Posted?": {
+      "main": [
+        [
+          {
+            "node": "Return written",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Error input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Already written?": {
+      "main": [
+        [
+          {
+            "node": "Already written result",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Error input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Error input": {
+      "main": [
+        [
+          {
+            "node": "Park (lib-error)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Park (lib-error)": {
+      "main": [
+        [
+          {
+            "node": "Failed result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataSuccessExecution": "all",
+    "saveDataErrorExecution": "all",
+    "saveManualExecutions": true
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "nodeGroups": [],
+  "tags": [],
+  "pinData": {}
+}
