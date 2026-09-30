@@ -1,6 +1,6 @@
 # Wazuh alert → TheHive: format, mapping and alert-to-case rules
 
-Owner: TheHive (Park). **Status: proposal, to agree with the n8n owner (Inigo)** before n8n's playbooks implement it (CONTRIBUTING.md rule 5). It builds on contract C3 (n8n → TheHive, Service account `n8n@asox.local`) without changing it: C3 fixes *how* n8n authenticates; this document fixes *what* it sends.
+Owner: TheHive (Park). **Status: proposal, to agree with the n8n owner (Inigo) by checkpoint 1 (2026-10-20)**; dedup by `sourceRef` (§1) is already agreed in principle (D-N1, `docs/decisions.md`) before n8n's playbooks implement it (CONTRIBUTING.md rule 5). It builds on contract C3 (n8n → TheHive, Service account `n8n@asox.local`) without changing it: C3 fixes *how* n8n authenticates; this document fixes *what* it sends.
 
 Reference implementation: `scripts/thehive-test-alert.sh` sends alerts in exactly this format, and `scripts/lib.sh` (`th_severity`) holds the severity table.
 
@@ -46,7 +46,7 @@ Then **+1 (max 4) when `asset-criticality` is `high` or `critical`**. Until an a
 |---|---|
 | `ssh-bruteforce` | `rule.groups` has `sshd` and one of `authentication_failures`, `authentication_failed`, `invalid_login`; or `rule.mitre.id` has `T1110` |
 | `malware-detection` | `rule.groups` has one of `virustotal`, `rootcheck`, `yara`, `clamd`, `malware` |
-| `ids-network-alert` | `rule.groups` has `ids` (Snort / Suricata through syslog, Phase 2) |
+| `ids-network-alert` | `rule.groups` has `suricata` or `ids` (Suricata network IDS, D49; built-in rule 86601 "Suricata: Alert - …", fields `data.alert.signature`, `data.alert.severity`, `data.src_ip`, `data.dest_ip`, `data.dest_port`) |
 | `wazuh-generic` | everything else |
 
 The alert only *names* the template; TheHive applies its tasks and custom fields when the alert is promoted to a case.
@@ -66,12 +66,15 @@ The alert only *names* the template; TheHive applies its tasks and custom fields
 
 `containment-action` is set later, by the playbook that performs the action (default `none`). Option lists are enforced by TheHive: `asset-criticality` ∈ low / medium / high / critical; `containment-action` ∈ none / ip-blocked / host-isolated / user-disabled / file-removed.
 
+**Which `containment-action` values a playbook can set (C9, D44, X-21).** C9's action catalog v1 is Wazuh's built-in active-response commands only, in Phase 2: `firewall-drop` or `host-deny` → `ip-blocked`, `disable-account` → `user-disabled`. `host-isolated` and `file-removed` have no active-response command yet (they need custom scripts from the Wazuh owner), so they are **manual-only**: set by the analyst for an action done outside the SOC's automation and described in a case comment.
+
 ## 5. Observables
 
 | Wazuh field | TheHive `dataType` | Tags |
 |---|---|---|
 | `data.srcip` | `ip` | `src` |
 | `data.dstip` | `ip` | `dst` |
+| `data.src_ip`, `data.dest_ip` (Suricata) | `ip` | `src` / `dst` |
 | `agent.ip` | `ip` | `agent` |
 | `agent.name` | `hostname` | `agent` |
 | `data.srcuser`, `data.dstuser` | `user-account` (added by this component) | `src` / `target` |
@@ -89,7 +92,7 @@ TheHive 5 has no automatic promotion rules of its own; these rules are applied b
 | # | Rule |
 |---|---|
 | R1 | Every forwarded Wazuh alert becomes a TheHive **alert** (status New), never directly a case. |
-| R2 | **Critical** alerts are promoted to a case at once (candidate for n8n auto-promotion: `POST /api/v1/alert/<id>/case`). |
+| R2 | **Critical** alerts are promoted to a case at once. n8n auto-promotes them (`POST /api/v1/alert/<id>/case`) **only for named playbooks**; otherwise the analyst does it first (D-N4, combining this rule with n8n's proposal). |
 | R3 | **High** and **Medium** alerts are promoted when triage says true positive or "needs investigation". |
 | R4 | **Merge instead of a new case** when an open case already exists for the same agent and the same template within 24 h (TheHive: alert → *Merge into case*). |
 | R5 | False positives are closed as **Ignored** with the reason in a comment; the same rule ignored 3 times → tuning request to the Wazuh owner. |
@@ -100,6 +103,6 @@ TheHive 5 has no automatic promotion rules of its own; these rules are applied b
 ## 7. To agree with the n8n owner
 
 1. Fields and names in sections 1, 4, 5 (especially `source` = `wazuh` and `sourceRef` = Wazuh alert ID).
-2. The template routing in section 3 (it can live in the Router de Playbooks).
-3. Whether R2 (auto-promotion of Critical) is done by n8n.
+2. The template routing in section 3: one input of n8n's routing map (D-N2, rule groups + rule-ID map kept as data in a `lib-` workflow), agreed together with the Wazuh owner's rule-ID plan (W1.3) by 2026-10-20.
+3. R2: D-N4 (auto-promotion of Critical alerts of named playbooks only), to confirm by 2026-11-03.
 4. How a playbook reports what it did: comment on the case, plus `containment-action`, `playbook`, `n8n-execution-id`.
