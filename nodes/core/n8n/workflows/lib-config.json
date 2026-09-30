@@ -1,0 +1,73 @@
+{
+  "id": "asoxLibConfig001",
+  "name": "lib-config",
+  "active": true,
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## lib-config (N8N-2.6 seed, data only)\n**Trigger:** called by recv-wazuh-alert (and later the router, N8N-1.3) through Execute Workflow.\n**Inputs:** none (input items are ignored).\n**Actions taken:** none: returns the SOAR's mappings as one item (severity, TLP/PAP, sources, case templates, observable types, intake exclusions, writeback marker).\n**Systems changed:** none.\n**Approval:** not applicable.\n**Owner:** n8n.\nTemporary entries name the ticket they wait on: `user-account` disabled (T1.3), SCA intake exclusion (X-09). Successful executions are not saved (called for every alert).",
+        "height": 300,
+        "width": 520
+      },
+      "id": "ddf9f46a-b41d-5858-8d4a-14f79ee2692d",
+      "name": "About this workflow",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -40,
+        -380
+      ]
+    },
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "id": "f825d513-95fa-54f7-a273-833eb29600f0",
+      "name": "Called by a workflow",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// lib-config (N8N-2.6 seed): data only, no side effects. Temporary entries\n// name the ticket they wait on.\nconst envLevel = String($env.WAZUH_ALERT_MIN_LEVEL ?? '').trim();\nconst envOk = /^\\d+$/.test(envLevel);\nreturn [{ json: {\n  config_version: '2026-09-30',\n  // C1 threshold: WAZUH_ALERT_MIN_LEVEL from n8n's environment; 7 only as a fallback.\n  min_level: envOk ? Number(envLevel) : 7,\n  min_level_source: envOk ? 'env WAZUH_ALERT_MIN_LEVEL' : 'fallback',\n  // ALERT-FORMAT §2: rule.level -> TheHive severity (1 Low .. 4 Critical).\n  severity_by_level: [\n    { min: 12, max: 15, severity: 4 },\n    { min: 10, max: 11, severity: 3 },\n    { min: 7, max: 9, severity: 2 },\n  ],\n  severity_default: 1,\n  // +1 (max 4) when asset-criticality is one of these (ALERT-FORMAT §2).\n  severity_raise_for_criticality: ['high', 'critical'],\n  asset_criticality: 'medium', // until an asset inventory exists\n  tlp: 2,\n  pap: 2,\n  thehive_alert_type: 'wazuh',\n  source_default: 'wazuh',\n  // Test rules: their alerts get source asox-test (ALERT-FORMAT §1, R6).\n  source_by_rule_id: { '100100': 'asox-test' },\n  // ALERT-FORMAT §3, first match wins. A template matches when any clause\n  // matches; a clause needs all of `all`, one of `any`, and a technique\n  // starting with `mitre_prefix`, for the keys it has.\n  case_templates: [\n    { name: 'ssh-bruteforce', match: [\n      { all: ['sshd'], any: ['authentication_failures', 'authentication_failed', 'invalid_login'] },\n      { mitre_prefix: 'T1110' },\n    ] },\n    { name: 'malware-detection', match: [{ any: ['virustotal', 'rootcheck', 'yara', 'clamd', 'malware'] }] },\n    { name: 'ids-network-alert', match: [{ any: ['suricata', 'ids'] }] },\n    { name: 'wazuh-generic', default: true },\n  ],\n  // Observable dataTypes n8n sends (ALERT-FORMAT §5). An unknown type makes\n  // TheHive refuse the whole alert (HTTP 404), so only loaded types are on.\n  observable_types: {\n    ip: true, hostname: true, hash: true, filename: true, url: true, fqdn: true,\n    'user-account': false, // TEMPORARY: waits for T1.3 (TheHive entities/ on the build instance)\n  },\n  // Alerts matching these never reach a playbook; recv-wazuh-alert records them.\n  intake_exclusions: [\n    { rule_group: 'sca', label: 'sca (X-09)', temporary: true,\n      ticket: 'X-09', note: 'TEMPORARY: SCA start-up burst; waits for the X-09 decision with Wazuh' },\n  ],\n  // lib-thehive-writeback: first line of the comment, and the author it must have.\n  writeback: { marker: '[asox-n8n writeback]', author: 'n8n@asox.local' },\n  error_marker: '[asox-n8n error]',\n} }];\n"
+      },
+      "id": "d284da17-d3b6-52d3-bcb4-1c0dfad4f643",
+      "name": "Config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        260,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Called by a workflow": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataSuccessExecution": "none",
+    "saveDataErrorExecution": "all",
+    "saveManualExecutions": true
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "nodeGroups": [],
+  "tags": [],
+  "pinData": {}
+}
