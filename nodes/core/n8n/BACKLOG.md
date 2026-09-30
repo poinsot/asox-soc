@@ -13,8 +13,18 @@ Based on PROJECT.md (v2.2), docs/decisions.md, docs/handoff.md (2026-09-30), CHE
 
 ## Two risks to check first
 
-1. **TheHive trial ends 2026-10-11.** After that, C3, C4 and every playbook fail. Activate the Community license, run `scripts/backup.sh cases --with-secrets`, and confirm the license includes `notification.webhook` (PROJECT.md section 16, Q6). The TheHive owner's Community license shows no webhook-capability warning (strong evidence, X-19), but C4 hasn't run on one yet. If it fails, C4 needs a redesign (for example n8n polling TheHive), which affects epics 1, 5 and 7 and C11.
+1. ~~**TheHive trial ends 2026-10-11.**~~ **Resolved 2026-09-30** (N8N-0.1): Community license activated, backed up, C4 verified. Original risk: after that, C3, C4 and every playbook fail. Activate the Community license, run `scripts/backup.sh cases --with-secrets`, and confirm the license includes `notification.webhook` (PROJECT.md section 16, Q6). The TheHive owner's Community license shows no webhook-capability warning (strong evidence, X-19), but C4 hasn't run on one yet. If it fails, C4 needs a redesign (for example n8n polling TheHive), which affects epics 1, 5 and 7 and C11.
 2. **C1 has no retries.** `custom-n8n` uses a 10 s timeout and never retries (A48). If n8n is down or slow, alerts are lost. This shapes item N8N-1.1 and the reliability epic.
+
+## Temporary items (remove when their ticket closes)
+
+| What | Where | Waits on |
+|---|---|---|
+| Observable type `user-account` disabled (TheHive would refuse the whole alert) | `lib-config` `observable_types` | T1.3: TheHive `entities/` loaded on the build instance |
+| SCA intake exclusion: rule group `sca` recorded as `skipped: sca (X-09)` in `recv-wazuh-alert`, never reaches TheHive | `lib-config` `intake_exclusions` | X-09 (Wazuh: should SCA reach n8n?) |
+| MITRE from `rule.mitre.id` only, no `rule.mitre_techniques` fallback | `lib-normalize-wazuh-alert` | ALERT-TO-THEHIVE §7 Q2 (TheHive) |
+| `customFields` array form sent without proof it's the form TheHive fills; `caseTemplate` and custom fields are dropped today (writeback warns) | `lib-thehive-upsert-alert` | T1.3 |
+| Parked items live 168 h as failed `lib-error` executions | `lib-error` | N8N-6.3 |
 
 ## Item format
 
@@ -24,35 +34,35 @@ Based on PROJECT.md (v2.2), docs/decisions.md, docs/handoff.md (2026-09-30), CHE
 
 | ID | Item | P | Size | Meets with |
 |---|---|---|---|---|
-| N8N-0.1 | License activation, backup, and the C4 capability check (see risk 1) | P0 | S | TheHive |
+| N8N-0.1 | ~~License activation, backup, and the C4 capability check (see risk 1)~~ Done 2026-09-30: Community license activated on the build instance (valid until 2027-09-28), backed up (`backup.sh cases --with-secrets` → `backups/cases-20260930-133649/`), C4 verified on it, and again after a TheHive container restart (2026-09-30, first-slice session) | P0 | S | TheHive |
 | N8N-0.2 | ~~Capture real payload fixtures (Wazuh alerts of several rule types; TheHive alert, case, task and status events) into `nodes/core/n8n/fixtures/`~~ Done 2026-09-30 (`fixtures/README.md`): 4 Wazuh rule types (all that exist at level ≥ 7, plus one level-3 sample) and 20 TheHive events. **Missing, from Wazuh (X-05):** sshd, sudo, FIM, rootcheck, Suricata, any rule with `rule.mitre`; add them as `trigger.sh --scenario` lands | P0 | S | Wazuh, TheHive |
 | N8N-0.3 | ~~Agree the alert field set n8n relies on (`id`, `timestamp`, `rule.id/level/groups/mitre`, `agent.*`, `data.srcip`, `syscheck.*`, `full_log`). C1's payload shape doesn't change, but the fields become a documented promise~~ Draft done 2026-09-30 (`docs/WAZUH-FIELDS.md`, verified against the fixtures); agreement with Wazuh pending (X-01, W2.5, 2026-10-20) | P0 | S | Wazuh |
 | N8N-0.4 | ~~Alert → TheHive mapping spec: severity, TLP/PAP, tags, custom fields, `sourceRef`, observable types~~ n8n side done 2026-09-30 (`docs/ALERT-TO-THEHIVE.md`: paths, gaps, duplicate handling, questions for ALERT-FORMAT §7); agreement with TheHive pending (X-02, T2.4/T2.5, 2026-10-20) | P0 | M | TheHive |
 | N8N-0.5 | ~~Record decisions D-N1…N6 (below) in `docs/decisions.md`~~ Done 2026-09-30 ("Owner design decisions"); close each as its partner agrees | P0 | S | All |
-| N8N-0.6 | Test strategy: ~~fixture replay script (POST with token)~~, per-playbook test cases, and which checks go into `contracts-check.sh` versus a new end-to-end check. **Partial:** replay done 2026-09-30 (`fixtures/replay.sh`); per-playbook tests and contracts-check changes pending (R-02) | P1 | M | Integrator |
+| N8N-0.6 | Test strategy: ~~fixture replay script (POST with token)~~, per-playbook test cases, and which checks go into `contracts-check.sh` versus a new end-to-end check. **Partial:** replay done 2026-09-30 (`fixtures/replay.sh`); per-playbook tests and contracts-check changes pending (R-02). `replay.sh` gained `--fresh-id` and `--delay` (2026-09-30); the first slice's tests are listed in the README (`pb-generic`) | P1 | M | Integrator |
 | N8N-0.7 | CI lint for workflows: naming, header note present, credentials by ID, no hardcoded hosts or secrets (extends `ci-checks.sh`) | P1 | M | Integrator |
 
 ## E1: Ingestion and Router de Playbooks
 
 | ID | Item | P | Size | Meets with |
 |---|---|---|---|---|
-| N8N-1.1 | `recv-wazuh-alert` answers 200 immediately and processes asynchronously (10 s timeout, no retries) | P0 | S | Wazuh |
-| N8N-1.2 | `lib-normalize-wazuh-alert`: canonical alert object, validation, malformed payloads parked and not silently dropped | P0 | M | Wazuh (N8N-0.3) |
+| N8N-1.1 | ~~`recv-wazuh-alert` answers 200 immediately and processes asynchronously (10 s timeout, no retries)~~ Done 2026-09-30: 200 on receipt, full alert kept in the execution (C1 check unchanged), level filter on `WAZUH_ALERT_MIN_LEVEL` (now in n8n's environment), intake exclusions from `lib-config`, then `pb-generic` without waiting (single call site for N8N-1.3). A body that isn't valid JSON gets HTTP 422 from n8n before any workflow runs, so n8n can't park it (only Wazuh's `integrations.log` shows it) | P0 | S | Wazuh |
+| N8N-1.2 | ~~`lib-normalize-wazuh-alert`: canonical alert object, validation, malformed payloads parked and not silently dropped~~ Done 2026-09-30 (required set of `docs/WAZUH-FIELDS.md`; id kept as a string; malformed → `lib-error`). **Open:** MITRE reads `rule.mitre.id` only; the `rule.mitre_techniques` fallback waits for TheHive's answer (ALERT-TO-THEHIVE §7 Q2); required set still to agree with Wazuh (X-01) | P0 | M | Wazuh (N8N-0.3) |
 | N8N-1.3 | Router: routing table (rule id, group and level → `pb-*`), `pb-generic` fallback, chosen playbook recorded on the execution and in TheHive | P0 | M | Wazuh (routing key) |
 | N8N-1.4 | Flood protection: aggregation window, per-agent or per-rule throttle, concurrency cap (the lab agent already sends many level 7+ alerts) | P1 | M | Wazuh (threshold tuning) |
 | N8N-1.5 | `recv-thehive-event` router: filter by event type, route to handlers, **loop prevention** (ignore events caused by `n8n@asox.local`, since n8n writes to TheHive and TheHive's every-event webhook calls n8n back) | P0 | M | TheHive |
-| N8N-1.6 | Keep the 403-without-token behaviour intact through every refactor (C1 and C4 checks) | P0 | S | Wazuh, TheHive |
+| N8N-1.6 | Keep the 403-without-token behaviour intact through every refactor (C1 and C4 checks). Standing rule; verified after the N8N-1.1 refactor on 2026-09-30 (`replay.sh --no-token` 403, `contracts-check.sh --only C1,C3,C4` pass) | P0 | S | Wazuh, TheHive |
 
 ## E2: Shared `lib-` workflows
 
 | ID | Item | P | Size | Meets with |
 |---|---|---|---|---|
-| N8N-2.1 | `lib-thehive-upsert-alert`: create or update by `sourceRef` (idempotent) | P0 | M | TheHive |
-| N8N-2.2 | `lib-thehive-writeback`: comment or task log with the actions taken, Wazuh alert ID and n8n execution ID | P0 | S | TheHive |
+| N8N-2.1 | ~~`lib-thehive-upsert-alert`: create or update by `sourceRef` (idempotent)~~ Done 2026-09-30: ALERT-FORMAT §1–§5; 400 CreateError "already exists" → lookup, `duplicate: true`; other failures parked. Create only: updating an existing alert with new information is N8N-3.2. **Open:** `customFields` shape unverified (no fields on the build instance, T1.3; the array form is sent) | P0 | M | TheHive |
+| N8N-2.2 | ~~`lib-thehive-writeback`: comment or task log with the actions taken, Wazuh alert ID and n8n execution ID~~ Done 2026-09-30: comment on the alert, first line `[asox-n8n writeback] wazuh-alert-id=<id>`; written only if no comment by `n8n@asox.local` starts with that line | P0 | S | TheHive |
 | N8N-2.3 | `lib-extract-observables`: IP, hash, domain, URL, user; defang; allowlist for internal and documentation ranges | P0 | M | Wazuh, Cortex |
 | N8N-2.4 | `lib-enrich-observable`: choose analyzers by dataType, run through C6 with polling and timeouts, handle cache versus `force`, partial failures, reduce reports to a verdict | P0 | L | Cortex + MISP |
-| N8N-2.5 | `lib-error`: classify errors, decide retry or park, write to TheHive | P0 | M | none |
-| N8N-2.6 | `lib-config`: severity, TLP/PAP mapping and allowlists in one place | P1 | S | TheHive |
+| N8N-2.5 | ~~`lib-error`: classify errors, decide retry or park, write to TheHive~~ Done 2026-09-30: classes `malformed_input`, `thehive_unreachable` (connection error or 5xx), `thehive_4xx`, `unknown`; records the Wazuh alert ID, failing workflow and payload; comments on the TheHive alert when one exists; always parks (no retry yet, `retryable` is a hint for N8N-6.2) | P0 | M | none |
+| N8N-2.6 | `lib-config`: severity, TLP/PAP mapping and allowlists in one place. **Partial:** seed done 2026-09-30 (severity, TLP/PAP, asset criticality, test sources, case templates, observable types, intake exclusions, writeback marker); allowlists come with N8N-2.3 | P1 | S | TheHive |
 | N8N-2.7 | `lib-wazuh-context`: agent info through C2 (OS, group, last keepalive). Not the "seen before in Wazuh?" lookup, which is C13 (N8N-2.10) | P2 | M | Wazuh |
 | N8N-2.8 | Document each lib's input and output schema (needed later so ASOX can call them as tools) | P1 | S | none |
 | N8N-2.9 | **C11:** `lib-metrics-upsert`, called from `lib-thehive-writeback` and the C4 event handlers: one `asox-metrics` document per Wazuh alert (ID = Wazuh alert ID), fields and times as in PROJECT.md 5 (`t_event`, `t_alert`, `t_ack`, `t_case`, `t_contained`, `t_closed`, `severity`, `resolution`, `outcome`, …). Moved here from N8N-9.3 (X-28). Needs R-16 (indexer user `n8n-indexer`) | P1 | M | Grafana, Wazuh (indexer), integrator |
@@ -63,10 +73,11 @@ Based on PROJECT.md (v2.2), docs/decisions.md, docs/handoff.md (2026-09-30), CHE
 
 | ID | Item | P | Size | Meets with |
 |---|---|---|---|---|
-| N8N-3.1 | Dedup key and rule: the same alert twice creates no duplicate TheHive record | P0 | M | TheHive |
+| N8N-3.1 | ~~Dedup key and rule: the same alert twice creates no duplicate TheHive record~~ Done 2026-09-30 for sequential copies (`type`+`source`+`sourceRef`, D-N1). **Known limitation, accepted:** TheHive's uniqueness isn't enforced under concurrent creates, so simultaneous copies of one alert can create duplicates (measured: two concurrent POSTs → two 201s). C1 can't produce them (`custom-n8n` sends once, no retries, A48); only tests and replays can. Asked of TheHive (ALERT-TO-THEHIVE §7 Q9) | P0 | M | TheHive |
 | N8N-3.2 | Merge repeats into the existing alert or case (counter, new observables, comment) | P1 | M | TheHive |
-| N8N-3.3 | Idempotency test: replay each fixture twice, and double-post C1 | P0 | S | none |
+| N8N-3.3 | ~~Idempotency test: replay each fixture twice, and double-post C1~~ Done 2026-09-30 sequentially: `replay.sh --fresh-id --times 2 --delay 5` → one TheHive alert, one writeback, second run `duplicate`. Back-to-back (no delay) → two alerts: recorded, not fixed (N8N-3.1). The other fixtures create nothing (sca skipped, 503 filtered) | P0 | S | none |
 | N8N-3.4 | Correlation across alerts (same source IP within a window) | P2 | L | Wazuh, TheHive |
+| N8N-3.5 | Scheduled duplicate report: list TheHive alerts sharing `type`+`source`+`sourceRef` (possible after concurrent copies, N8N-3.1) and comment on them; **never delete** | P2 | S | TheHive |
 
 ## E4: Playbooks
 
@@ -74,7 +85,7 @@ Each playbook needs the header note (trigger, inputs, actions taken, systems cha
 
 | ID | Playbook | P | Size | Notes |
 |---|---|---|---|---|
-| N8N-4.1 | `pb-generic` (normalize → dedup → TheHive alert with observables → enrich → writeback; no system changes) | P0 | M | First vertical slice |
+| N8N-4.1 | ~~`pb-generic` (normalize → dedup → TheHive alert with observables → enrich → writeback; no system changes)~~ Done 2026-09-30 except enrichment: normalize → upsert (dedup) → **enrichment stub** (no-op until N8N-2.3/2.4) → writeback; catalog entry in the README | P0 | M | First vertical slice |
 | N8N-4.2 | `pb-ssh-bruteforce` (aggregate by source IP, enrich, escalate on success after failures) | P1 | M | Needs Wazuh rules and Cortex analyzers; response step waits for C9 |
 | N8N-4.3 | `pb-malware-hash` (FIM/syscheck hash → file analyzers and MISP → verdict) | P1 | M | Cortex + MISP |
 | N8N-4.4 | `pb-ids-alert` on Suricata alerts (D49): rule groups `suricata`/`ids`, rule 86601, `data.alert.signature`, `data.alert.severity`, `data.src_ip`, `data.dest_ip`, `data.dest_port`; pfSense later | P2 | L | Wazuh (Suricata from M3, 2026-11-03; pfSense M4) |
@@ -94,9 +105,9 @@ Each playbook needs the header note (trigger, inputs, actions taken, systems cha
 
 | ID | Item | P | Size | Meets with |
 |---|---|---|---|---|
-| N8N-6.1 | Global error workflow | P0 | S | none |
+| N8N-6.1 | ~~Global error workflow~~ Done 2026-09-30: `recv-n8n-error` (Error Trigger → `lib-error`), set as the error workflow of `recv-wazuh-alert` and `pb-generic` only: n8n fires it for the failing sub-workflow **and** its waiting caller, so setting it on the libs would park each error twice; a workflow containing an Error Trigger is its own error workflow, hence not inside `lib-error` | P0 | S | none |
 | N8N-6.2 | Retry with backoff and timeouts per integration (TheHive read-only or down, Cortex slow) | P0 | M | TheHive, Cortex |
-| N8N-6.3 | Dead-letter store and replay workflow for failed alerts | P1 | M | none |
+| N8N-6.3 | Dead-letter store and replay workflow for failed alerts. **Until then (stopgap, 2026-09-30):** a parked item is a failed `lib-error` execution, kept only 168 h by execution pruning; that is **not** a dead-letter store. **Constraint:** the replay workflow processes items one at a time and checks by `sourceRef` before creating (TheHive's duplicate refusal isn't atomic, N8N-3.1) | P1 | M | none |
 | N8N-6.4 | Self-check: workflows active, alert-to-TheHive lag, added to `healthcheck.sh` (integrator) | P1 | S | Integrator |
 | N8N-6.5 | Execution data hygiene: executions store webhook headers including the token (handoff gotcha) | P1 | S | none |
 | N8N-6.6 | Memory re-measurement with real playbooks (D40; n8n limit is 750m / 650m), and re-tune execution pruning | P1 | M | Integrator |

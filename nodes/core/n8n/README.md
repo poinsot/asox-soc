@@ -13,15 +13,22 @@ n8n is the platform's SOAR and integration hub, and the **only** component that 
 | `compose.yml` | `n8n` (SQLite in the `n8n-data` volume); `n8n-postgres` under the optional profile `pg` |
 | `workflows/*.json` | Workflows as code, one file per workflow (exported by `scripts/n8n-export.sh`) |
 | `fixtures/` | Real payloads for tests (N8N-0.2): Wazuh alerts (`wazuh/`) and TheHive webhook events (`thehive/`), described in `fixtures/README.md` with the list of missing rule types |
-| `fixtures/replay.sh` | POSTs fixtures to `wazuh-alert` / `thehive-event` with the right token header; `--all`, `--times N` (idempotency), `--no-token` (must get 403) (N8N-0.6) |
+| `fixtures/replay.sh` | POSTs fixtures to `wazuh-alert` / `thehive-event` with the right token header; `--all`, `--times N` with `--delay S` (idempotency), `--fresh-id` (new Wazuh alert id, so a replay is a new alert), `--no-token` (must get 403) (N8N-0.6) |
 | `docs/WAZUH-FIELDS.md` | Wazuh alert fields n8n relies on, with types and which are optional, verified against the fixtures (N8N-0.3; draft to agree with Wazuh, X-01) |
 | `docs/ALERT-TO-THEHIVE.md` | n8n's side of `nodes/cases/thehive/docs/ALERT-FORMAT.md`: the Wazuh path behind each TheHive field, gaps, duplicate `sourceRef` handling, C4 event shapes, questions for TheHive (N8N-0.4) |
 
-Baseline workflows:
+Workflows:
 
 | Workflow | Trigger | Purpose |
 |---|---|---|
-| `recv-wazuh-alert` | `POST /webhook/wazuh-alert` (Wazuh `custom-n8n` integration, C1) | Stub: records a summary of every alert it receives. It doesn't filter on level: only Wazuh's `custom-n8n` integration does (`WAZUH_ALERT_MIN_LEVEL`). The Router de Playbooks attaches here. |
+| `recv-wazuh-alert` | `POST /webhook/wazuh-alert` (Wazuh `custom-n8n` integration, C1) | Answers 200 on receipt and keeps the full alert in its execution (the C1 check looks there). Reads `lib-config`, records `filtered: level N < M` below `WAZUH_ALERT_MIN_LEVEL` and `skipped: sca (X-09)` for the temporary SCA exclusion, and hands every other alert to `pb-generic` without waiting. That call is where the Router de Playbooks goes (N8N-1.3). |
+| `pb-generic` | Called by `recv-wazuh-alert` | First playbook: see the catalog below. |
+| `lib-config` | Called by workflows | Data only: severity table, TLP/PAP, asset criticality, test sources (`100100` → `asox-test`), case templates, enabled observable types, intake exclusions, writeback marker (N8N-2.6 seed). Temporary entries name their ticket. |
+| `lib-normalize-wazuh-alert` | Called by playbooks | Canonical alert per `docs/WAZUH-FIELDS.md`; the alert id stays a string. Malformed alerts go to `lib-error` (N8N-1.2). |
+| `lib-thehive-upsert-alert` | Called by playbooks | Creates the TheHive alert (ALERT-FORMAT); "already exists" → returns the existing one with `duplicate: true` (N8N-2.1, 3.1). |
+| `lib-thehive-writeback` | Called by playbooks | Comment on the TheHive alert starting `[asox-n8n writeback] wazuh-alert-id=<id>`; written once (N8N-2.2). |
+| `lib-error` | Called by workflows (not waited for) | Classifies (`malformed_input`, `thehive_unreachable`, `thehive_4xx`, `unknown`), records alert id, failing workflow and payload, comments on the TheHive alert if any, then parks: the execution ends in error (N8N-2.5). Parked items = failed `lib-error` executions, kept 168 h, until N8N-6.3. |
+| `recv-n8n-error` | n8n Error Trigger | Global error workflow of `recv-wazuh-alert` and `pb-generic`: hands n8n's unhandled errors to `lib-error` (N8N-6.1). |
 | `recv-thehive-event` | `POST /webhook/thehive-event` (TheHive webhook, C4: every event of the SOC organisation) | Stub: records a summary of each TheHive event (operation, object type and ID, source). |
 | `chk-wazuh-api` | `POST /webhook/chk-wazuh-api` (`scripts/contracts-check.sh`) | Contract check C2: logs in with the n8n-api credential, lists agents, and verifies that active response is refused. Don't change it without the integrator. |
 | `chk-thehive-api` | `POST /webhook/chk-thehive-api` (`scripts/contracts-check.sh`) | Contract check C3: creates a test alert (`source: contract-check`) with the TheHive credential and reads it back; a second call deletes it (only alerts whose source is `contract-check`). Don't change it without the integrator. |
@@ -34,6 +41,16 @@ Baseline workflows:
 - **Traceability:** every execution carries the Wazuh alert ID and, once created, the TheHive alert or case ID, and writes a summary of its actions back to the TheHive record.
 - **Approval by default:** a playbook that changes systems requires analyst approval unless it is explicitly marked `auto_approve`; justify that marking in the checkpoint pull request.
 - **Idempotent and safe to re-run:** the same alert processed twice must not create duplicate TheHive records or repeat actions.
+
+### Playbook catalog
+
+**`pb-generic`** (N8N-4.1). *Trigger:* `recv-wazuh-alert`, for every alert at or above the threshold that isn't excluded. *Steps:* `lib-normalize-wazuh-alert` → `lib-thehive-upsert-alert` → **enrichment stub** (a no-op node; `lib-enrich-observable` goes there, N8N-2.3/2.4) → `lib-thehive-writeback`. *Systems changed:* TheHive only (alert and comment). *Approval:* not needed. *Result:* `outcome` = `created`, `duplicate` (the same Wazuh alert again: nothing new is created or written) or `parked` (see `lib-error`). *Test:* `fixtures/replay.sh --fresh-id --times 2 --delay 5 --file fixtures/wazuh/100100-asox-test-c1.json` → one `asox-test` alert (severity 3, observables `ip` and `hostname` of the agent) with one writeback comment; `19007` → skipped, `503` → filtered, `invalid/100100-no-id.json` → parked; delete the `asox-test` alerts afterwards. **Known limitation:** two copies of one alert arriving at the same moment create two TheHive alerts, because TheHive's duplicate refusal isn't atomic (`docs/ALERT-TO-THEHIVE.md` §2). C1 never sends copies; tests and replays can.
+
+### Sub-workflows and error handling
+
+- **Reference sub-workflows by ID** (Execute Workflow node, source "Database", "By ID"). Workflow IDs survive import on every machine: `bootstrap.sh` and `n8n-import.sh` import the files with their own `id`. The SOAR's IDs are fixed and readable (`asoxLibConfig001`, `asoxPbGeneric001`, …).
+- **Sub-workflows must be active (published):** n8n 2.40.7 runs the published version of a called workflow and fails with "Workflow is not active" otherwise; an inactive error workflow is skipped with only a log line. Every `lib-`/`pb-` file keeps `"active": true`.
+- **Error workflow:** `recv-n8n-error` on entry workflows (`recv-`, `pb-`), not on `lib-` workflows: n8n fires the error workflow for a failing sub-workflow **and** for its waiting caller, so setting it on both reports each error twice. Handle expected failures (TheHive HTTP errors, malformed input) explicitly with `lib-error`, which keeps the Wazuh alert id; n8n's Error Trigger has no input data.
 
 ## Webhooks are authenticated
 
