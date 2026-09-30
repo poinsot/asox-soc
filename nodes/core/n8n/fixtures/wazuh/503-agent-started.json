@@ -1,0 +1,58 @@
+{
+  "agent": {
+    "ip": "172.18.0.7",
+    "name": "lab-agent",
+    "id": "001"
+  },
+  "manager": {
+    "name": "wazuh-manager"
+  },
+  "data": {
+    "extra_data": "lab-agent->any"
+  },
+  "rule": {
+    "firedtimes": 1,
+    "mail": false,
+    "level": 3,
+    "pci_dss": [
+      "10.6.1",
+      "10.2.6"
+    ],
+    "hipaa": [
+      "164.312.b"
+    ],
+    "tsc": [
+      "CC7.2",
+      "CC7.3",
+      "CC6.8"
+    ],
+    "description": "Wazuh agent started.",
+    "groups": [
+      "ossec"
+    ],
+    "id": "503",
+    "nist_800_53": [
+      "AU.6",
+      "AU.14",
+      "AU.5"
+    ],
+    "gpg13": [
+      "10.1"
+    ],
+    "gdpr": [
+      "IV_35.7.d"
+    ]
+  },
+  "decoder": {
+    "parent": "ossec",
+    "name": "ossec"
+  },
+  "full_log": "ossec: Agent started: 'lab-agent->any'.",
+  "input": {
+    "type": "log"
+  },
+  "@timestamp": "2026-09-30T20:30:42.407Z",
+  "location": "wazuh-agent",
+  "id": "1790800242.249",
+  "timestamp": "2026-09-30T20:30:42.407+0000"
+}

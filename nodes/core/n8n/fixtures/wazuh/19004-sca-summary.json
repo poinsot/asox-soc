@@ -1,0 +1,57 @@
+{
+  "agent": {
+    "name": "lab-agent",
+    "id": "001"
+  },
+  "manager": {
+    "name": "wazuh-manager"
+  },
+  "data": {
+    "sca": {
+      "score": "46",
+      "total_checks": "279",
+      "file": "cis_ubuntu24-04.yml",
+      "policy_id": "cis_ubuntu24-04",
+      "invalid": "121",
+      "description": "This document provides prescriptive guidance for establishing a secure configuration posture for Ubuntu Linux 24.04 LTS based on CIS benchmark for Ubuntu Linux 24.04 LTS.",
+      "scan_id": "207960452",
+      "passed": "73",
+      "failed": "85",
+      "type": "summary",
+      "policy": "CIS Ubuntu Linux 24.04 LTS Benchmark v1.0.0."
+    }
+  },
+  "rule": {
+    "firedtimes": 1,
+    "mail": false,
+    "level": 7,
+    "pci_dss": [
+      "2.2"
+    ],
+    "tsc": [
+      "CC7.1",
+      "CC7.2"
+    ],
+    "description": "SCA summary: CIS Ubuntu Linux 24.04 LTS Benchmark v1.0.0.: Score less than 50% (46)",
+    "groups": [
+      "sca"
+    ],
+    "id": "19004",
+    "nist_800_53": [
+      "CM.1"
+    ],
+    "gdpr": [
+      "IV_35.7.d"
+    ]
+  },
+  "decoder": {
+    "name": "sca"
+  },
+  "input": {
+    "type": "log"
+  },
+  "@timestamp": "2026-09-25T23:15:39.251Z",
+  "location": "sca",
+  "id": "1790378139.1888519",
+  "timestamp": "2026-09-25T23:15:39.251+0000"
+}
