@@ -5,7 +5,7 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## pb-generic (N8N-4.1)\n**Trigger:** called by recv-wazuh-alert through Execute Workflow, not waited for (the single call site the router replaces in N8N-1.3).\n**Inputs:** `{alert: <raw Wazuh alert>, config: <lib-config>, recv_execution_id}`.\n**Actions taken:** lib-normalize-wazuh-alert -> lib-thehive-upsert-alert (one TheHive alert per Wazuh alert, dedup by sourceRef) -> ENRICHMENT STUB (no-op until lib-enrich-observable, N8N-2.3/2.4) -> lib-thehive-writeback (comment with this execution id). Malformed input and TheHive failures are parked by lib-error.\n**Systems changed:** TheHive only (alert and comment).\n**Approval:** not needed (no system changes).\n**Owner:** n8n.\nResult of the execution: `outcome` = created / duplicate / parked / skipped (`skipped: TheHive not configured` when lib-config says TheHive isn't deployed here: no park, no writeback). Error workflow: recv-n8n-error.",
+        "content": "## pb-generic (N8N-4.1)\n**Trigger:** called by recv-wazuh-alert through Execute Workflow, not waited for (the single call site the router replaces in N8N-1.3).\n**Inputs:** `{alert: <raw Wazuh alert>, config: <lib-config>, recv_execution_id}`.\n**Actions taken:** lib-normalize-wazuh-alert -> lib-extract-observables (refanged, validated, merged; internal and documentation IPs tagged range:* and flagged, never dropped) -> lib-thehive-upsert-alert (one TheHive alert per Wazuh alert, dedup by sourceRef) -> ENRICHMENT STUB (no-op until lib-enrich-observable, N8N-2.4, which reads the range flag) -> lib-thehive-writeback (comment with this execution id). Malformed input and TheHive failures are parked by lib-error.\n**Systems changed:** TheHive only (alert and comment).\n**Approval:** not needed (no system changes).\n**Owner:** n8n.\nResult of the execution: `outcome` = created / duplicate / parked / skipped (`skipped: TheHive not configured` when lib-config says TheHive isn't deployed here: no park, no writeback). Error workflow: recv-n8n-error.",
         "height": 340,
         "width": 520
       },
@@ -114,14 +114,14 @@
     },
     {
       "parameters": {
-        "jsCode": "const c = $('Context').first().json;\nreturn [{ json: { canonical: $input.first().json.canonical, config: c.config, context: c.context } }];\n"
+        "jsCode": "const c = $('Context').first().json;\nreturn [{ json: {\n  canonical: $('Normalize (lib-normalize-wazuh-alert)').first().json.canonical,\n  extraction: $input.first().json,\n  config: c.config, context: c.context,\n} }];\n"
       },
       "id": "59200f8b-1d76-58ee-985c-025b897d7a7b",
       "name": "Upsert input",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1300,
+        1820,
         -100
       ]
     },
@@ -142,7 +142,7 @@
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.2,
       "position": [
-        1560,
+        2080,
         -100
       ]
     },
@@ -176,31 +176,31 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        2080,
+        2600,
         -100
       ]
     },
     {
       "parameters": {},
       "id": "5c8f2b43-0a07-56d4-9331-04effe9bc35a",
-      "name": "ENRICHMENT STUB: no-op (lib-enrich-observable, N8N-2.3/2.4)",
+      "name": "ENRICHMENT STUB: no-op (lib-enrich-observable, N8N-2.4)",
       "type": "n8n-nodes-base.noOp",
       "typeVersion": 1,
       "position": [
-        2340,
+        2860,
         -200
       ]
     },
     {
       "parameters": {
-        "jsCode": "// Actions taken, as written to TheHive (lib-thehive-writeback).\nconst c = $('Context').first().json;\nconst u = $('Upsert (lib-thehive-upsert-alert)').first().json;\nconst actions = [];\nif (u.duplicate) {\n  actions.push(`TheHive alert already existed for Wazuh alert ${u.wazuh_alert_id} (duplicate sourceRef): nothing created.`);\n  if (u.after_retry) actions.push('The create call was retried (timeout or TheHive error): the alert may have been created by the first call.');\n} else {\n  actions.push(`TheHive alert created: source ${u.source}, severity ${u.severity}, case template requested ${u.case_template}, observables: ${u.observables.join(', ') || 'none'}.`);\n  for (const s of u.skipped_observables) actions.push(`Observable not sent: ${s.dataType} ${s.data} (${s.reason}).`);\n  for (const wmsg of u.warnings) actions.push(`Warning: ${wmsg}.`);\n}\nactions.push('Enrichment: not run (stub until lib-enrich-observable, N8N-2.3/2.4).');\nactions.push('Systems changed: TheHive only.');\nreturn [{ json: {\n  thehive_alert_id: u.thehive_alert_id, wazuh_alert_id: u.wazuh_alert_id,\n  config: c.config, context: c.context, actions,\n} }];\n"
+        "jsCode": "// Actions taken, as written to TheHive (lib-thehive-writeback).\nconst c = $('Context').first().json;\nconst u = $('Upsert (lib-thehive-upsert-alert)').first().json;\nconst actions = [];\nif (u.duplicate) {\n  actions.push(`TheHive alert already existed for Wazuh alert ${u.wazuh_alert_id} (duplicate sourceRef): nothing created.`);\n  if (u.after_retry) actions.push('The create call was retried (timeout or TheHive error): the alert may have been created by the first call.');\n} else {\n  actions.push(`TheHive alert created: source ${u.source}, severity ${u.severity}, case template requested ${u.case_template}, observables: ${u.observables.join(', ') || 'none'}.`);\n  for (const s of u.skipped_observables) actions.push(`Observable not sent: ${s.dataType} ${s.data} (${s.reason}).`);\n  for (const wmsg of u.warnings) actions.push(`Warning: ${wmsg}.`);\n}\nactions.push('Enrichment: not run (stub until lib-enrich-observable, N8N-2.4).');\nactions.push('Systems changed: TheHive only.');\nreturn [{ json: {\n  thehive_alert_id: u.thehive_alert_id, wazuh_alert_id: u.wazuh_alert_id,\n  config: c.config, context: c.context, actions,\n} }];\n"
       },
       "id": "0e05478d-120e-5f63-8599-859a1e0a622d",
       "name": "Writeback input",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        2600,
+        3120,
         -200
       ]
     },
@@ -221,7 +221,7 @@
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.2,
       "position": [
-        2860,
+        3380,
         -200
       ]
     },
@@ -234,7 +234,7 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        3120,
+        3640,
         -200
       ]
     },
@@ -247,7 +247,7 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        2340,
+        2860,
         120
       ]
     },
@@ -281,7 +281,7 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        1820,
+        2340,
         -100
       ]
     },
@@ -294,8 +294,40 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        2080,
+        2600,
         -400
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const c = $('Context').first().json;\nreturn [{ json: { canonical: $input.first().json.canonical, config: c.config } }];\n"
+      },
+      "id": "d4368ea0-403d-5a69-8060-b5d2c14ef899",
+      "name": "Extract input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1300,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "asoxLibExtract01",
+          "cachedResultName": "lib-extract-observables"
+        },
+        "options": {}
+      },
+      "id": "8a930eda-20f7-5e17-99ec-fdd8673f79e5",
+      "name": "Extract observables (lib-extract-observables)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1560,
+        -100
       ]
     }
   ],
@@ -348,7 +380,7 @@
       "main": [
         [
           {
-            "node": "Upsert input",
+            "node": "Extract input",
             "type": "main",
             "index": 0
           }
@@ -377,7 +409,7 @@
       "main": [
         [
           {
-            "node": "ENRICHMENT STUB: no-op (lib-enrich-observable, N8N-2.3/2.4)",
+            "node": "ENRICHMENT STUB: no-op (lib-enrich-observable, N8N-2.4)",
             "type": "main",
             "index": 0
           }
@@ -385,17 +417,6 @@
         [
           {
             "node": "Parked outcome",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "ENRICHMENT STUB: no-op (lib-enrich-observable, N8N-2.3/2.4)": {
-      "main": [
-        [
-          {
-            "node": "Writeback input",
             "type": "main",
             "index": 0
           }
@@ -447,6 +468,39 @@
         [
           {
             "node": "Skipped outcome",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract input": {
+      "main": [
+        [
+          {
+            "node": "Extract observables (lib-extract-observables)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract observables (lib-extract-observables)": {
+      "main": [
+        [
+          {
+            "node": "Upsert input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ENRICHMENT STUB: no-op (lib-enrich-observable, N8N-2.4)": {
+      "main": [
+        [
+          {
+            "node": "Writeback input",
             "type": "main",
             "index": 0
           }
