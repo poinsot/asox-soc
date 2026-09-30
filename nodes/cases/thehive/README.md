@@ -129,53 +129,13 @@ nodes/cases/thehive/scripts/thehive-test-alert.sh all      # 4 test alerts (ssh,
 nodes/cases/thehive/scripts/thehive-test-alert.sh --cleanup
 ```
 
-## Design discussion: direct links between Wazuh and TheHive (proposal, not decided)
+## Design discussion: direct links between Wazuh and TheHive (decided 2026-09-30)
 
-The team discussed **adding** two direct connections between Wazuh and TheHive. **Every existing connection stays as it is** (C1–C8: Wazuh → n8n, n8n ↔ TheHive, TheHive → Cortex, Cortex → MISP, Grafana → Wazuh indexer); these two are extra.
+The team discussed **adding** two direct connections between Wazuh and TheHive, next to the existing ones. The integrator decided both on 2026-09-30 (PROJECT.md 5, D47, D48; `docs/integration-backlog.md` X-26, X-33):
 
-```
-Existing (unchanged):   Wazuh Manager ──C1──▶ n8n ──C3──▶ TheHive ──C4──▶ n8n
-New A (push alerts):    Wazuh Manager ──────────────────▶ TheHive
-New B (pull logs):      TheHive ──(Cortex analyzer)──────▶ Wazuh indexer / API
-```
+| Proposal | Decision | Why |
+|---|---|---|
+| **A. Wazuh → TheHive:** Wazuh creates TheHive alerts itself (a Wazuh integration script with a TheHive Service account) | **Rejected** (contract C12, D47). Every alert keeps going C1 → n8n → C3 | n8n is the single orchestration point (D12), and a second path needs deduplication between the two (TheHive's own T5.2), which routing everything through n8n avoids. No use case needs it |
+| **B. TheHive → Wazuh:** from a case, look up Wazuh's logs for an observable | **Accepted in another form** (contract C13, D48): a Cortex analyzer calls n8n's read-only `wazuh-lookup` webhook, and n8n queries the Wazuh indexer | Wazuh's alerts live in the indexer, which isn't reachable from `cases` and isn't in the Wazuh API; going through n8n keeps the indexer unexposed. Nothing to build in TheHive: analysts run the analyzer from a case (BACKLOG.md T5.3) |
 
-| New link | Direction | What it does | How it can be built |
-|---|---|---|---|
-| **A. Wazuh → TheHive** | push | Wazuh creates TheHive alerts itself, without waiting for n8n | A Wazuh integration script (runs for each alert, calls `POST /api/v1/alert` with a TheHive Service account), or a TheHive *Function* (an endpoint in TheHive that turns the raw Wazuh JSON into an alert; check first that the Community license includes Functions) |
-| **B. TheHive → Wazuh** | pull | From inside a case, look up Wazuh's logs for an observable (IP, host, user, hash) | A Cortex analyzer that queries the Wazuh indexer or API with a **read-only** Wazuh account (fits the Cortex + MISP backlog item "seen before in Wazuh?"), or a link from the case to Grafana |
-
-### What goes where
-
-TheHive is for alerts a person must look at, not a log store: thousands of log lines per hour would drown the analysts and fill Cassandra / Elasticsearch. So **A pushes only alerts, and B pulls logs on demand**.
-
-| Where | What goes there |
-|---|---|
-| Wazuh indexer (viewed in Grafana, reachable from TheHive through B) | **All** logs and events: logins, system logs, pings (if collected) |
-| TheHive (through C1 → n8n → C3, and A) | Only the **important** ones: Wazuh alerts at level ≥ 7, decided by the rules |
-
-Pings aren't seen by Wazuh by default: they need firewall logging or an IDS (Snort, Phase 2) plus a Wazuh rule.
-
-### Points to settle
-
-- **No duplicates between A and n8n:** with both paths active, the same Wazuh alert can reach TheHive twice. Both paths must use the same `type` / `source` and `sourceRef` = Wazuh alert ID ([docs/ALERT-FORMAT.md](docs/ALERT-FORMAT.md)): TheHive then refuses the second one, and n8n's playbook looks up and **updates** the existing alert instead of creating it. Alternatively, split the work (e.g. A for some rule groups, n8n for the rest).
-- **Same format on both paths:** A must set the fields of docs/ALERT-FORMAT.md (severity, `caseTemplate`, custom fields, observables), or its alerts won't match the templates.
-- **Actions stay in n8n:** B only reads. Blocking an IP or isolating a host still goes through n8n (PROJECT.md 6.2).
-- **Accounts:** A needs a TheHive Service account for Wazuh (created in `scripts/bootstrap.sh`, integrator); B needs a read-only Wazuh / indexer account (Wazuh owner), like `grafana-ro`.
-
-### Who does what
-
-These are **new contracts** (e.g. C10 Wazuh → TheHive, C11 TheHive → Wazuh), added next to C1–C9 in PROJECT.md section 5 by the integrator:
-
-| Owner | Part |
-|---|---|
-| Wazuh (Daniel) | A's integration script (`nodes/core/wazuh/`); B's read-only account |
-| TheHive (Park) | Alert format for A, templates, and receiving / deduplicating on the TheHive side |
-| Cortex + MISP (Diego) | B's analyzer |
-| n8n (Inigo) | Playbooks update alerts created by A instead of duplicating them |
-| Integrator (Inigo) | Contracts, `bootstrap.sh` account, `contracts-check.sh` checks |
-
-The owners agree first; the integrator merges it at a checkpoint (CONTRIBUTING.md rule 5).
-
-### Architecture diagram, if adopted
-
-Keep every existing arrow and add two: **Wazuh Manager → TheHive** (A) and **TheHive → Wazuh** (B, through Cortex).
+Still true from the discussion: TheHive holds only the alerts a person must look at (level ≥ 7 through C1), while **all** logs stay in the Wazuh indexer, viewed in Grafana and, through C13, from TheHive cases. Pings reach Wazuh only with firewall logging or the Suricata IDS (D49) plus a Wazuh rule.

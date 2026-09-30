@@ -1,6 +1,6 @@
 # TheHive owner backlog
 
-Owner: Park (@Jinhyuk-P). Branch `thehive`. Folder `nodes/cases/thehive/`. Plan as of 2026-09-29.
+Owner: Park (@Jinhyuk-P). Branch `thehive`. Folder `nodes/cases/thehive/`. Plan as of 2026-09-30, updated after the integration session (`docs/integration-backlog.md`, PROJECT.md 5 and D44–D49).
 
 **Delivery: 2026-12-01.** Feature freeze 2026-11-24. Priorities: P1 is the delivery, P2 should have, P3 nice to have; if behind, drop P3 first, then P2. M7 is after the delivery. Contracts: PROJECT.md section 5. `X-nn` tags point to the integrator's register (`docs/integration-backlog.md`).
 
@@ -29,6 +29,22 @@ Wazuh ──C1──▶ n8n ──C3──▶ TheHive alert ──triage──�
 | **Triage procedure and roles** | How an analyst works the queue, step by step, and which account does what under the 2-user Community license ([docs/TRIAGE.md](docs/TRIAGE.md)) |
 | **Test alerts** | `thehive-test-alert.sh` creates realistic Wazuh-style alerts through n8n's own account, so the whole flow can be tried in `cases` mode without Wazuh |
 
+## Decisions of 2026-09-30 that change this backlog
+
+| Decision | What it means for TheHive | Items |
+|---|---|---|
+| **C12 rejected (D47):** no direct Wazuh → TheHive alert link; everything goes C1 → n8n → C3 (n8n is the single orchestration point, D12) | Link A is closed; no Service account for Wazuh (R-12 closed) | T5.1, T5.2 closed |
+| **C13 accepted (D48):** "seen before in Wazuh?" is a Cortex analyzer that calls n8n's read-only `wazuh-lookup` webhook; n8n queries the indexer | Replaces link B: nothing to build in TheHive; analysts run the analyzer from a case (C5). Its field map already covers the `user-account` observable type | T5.3 |
+| **C11 accepted (D46):** `asox-metrics`, written by n8n from its TheHive writeback and C4 events, read by Grafana | MTTD / MTTA / MTTR need nothing built in TheHive; its `resolution` field is TheHive's resolution status, so closing cases consistently (TRIAGE.md) matters | T5.5 closed, T4.2 |
+| **C9 designed (D44):** response only through Wazuh's built-in `firewall-drop`, `host-deny`, `disable-account` (Phase 2) | `containment-action` values `host-isolated` / `file-removed` stay manual-only until custom active-response scripts exist (X-21) | T3.7 |
+| **D49:** Suricata replaces Snort | `ids-network-alert` and the routing use Suricata (rule 86601, groups `suricata` / `ids`) | T3.6 |
+| **D-N1:** dedup by `sourceRef` = Wazuh alert ID | Agreed in principle; formal when T2.4 is ticked | T2.4 |
+| **D-N2:** routing key = Wazuh rule groups + a rule-ID map, kept as data in an n8n `lib-` workflow | TheHive's `caseTemplate` table (ALERT-FORMAT.md §3) is one input of that map (3-way with W1.3) | T2.6 |
+| **D-N3:** n8n enriches at intake (C6); analysts re-run by hand (C5) | Agreed by n8n and TheHive; pending the Cortex + MISP owner, due checkpoint 1 | T4.1 |
+| **D-N4:** analysts promote by default; n8n auto-promotes only **Critical** alerts of named playbooks | ALERT-FORMAT.md R2 updated to this combination; to confirm by 2026-11-03 | T3.3, T1.3 |
+| **D-N5:** approval task "Approve: `<action>`" (close = approve, cancel = reject, 1 h timeout) | Matches T4.3; a channel abstraction lets Slack approve later | T4.3 |
+| **D-G4:** Grafana uses the same severity cut-offs (0–6 / 7–9 / 10–11 / ≥ 12) | Consistent with ALERT-FORMAT.md §2 | T2.5 |
+
 ## Done when (100% functional)
 
 - `soc.sh init cases` from a fresh clone, then `thehive-import.sh`, gives a TheHive with every field, template and observable type of `entities/`, and a green `healthcheck.sh`.
@@ -51,15 +67,14 @@ Your machine runs the `cases` mode, licensed and backed up, before you change an
   - Files: `topology.env`
 - [x] **T0.4** Activate the Community license and back it up · P1, X-19
   - Done when: `soc.sh info cases` shows Community, valid until 2027-09-29; `backup.sh cases --with-secrets` done right after; `healthcheck.sh` shows no webhook warning.
-- [ ] **T0.5** Verify the baseline you own · P1, C5
-  - Done when: `contracts-check.sh --only C5` passes in `cases`; C3 and C4 (they need n8n) checked once in `full` or on the integrator's run.
+- [ ] **T0.5** Verify the baseline you own · P1, C5, X-19
+  - Done when: `contracts-check.sh --only C5` passes in `cases`; C3 and **C4 against this Community license** checked once in `full` or on the integrator's run. C4 on a Community license is the still-open part of X-19 (C11 and the approval flow depend on it).
 - [ ] **T0.6** Read the contracts and the TheHive chapter · P2
   - Done when: Read PROJECT.md 5, 6.4, 11, `nodes/cases/thehive/README.md`, CONTRIBUTING.md; run `scripts/ci-checks.sh all` once.
   - Files: `PROJECT.md`, `CONTRIBUTING.md`, `nodes/cases/thehive/README.md`
-- [ ] **T0.7** Tell the integrator your RAM, Windows version and license result · P3, X-19
-  - Done when: Inigo has PROJECT.md 16 questions 1 and 3 (64 GB, Windows 11) and the X-19 input from T0.4.
+- [ ] **T0.7** Tell the integrator your RAM and Windows version · P3
+  - Done when: Inigo has PROJECT.md 16 questions 1 and 3 (64 GB, Windows 11). The license result (X-19) is already recorded in the register.
   - With: Inigo (integrator)
-
 ## M1 · Configuration as code and tools (target: 2026-10-09)
 
 Everything built in the UI reaches git, and alerts can be tested without Wazuh.
@@ -70,9 +85,8 @@ Everything built in the UI reaches git, and alerts can be tested without Wazuh.
 - [x] **T1.2** Test alert generator · P1, C3
   - Done when: `thehive-test-alert.sh [ssh|malware|ids|generic|all] [--critical-asset]` creates realistic Wazuh-style alerts through n8n's own account; `--cleanup` deletes them; `shellcheck` clean.
   - Files: `nodes/cases/thehive/scripts/thehive-test-alert.sh`
-- [ ] **T1.3** Run the starter configuration on the real instance · P1, X-15
-  - Done when: `thehive-import.sh` creates 9 fields, 1 observable type, 4 templates; `thehive-test-alert.sh all` creates 4 alerts; a case created from the SSH alert gets its 6 tasks and fields; `thehive-export.sh` then shows no diff. This also confirms the n8n account's `analyst` profile is enough (X-15).
-
+- [ ] **T1.3** Run the starter configuration on the real instance · P1, X-03, X-15
+  - Done when: `thehive-import.sh` creates 9 fields, 1 observable type, 4 templates; `thehive-test-alert.sh all` creates 4 alerts; a case created from the SSH alert gets its 6 tasks and fields; `thehive-export.sh` then shows no diff. For X-15 also promote one test alert **with n8n's key** (`POST /api/v1/alert/<id>/case`, D-N4's auto-promotion), which confirms the `analyst` profile is enough. Tell Inigo, so X-03 and X-15 can be marked provided.
 ## M2 · Data model and alert format v1 (target: 2026-10-20)
 
 The data every other component relies on, agreed and merged at checkpoint 1 (milestone tag `v1.1-detections`).
@@ -85,15 +99,15 @@ The data every other component relies on, agreed and merged at checkpoint 1 (mil
   - Files: `nodes/cases/thehive/entities/case-templates.json`
 - [x] **T2.3** Observable type `user-account` · P2
   - Done when: In `entities/observable-types.json`; used by the SSH test alert.
-- [ ] **T2.4** Agree the alert format with the n8n owner · P1, C3, X-02
-  - Done when: `docs/ALERT-FORMAT.md` §1, 4, 5 accepted by Inigo (fields, tags, custom fields, observables, `source` = `wazuh`, `sourceRef` = Wazuh alert ID for deduplication); status changed from proposal to agreed.
+- [ ] **T2.4** Agree the alert format with the n8n owner (by 2026-10-20) · P1, C3, X-02
+  - Done when: `docs/ALERT-FORMAT.md` §1, 4, 5 accepted by Inigo (fields, tags, custom fields, observables, `source` = `wazuh`, `sourceRef` = Wazuh alert ID); its status line changed from proposal to agreed. Ticking this makes D-N1 (dedup by `sourceRef`, already agreed in principle) formal.
   - Files: `nodes/cases/thehive/docs/ALERT-FORMAT.md`
   - With: Inigo (n8n owner)
-- [ ] **T2.5** Agree the severity / TLP / PAP mapping · P1, X-02, X-08
-  - Done when: `docs/ALERT-FORMAT.md` §2 accepted: level 12–15 Critical, 10–11 High, 7–9 Medium, +1 for critical assets; TLP / PAP AMBER. Consistent with Daniel's level policy (W2.1) and Suricata mapping (W3.5: severity 1 → 12, 2 → 10), and with Diego's analyzer TLP / PAP limits.
+- [ ] **T2.5** Agree the severity / TLP / PAP mapping (by 2026-10-20) · P1, X-02, X-08
+  - Done when: `docs/ALERT-FORMAT.md` §2 accepted: level 12–15 Critical, 10–11 High, 7–9 Medium, +1 for critical assets; TLP / PAP AMBER. Already consistent with Grafana's buckets (D-G4), Cortex's analyzer defaults (`max_tlp` / `max_pap` 2, X-08) and Daniel's Suricata mapping (W3.5: severity 1 → 12, 2 → 10); still needs Daniel's level policy (W2.1) and Inigo's agreement.
   - With: Inigo, Daniel (W2.1), Diego (X-08)
-- [ ] **T2.6** Agree the template routing · P1, X-04
-  - Done when: `docs/ALERT-FORMAT.md` §3 matches Daniel's rule ID plan and rule groups (W1.3, W2.5), and Inigo's router uses it to set `caseTemplate`.
+- [ ] **T2.6** Agree the template routing (by 2026-10-20) · P1, X-04
+  - Done when: `docs/ALERT-FORMAT.md` §3 matches Daniel's rule-ID plan and rule groups (W1.3, W2.5), including Suricata's `suricata` / `ids` groups (D49), and Inigo's routing map (D-N2, data in an n8n `lib-` workflow) sets `caseTemplate` from it.
   - With: Inigo (router), Daniel (rule groups)
 - [ ] **T2.7** Checkpoint 1 pull request (by 2026-10-20) · P1, C3, C4, C5
   - Done when: `git pull --no-rebase --no-edit origin main`, `healthcheck.sh` green, `contracts-check.sh --only C5` passes (C3, C4 in `full`), `ci-checks.sh all` passes, pull request `thehive` → `main` opened and merged by the integrator.
@@ -108,8 +122,8 @@ Analysts can work every alert type from queue to closed case.
   - Files: `nodes/cases/thehive/docs/TRIAGE.md`
 - [x] **T3.2** Users and roles under the 2-user license · P1, X-15
   - Done when: `docs/TRIAGE.md` lists every account and profile; second seat reserved for the shared instance; optional read-only viewer.
-- [ ] **T3.3** Agree the alert-to-case rules · P1, X-13
-  - Done when: `docs/ALERT-FORMAT.md` §6 accepted: analysts promote, n8n may auto-promote Critical only; merge same agent + template within 24 h; triage targets.
+- [ ] **T3.3** Agree the alert-to-case rules (by 2026-11-03) · P1, X-13
+  - Done when: `docs/ALERT-FORMAT.md` §6 accepted with D-N4: analysts promote by default; n8n auto-promotes only **Critical** alerts of named playbooks; merge same agent + template within 24 h; triage targets.
   - With: Inigo (n8n owner)
 - [ ] **T3.4** Walk every test alert through the procedure · P1
   - Done when: For each scenario of `thehive-test-alert.sh`: triage, promote or merge or ignore, work the tasks, close with a summary and resolution status. Screenshots kept for the delivery; gaps fixed in the templates or TRIAGE.md.
@@ -117,48 +131,47 @@ Analysts can work every alert type from queue to closed case.
   - Done when: A template (or a documented choice of `wazuh-generic`) for each detection Daniel adds: login success after failures, sudo failure / privilege escalation, new user, IOC match (W6.4), pfSense port scan (W4.3). Exported, and routed in ALERT-FORMAT.md §3.
   - Files: `nodes/cases/thehive/entities/case-templates.json`, `nodes/cases/thehive/docs/ALERT-FORMAT.md`
   - With: Daniel (W2.2, W4.3, W6.4)
-- [ ] **T3.6** Adapt `ids-network-alert` to Suricata · P2
-  - Done when: Template text and ALERT-FORMAT.md use Suricata (Daniel's W3.1) instead of Snort: rule groups `suricata` / `ids`, rule 86601, fields `data.alert.signature`, `data.src_ip`, `data.dest_ip`, `data.dest_port`; the `ids` test alert uses them.
+- [ ] **T3.6** Adapt `ids-network-alert` to Suricata · P2, X-34
+  - Done when: ALERT-FORMAT.md §3 routes `suricata` / `ids` (done 2026-09-30); the template's description and tasks name Suricata (rule 86601, `data.alert.signature`, `data.alert.severity`, `data.src_ip`, `data.dest_ip`, `data.dest_port`), exported; the `ids` test alert uses rule 86601 and those fields.
+  - Files: `nodes/cases/thehive/entities/case-templates.json`, `nodes/cases/thehive/scripts/thehive-test-alert.sh`
   - With: Daniel (W3.7)
-
+- [ ] **T3.7** Align `containment-action` with C9's action catalog · P2, X-21
+  - Done when: ALERT-FORMAT.md §4 and TRIAGE.md say which values an n8n playbook can set (`ip-blocked` ← `firewall-drop` / `host-deny`, `user-disabled` ← `disable-account`) and which stay manual-only (`host-isolated`, `file-removed`) until Wazuh has custom active-response scripts (docs done 2026-09-30); the field's description in `entities/custom-fields.json` says the same, imported and exported.
+  - Files: `nodes/cases/thehive/entities/custom-fields.json`, `nodes/cases/thehive/docs/`
+  - With: Daniel (C9, Phase 2)
 ## M4 · Interface with n8n (target: 2026-11-10)
 
 TheHive and n8n work together without loops, duplicates or unapproved actions.
 
-- [ ] **T4.1** Decide who runs enrichment · P1, C5, C6, X-17
-  - Done when: Recorded with Inigo and Diego: n8n enriches automatically at intake (C6); analysts re-run analyzers by hand from TheHive (C5).
-  - With: Inigo, Diego
+- [ ] **T4.1** Confirm who runs enrichment (due checkpoint 1, 2026-10-20) · P1, C5, C6, X-17
+  - Done when: Diego confirms D-N3 (already agreed by n8n and TheHive): n8n enriches automatically at intake (C6); analysts re-run analyzers by hand from TheHive (C5).
+  - With: Diego (Cortex + MISP), Inigo
 - [ ] **T4.2** Check C4 end to end and loop prevention · P1, C4, X-14, X-19
-  - Done when: In `full` (or the integrator's run): C4 passes with the Community license; n8n ignores events caused by `n8n@asox.local`; the "n8n (C4)" rule and `n8n` endpoint untouched.
+  - Done when: In `full` (or the integrator's run): C4 passes with a **Community** license; n8n ignores events caused by `n8n@asox.local`; the "n8n (C4)" rule and `n8n` endpoint untouched. C11's `t_ack`, `t_case`, `t_closed` (X-28) and the approval flow depend on it.
   - With: Inigo (integrator)
 - [ ] **T4.3** Approval design in TheHive · P2, X-16
-  - Done when: Agreed with Inigo: the playbook adds a task "Approve: <action>" (group `Approval`); closing it approves, cancelling rejects (with a comment); C4 carries the task update; no answer in 1 h → n8n cancels it. Written in TRIAGE.md.
+  - Done when: D-N5 written in TRIAGE.md: the playbook adds a task "Approve: <action>" (group `Approval`); closing it approves, cancelling rejects (with a comment); C4 carries the task update; no answer in 1 h → n8n cancels it. Slack can be added later behind n8n's channel abstraction.
   - With: Inigo (n8n owner)
 - [ ] **T4.4** False-positive report for Wazuh tuning · P2, X-11
-  - Done when: `scripts/thehive-fp-report.sh` lists cases and alerts closed as False positive / Ignored, grouped by `wazuh-rule-id` with counts and reasons; Daniel uses it for W2.4.
+  - Done when: `scripts/thehive-fp-report.sh` lists cases and alerts closed as False positive / Ignored, grouped by `wazuh-rule-id` with counts and reasons; Daniel uses it for W2.4. Grafana gets the same rate from C11's `resolution` field.
   - Files: `nodes/cases/thehive/scripts/`
   - With: Daniel (W2.4)
+## M5 · Intel and metrics (target: 2026-11-17)
 
-## M5 · Direct Wazuh ↔ TheHive links and intel (target: 2026-11-17)
+The direct Wazuh ↔ TheHive links were decided on 2026-09-30: link A rejected (C12), link B replaced by C13. What remains here are the intel flows.
 
-The two extra links the team discussed (every existing connection stays; README, "Design discussion"), and the intel flows.
-
-- [ ] **T5.1** Decide the direct links as new contracts (by 2026-11-03) · P2
-  - Done when: With Daniel and Inigo: A (Wazuh → TheHive alerts) and B (TheHive → Wazuh lookup) accepted or rejected; if accepted, Inigo adds the contracts (e.g. C10, C11) to PROJECT.md 5.
-  - With: Daniel (Wazuh), Inigo (integrator), Diego (for B)
-- [ ] **T5.2** Link A, TheHive side · P2
-  - Done when: TheHive Service account for Wazuh requested from Inigo (`bootstrap.sh`); an alert sent twice (by A and by n8n, same `sourceRef`) exists once; its fields match ALERT-FORMAT.md.
-  - With: Daniel (integration script), Inigo (account)
-- [ ] **T5.3** Link B, lookup from a case · P3, X-26
-  - Done when: From a case, a Cortex analyzer returns the Wazuh events for an observable (IP, host, user, hash) using a read-only Wazuh account.
-  - With: Diego (analyzer), Daniel (read-only account)
+- [x] ~~**T5.1** Decide the direct links as new contracts~~ · closed 2026-09-30
+  - Decided by the integrator: link A = C12, **rejected** (D47: contradicts D12 and reintroduces the dedup problem); link B = C13 (T5.3). README "Design discussion" records it.
+- [x] ~~**T5.2** Link A, TheHive side~~ · closed 2026-09-30, rejected (C12, D47)
+  - Nothing to build; the Service account request (R-12) is closed.
+- [ ] **T5.3** Use the "seen before in Wazuh?" analyzer from cases · P3, C13, X-26
+  - Done when: Once Diego's C13 analyzer is enabled (needs R-10, R-15, R-16), running it from a case on an `ip`, `hostname` or `user-account` observable returns the Wazuh history (count, first / last seen, rules, agents); TRIAGE.md step 3 mentions it. Nothing to build in TheHive.
+  - With: Diego (analyzer), Inigo (`wazuh-lookup` webhook)
 - [ ] **T5.4** IOC export to MISP · P3, X-25
-  - Done when: Confirmed IOCs of a closed case reach MISP (TheHive's MISP connector or a Cortex responder; the license allows 1 MISP server).
+  - Done when: Confirmed IOCs of a closed case reach MISP (analyst-triggered, allowed by D12; through TheHive's MISP connector, which uses the license's single MISP-server slot, or a Cortex responder).
   - With: Diego (MISP)
-- [ ] **T5.5** Case data for Grafana (MTTD / MTTR) · P3, X-27, X-28
-  - Done when: Agreed with Jesus how Grafana reads case times (contract change); TheHive side provides creation, promotion and closing times per severity.
-  - With: Jesus (Grafana), Inigo (contract)
-
+- [x] ~~**T5.5** Case data for Grafana (MTTD / MTTR)~~ · closed 2026-09-30, satisfied by C11 (D46)
+  - n8n writes `asox-metrics` from its TheHive writeback and C4 events; TheHive builds nothing. TheHive's part is using resolution statuses consistently (TRIAGE.md, "Closing") and C4 working (T4.2).
 ## DL · Delivery (target: 2026-12-01)
 
 Everything merged into `main`, tested end to end and ready to show one day early. No new features after the freeze.
@@ -190,8 +203,12 @@ Not part of the 1 December delivery.
 - [ ] **T7.3** Playbook pages · P3
   - Done when: A knowledge-base page per template: how to investigate, useful Wazuh queries.
 - [ ] **T7.4** Approvals for C9 response actions · P3, C9
-  - Done when: T4.3's approval task drives real Wazuh active response through n8n (Daniel's W7.1–W7.2).
+  - Done when: T4.3's approval task drives real Wazuh active response through n8n as the separate user `n8n-response` (D44; Daniel's W7.1–W7.2), and the playbook sets `containment-action`.
   - With: Inigo, Daniel
+- [ ] **T7.5** Storage hardening: Cassandra authentication and a dedicated Elasticsearch user · P3, A52
+  - Done when: Cassandra runs with `PasswordAuthenticator` and a `thehive` role; TheHive uses an Elasticsearch user limited to `thehive*` indexes instead of `elastic`; `config/application.conf` reads both passwords from the environment; backup taken first, license and data kept, C3–C5 pass.
+  - Files: `nodes/cases/thehive/config/application.conf`, `nodes/cases/thehive/compose.yml`
+  - With: Inigo (`storage.yml`, `.env.example`, `bootstrap.sh`), Diego (Cortex's own user)
 
 ## OPS · Every session and every checkpoint (target: ongoing)
 
@@ -205,7 +222,7 @@ Habits that keep your work safe and mergeable.
 - [ ] **TO.3** Protect the license · P1
   - Done when: Never `soc.sh reset cases`; `backup.sh cases --with-secrets` after any license change, and a copy kept outside WSL.
 - [ ] **TO.4** Keep the README and the register current · P2
-  - Done when: README, this backlog and the TheHive rows (`X-nn`, `R-08`) of `docs/integration-backlog.md` reflect what you changed.
+  - Done when: README, this backlog and TheHive's rows of `docs/integration-backlog.md` (X-nn, and section G) reflect what you changed; requests for shared files go to Inigo as new R-nn rows (TheHive has none open: R-12 closed).
   - With: Inigo (register)
 - [ ] **TO.5** Re-check local patches on any TheHive upgrade · P3, C3, C4, C5
   - Done when: Each row of the README's local patches table re-checked; export / import and test alerts still work.

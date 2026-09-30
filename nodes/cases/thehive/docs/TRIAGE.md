@@ -25,7 +25,7 @@ Open **Alerts**, filter on status **New**, sort by **severity**, then oldest fir
 
 1. **Read it** (1–2 min): title, severity, agent, `wazuh-rule-id` / `wazuh-rule-level`, description and observables.
 2. **Look for related activity:** TheHive's *similar cases / alerts* panel (same observables), and Grafana's SOC Overview filtered on the agent, for the same period.
-3. **Enrich:** run the Cortex analyzers on the IP, domain, URL and hash observables (the MISP analyzer answers only for TLP/PAP ≤ AMBER).
+3. **Enrich:** n8n has already run the automatic analyzers at intake (D-N3); re-run Cortex analyzers by hand on the IP, domain, URL and hash observables when needed (the MISP analyzer answers only for TLP/PAP ≤ AMBER). Once available, the "seen before in Wazuh?" analyzer (C13) shows the Wazuh history of an `ip`, `hostname` or `user-account` observable.
 4. **Decide** (rules R2–R6):
 
 | Verdict | Action in TheHive |
@@ -42,6 +42,7 @@ Open **Alerts**, filter on status **New**, sort by **severity**, then oldest fir
 - Follow the template's tasks in order (Triage → Investigation → Response → Closure). Close each task with a short log: what you checked, what you found.
 - Add every new indicator as an observable; mark it **IOC** only when it's confirmed bad.
 - **Response actions go through n8n, never by hand** (PROJECT.md 6.2: n8n is the only component that changes systems). Request the playbook's action, wait for its comment on the case, and check `containment-action` is set.
+- **What automation can do (C9, Phase 2):** block an IP (`containment-action` = `ip-blocked`) or disable an account (`user-disabled`). Host isolation and file removal have no automated action yet: if they are done outside the SOC's tools, set `host-isolated` / `file-removed` yourself and describe it in a comment.
 - Change the severity if the facts change (e.g. SSH brute force followed by a successful login → Critical).
 
 ## Closing
