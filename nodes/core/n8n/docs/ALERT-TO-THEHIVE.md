@@ -81,7 +81,7 @@ Gaps:
 | `ip` / `src` | `data.srcip` | not seen | |
 | `ip` / `dst` | `data.dstip` | not seen | |
 | `ip` / `src`, `dst` (Suricata) | `data.src_ip`, `data.dest_ip` | not seen | Different names from `srcip`/`dstip`: the normalizer maps both. |
-| `ip` / `agent` | `agent.ip` | test, agent; **absent on SCA** | Optional. In the lab it is the container's private Docker IP (`172.18.0.7`): n8n's allowlist (N8N-2.3) keeps private and documentation ranges away from online analyzers. |
+| `ip` / `agent` | `agent.ip` | test, agent; **absent on SCA** | Optional. In the lab it is the container's private Docker IP (`172.18.0.7`): `lib-extract-observables` (N8N-2.3) keeps it, tagged `range:internal` and flagged for `lib-enrich-observable`, which decides what goes to online analyzers (N8N-2.4). |
 | `hostname` / `agent` | `agent.name` | all | |
 | `user-account` / `src`, `target` | `data.srcuser`, `data.dstuser` | not seen | **The type doesn't exist on the build instance** (see below). |
 | `hash` / `sha256` | `syscheck.sha256_after`, else `data.virustotal.source.sha256` | not seen | |
@@ -90,14 +90,15 @@ Gaps:
 | `domain` / `fqdn` | `data.hostname` | not seen | Which of the two? AF says "`domain` or `fqdn`"; n8n needs one rule (proposal: `fqdn` when it contains a dot, else skip). |
 
 - **An unknown observable `dataType` refuses the whole alert:** Park's `thehive-test-alert.sh ssh` failed on the build instance with `HTTP 404 {"type":"NotFoundError","message":"Data type not found: user-account"}`, and no alert was created. Unlike templates and custom fields (dropped silently), this loses the alert. Until `user-account` is loaded everywhere (T2.3 is done in `entities/`, not loaded on the build instance, T1.3), `lib-thehive-upsert-alert` must either skip unknown types or retry without the failing observable. Otherwise one missing type loses every sshd alert.
-- Duplicate observables in one alert (e.g. the same IP as `src` and `agent`) are not tested yet.
+- Duplicate observables in one alert (e.g. the same IP as `src` and `agent`) are merged by `lib-extract-observables` into one observable carrying both tags (N8N-2.3). Values are refanged and validated first; an invalid value is left out and listed in the playbook's writeback.
+- `data.hostname` (n8n's rule until question 6 is answered): an IP → `ip`, a name with a dot → `fqdn`, else `hostname`.
 - `ioc: true` only for known-bad values (AF §5), decided after enrichment, so observables are created with `ioc: false`.
 
 ## 6. C4 events as n8n sees them (input for N8N-1.5, 2.9, 5.3)
 
 From the 20 event fixtures (`../fixtures/thehive/`, captured from `recv-thehive-event`):
 
-- **Actor = top-level `_createdBy`** (the audit record's author) on every event, **deletes included**. `object._createdBy` / `_updatedBy` describe the object, not necessarily this event. Loop prevention (N8N-1.5): ignore events whose `_createdBy` is `n8n@asox.local` (fixtures 01–03). One event caused by n8n and one caused by the analyst on the same alert are both in the set (03 vs 04).
+- **Actor = top-level `_createdBy`** (the audit record's author) on every event, **deletes included**. `object._createdBy` / `_updatedBy` describe the object, not necessarily this event. Loop prevention (N8N-1.5, implemented in `recv-thehive-event`): events whose `_createdBy` is `n8n@asox.local` are recorded and end there (fixtures 01–03, and the C4 check's test alert). One event caused by n8n and one caused by the analyst on the same alert are both in the set (03 vs 04).
 - **Deletes carry no `object`:** `19-case-delete` has `details: {number, title}`, `20-alert-delete` has `details: {}`; only `objectId`, `objectType` and `_createdBy` identify them. A deleted alert's `sourceRef` (the Wazuh alert ID, which keys C11's document) is therefore not in the payload. **Open design question for N8N-1.5, not decided:** ignore deletes, or correlate them by `objectId` (or `requestId`) with an ID n8n recorded earlier (e.g. `thehive_alert_id` in `asox-metrics`).
 - **Deleting a case sends no event for its alert:** the alert went back from Imported to InProgress with `caseId: null`, silently. C11's `case_id` for that alert would go stale unless the case delete event is handled.
 - **Promotion is 4+ events with one `requestId`:** case `update` (`share`), alert `update` (`caseId`, status Imported), one observable `create` per copied observable, then the case `create`, which arrived ~3 s after the others. So n8n must not assume the case `create` comes first. The case object has no `sourceRef`; the link to the Wazuh alert is the alert `update` with `details.caseId` (its `object.sourceRef`).
