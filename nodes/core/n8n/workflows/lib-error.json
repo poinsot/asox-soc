@@ -1,0 +1,202 @@
+{
+  "id": "asoxLibError0001",
+  "name": "lib-error",
+  "active": true,
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## lib-error (N8N-2.5, global error workflow N8N-6.1)\n**Trigger:** called through Execute Workflow, not waited for: explicitly by libs and playbooks, and by recv-n8n-error for n8n's unhandled errors.\n**Inputs:** explicit: `{error_class?, stage, workflow, execution_id, node, wazuh_alert_id, thehive_alert_id, http_status, error_code, message, payload}`; from recv-n8n-error: n8n's Error Trigger item `{execution, workflow}` (no input data, so the Wazuh alert id is unknown there).\n**Actions taken:** classifies (malformed_input / thehive_unreachable (connection error or 5xx) / thehive_4xx / unknown), records the failing workflow, the Wazuh alert id and the payload in this execution, comments on the TheHive alert when one exists, then parks: ends with \"Stop and Error\".\n**Systems changed:** TheHive (a comment on an existing alert, only on the error path).\n**Approval:** not needed (no system changes beyond the comment).\n**Owner:** n8n.\nSTOPGAP until N8N-6.3: a parked item is a failed lib-error execution (list: executions of this workflow with status error), kept only 168 h by pruning. Not a dead-letter store. No retries yet (N8N-6.2). No Error Trigger and no error workflow here: its own \"Stop and Error\" must not start another run.",
+        "height": 380,
+        "width": 520
+      },
+      "id": "3e5eae7d-2330-5fa2-a72a-8693a0b1dd94",
+      "name": "About this workflow",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -40,
+        -380
+      ]
+    },
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "id": "5a5aa93b-055b-5893-a142-3e9d32e707b5",
+      "name": "Called by a workflow",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// lib-error: classify, record, park (N8N-2.5, 6.1).\nconst item = $input.first().json;\nconst fromTrigger = item.stage === undefined && item.error_class === undefined\n  && item.execution !== undefined && item.workflow !== undefined;\nlet rec;\nif (fromTrigger) {\n  const err = item.execution.error ?? {};\n  rec = {\n    entry: 'error-trigger',\n    stage: 'unhandled',\n    failing_workflow: item.workflow.name ?? null,\n    failing_workflow_id: item.workflow.id ?? null,\n    failing_execution_id: item.execution.id ?? null,\n    failing_node: item.execution.lastNodeExecuted ?? err.node?.name ?? null,\n    wazuh_alert_id: null, // n8n's Error Trigger carries no input data\n    thehive_alert_id: null,\n    http_status: Number(err.httpCode ?? err.context?.httpCode) || null,\n    error_code: err.code ?? err.cause?.code ?? null,\n    message: [err.message, err.description].filter(Boolean).join(': ') || 'no message',\n    payload: null,\n    error_class: null,\n  };\n} else {\n  rec = {\n    entry: 'call',\n    stage: item.stage ?? null,\n    failing_workflow: item.workflow ?? null,\n    failing_workflow_id: null,\n    failing_execution_id: item.execution_id ?? null,\n    failing_sub_execution_id: item.sub_execution_id ?? null,\n    failing_node: item.node ?? null,\n    wazuh_alert_id: item.wazuh_alert_id ?? null,\n    thehive_alert_id: item.thehive_alert_id ?? null,\n    http_status: Number(item.http_status) || null,\n    error_code: item.error_code ?? null,\n    message: item.message ?? null,\n    payload: item.payload ?? null,\n    error_class: item.error_class ?? null,\n  };\n}\nif (!rec.error_class) {\n  const text = `${rec.message ?? ''} ${rec.error_code ?? ''}`;\n  const network = /ECONNREFUSED|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|ECONNRESET|EHOSTUNREACH|ECONNABORTED|timeout|timed out|socket hang up|connection cannot be established/i.test(text);\n  const thehive = /thehive/i.test(`${rec.stage ?? ''} ${rec.failing_node ?? ''}`);\n  if (thehive && (network || rec.http_status >= 500)) rec.error_class = 'thehive_unreachable';\n  else if (thehive && rec.http_status >= 400 && rec.http_status < 500) rec.error_class = 'thehive_4xx';\n  else rec.error_class = 'unknown';\n}\nrec.retryable = rec.error_class === 'thehive_unreachable'; // hint for N8N-6.2/6.3; nothing retries yet\nrec.parked_at = new Date().toISOString();\nrec.lib_error_execution_id = $execution.id;\nreturn [{ json: rec }];\n"
+      },
+      "id": "90bb688c-1b03-5f1e-b0cd-780685745ea6",
+      "name": "Classify",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        260,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "7b6fa529-bf5f-57fd-97a7-f66256a619f4",
+              "leftValue": "={{ !!$json.thehive_alert_id && $json.error_class !== 'thehive_unreachable' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "9e3ce595-7336-5558-b491-9dc87a5fffa9",
+      "name": "TheHive alert to comment on?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        520,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.THEHIVE_URL }}/api/v1/alert/{{ encodeURIComponent($json.thehive_alert_id) }}/comment",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "theHiveProjectApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ message: ['[asox-n8n error] wazuh-alert-id=' + $json.wazuh_alert_id, 'n8n could not finish ' + ($json.failing_workflow ?? 'a workflow') + ' (execution ' + $json.failing_execution_id + '): ' + $json.error_class + '.', 'Parked in lib-error execution ' + $json.lib_error_execution_id + ' (kept 168 h).'].join('\\n\\n') }) }}",
+        "options": {
+          "timeout": 10000,
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "37a66ae5-4554-5848-a1c9-0ee2719448f7",
+      "name": "Comment on the TheHive alert",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        780,
+        0
+      ],
+      "credentials": {
+        "theHiveProjectApi": {
+          "id": "asoxTheHiveApi01",
+          "name": "TheHive API (n8n)"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "errorMessage": "=parked: {{ $('Classify').first().json.error_class }} (Wazuh alert {{ $('Classify').first().json.wazuh_alert_id ?? 'unknown' }}, {{ $('Classify').first().json.failing_workflow }} execution {{ $('Classify').first().json.failing_execution_id }})"
+      },
+      "id": "73cedb73-59ea-500a-bc6a-b32f53f93c5b",
+      "name": "Park",
+      "type": "n8n-nodes-base.stopAndError",
+      "typeVersion": 1,
+      "position": [
+        1040,
+        100
+      ]
+    }
+  ],
+  "connections": {
+    "Called by a workflow": {
+      "main": [
+        [
+          {
+            "node": "Classify",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Classify": {
+      "main": [
+        [
+          {
+            "node": "TheHive alert to comment on?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "TheHive alert to comment on?": {
+      "main": [
+        [
+          {
+            "node": "Comment on the TheHive alert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Park",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Comment on the TheHive alert": {
+      "main": [
+        [
+          {
+            "node": "Park",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Park",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataSuccessExecution": "all",
+    "saveDataErrorExecution": "all",
+    "saveManualExecutions": true
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "nodeGroups": [],
+  "tags": [],
+  "pinData": {}
+}
