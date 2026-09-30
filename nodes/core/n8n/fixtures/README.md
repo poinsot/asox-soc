@@ -33,6 +33,14 @@ Not produced by the lab today at any level, so not captured and **not invented**
 | C11 `t_attack_start` | the attack-start marker rule (X-32) |
 | routing on MITRE (`rule.mitre.*`) | any rule with a `<mitre>` block: none of today's alerts has `rule.mitre` |
 
+### Constructed invalid payloads (`invalid/`)
+
+The only files here that are **not** real payloads: test inputs for the malformed-alert path (N8N-1.2, lib-error). `replay.sh --all` doesn't pick them up; replay them with `--file`.
+
+| File | Built from | Defect | Expected |
+|---|---|---|---|
+| `invalid/100100-no-id.json` | `wazuh/100100-asox-test-c1.json` without `id` | required `id` missing | passes the level filter, `lib-normalize-wazuh-alert` hands it to `lib-error`, parked as `malformed_input`; nothing in TheHive |
+
 ## TheHive events
 
 One flow, produced on 2026-09-30 between 20:50 and 20:53 UTC on the build instance, then deleted: n8n's key created the alert (`source: asox-test`, from the 100100 alert) and added a tag; `analyst@asox.local` did everything else through the API. The recorded bodies were read from the `recv-thehive-event` executions (IDs 114–135) through the API. Events of the same HTTP request share `requestId`.
