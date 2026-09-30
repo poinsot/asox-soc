@@ -5,7 +5,7 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## lib-thehive-writeback (N8N-2.2)\n**Trigger:** called by playbooks through Execute Workflow, waiting for the result.\n**Inputs:** `{thehive_alert_id, wazuh_alert_id, config, context: {playbook, n8n_execution_id}, actions: [text]}`.\n**Actions taken:** comments on the TheHive alert: first line `[asox-n8n writeback] wazuh-alert-id=<id>`, then playbook, n8n execution id and the actions taken. Idempotent: if a comment by n8n@asox.local with that first line exists, nothing is written. Failures go to lib-error (parked).\n**Systems changed:** TheHive (one comment on the alert).\n**Approval:** not needed (no system changes outside TheHive).\n**Owner:** n8n.",
+        "content": "## lib-thehive-writeback (N8N-2.2)\n**Trigger:** called by playbooks through Execute Workflow, waiting for the result.\n**Inputs:** `{thehive_alert_id, wazuh_alert_id, config, context: {playbook, n8n_execution_id}, actions: [text]}`.\n**Actions taken:** comments on the TheHive alert: first line `[asox-n8n writeback] wazuh-alert-id=<id>`, then playbook, n8n execution id and the actions taken. Idempotent: if a comment by n8n@asox.local with that first line exists, nothing is written. Failures go to lib-error (parked).\n**Systems changed:** TheHive (one comment on the alert).\n**Approval:** not needed (no system changes outside TheHive).\n**Owner:** n8n.\nSuccessful executions are not saved (N8N-6.5): the calling playbook records the result; failed ones are kept.",
         "height": 300,
         "width": 520
       },
@@ -450,7 +450,7 @@
   },
   "settings": {
     "executionOrder": "v1",
-    "saveDataSuccessExecution": "all",
+    "saveDataSuccessExecution": "none",
     "saveDataErrorExecution": "all",
     "saveManualExecutions": true
   },

@@ -5,7 +5,7 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## lib-error (N8N-2.5, global error workflow N8N-6.1)\n**Trigger:** called through Execute Workflow, not waited for: explicitly by libs and playbooks, and by recv-n8n-error for n8n's unhandled errors.\n**Inputs:** explicit: `{error_class?, stage, workflow, execution_id, node, wazuh_alert_id, thehive_alert_id, http_status, error_code, message, payload}`; from recv-n8n-error: n8n's Error Trigger item `{execution, workflow}` (no input data, so the Wazuh alert id is unknown there).\n**Actions taken:** classifies (malformed_input / thehive_unreachable (connection error or 5xx) / thehive_4xx / unknown), records the failing workflow, the Wazuh alert id and the payload in this execution, comments on the TheHive alert when one exists, then parks: ends with \"Stop and Error\".\n**Systems changed:** TheHive (a comment on an existing alert, only on the error path).\n**Approval:** not needed (no system changes beyond the comment).\n**Owner:** n8n.\nSTOPGAP until N8N-6.3: a parked item is a failed lib-error execution (list: executions of this workflow with status error), kept only 168 h by pruning. Not a dead-letter store. No retries yet (N8N-6.2). No Error Trigger and no error workflow here: its own \"Stop and Error\" must not start another run.",
+        "content": "## lib-error (N8N-2.5, global error workflow N8N-6.1)\n**Trigger:** called through Execute Workflow, not waited for: explicitly by libs and playbooks, and by recv-n8n-error for n8n's unhandled errors.\n**Inputs:** explicit: `{error_class?, stage, workflow, execution_id, node, wazuh_alert_id, thehive_alert_id, http_status, error_code, message, payload}`; from recv-n8n-error: n8n's Error Trigger item `{execution, workflow}` (no input data, so the Wazuh alert id is unknown there).\n**Actions taken:** classifies (malformed_input / thehive_unreachable (connection error or 5xx) / thehive_4xx / unknown), records the failing workflow, the Wazuh alert id and the payload in this execution, comments on the TheHive alert when one exists, then parks: ends with \"Stop and Error\".\n**Systems changed:** TheHive (a comment on an existing alert, only on the error path).\n**Approval:** not needed (no system changes beyond the comment).\n**Owner:** n8n.\nSTOPGAP until N8N-6.3: a parked item is a failed lib-error execution (list: executions of this workflow with status error), kept only 168 h by pruning. Not a dead-letter store. No retries yet (N8N-6.2). No Error Trigger and no error workflow here: its own \"Stop and Error\" must not start another run.\nSuccessful executions are not saved (N8N-6.5): the calling playbook records the result; failed ones are kept.",
         "height": 380,
         "width": 520
       },
@@ -189,7 +189,7 @@
   },
   "settings": {
     "executionOrder": "v1",
-    "saveDataSuccessExecution": "all",
+    "saveDataSuccessExecution": "none",
     "saveDataErrorExecution": "all",
     "saveManualExecutions": true
   },

@@ -5,7 +5,7 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## lib-normalize-wazuh-alert (N8N-1.2)\n**Trigger:** called by playbooks (pb-generic) through Execute Workflow, waiting for the result.\n**Inputs:** `{alert: <raw Wazuh alert>, context: {playbook, n8n_execution_id}}`.\n**Actions taken:** validates the required fields of docs/WAZUH-FIELDS.md and returns `{ok: true, canonical}`. A malformed alert (no id, no rule, missing or non-numeric level, ...) is handed to lib-error, which parks it, and `{ok: false, parked: true}` is returned: never dropped silently.\n**Systems changed:** none.\n**Approval:** not applicable.\n**Owner:** n8n.\nThe alert id stays a string (Number() loses digits); rule.id is kept as a string plus `id_int` for TheHive's integer custom field. MITRE from `rule.mitre.id` only (the `rule.mitre_techniques` fallback waits for TheHive, AF §7 Q2).",
+        "content": "## lib-normalize-wazuh-alert (N8N-1.2)\n**Trigger:** called by playbooks (pb-generic) through Execute Workflow, waiting for the result.\n**Inputs:** `{alert: <raw Wazuh alert>, context: {playbook, n8n_execution_id}}`.\n**Actions taken:** validates the required fields of docs/WAZUH-FIELDS.md and returns `{ok: true, canonical}`. A malformed alert (no id, no rule, missing or non-numeric level, ...) is handed to lib-error, which parks it, and `{ok: false, parked: true}` is returned: never dropped silently.\n**Systems changed:** none.\n**Approval:** not applicable.\n**Owner:** n8n.\nThe alert id stays a string (Number() loses digits); rule.id is kept as a string plus `id_int` for TheHive's integer custom field. MITRE from `rule.mitre.id` only (the `rule.mitre_techniques` fallback waits for TheHive, AF §7 Q2).\nSuccessful executions are not saved (N8N-6.5): the calling playbook records the result; failed ones are kept.",
         "height": 300,
         "width": 520
       },
@@ -203,7 +203,7 @@
   },
   "settings": {
     "executionOrder": "v1",
-    "saveDataSuccessExecution": "all",
+    "saveDataSuccessExecution": "none",
     "saveDataErrorExecution": "all",
     "saveManualExecutions": true
   },
