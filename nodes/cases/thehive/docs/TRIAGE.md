@@ -49,4 +49,4 @@ Open **Alerts**, filter on status **New**, sort by **severity**, then oldest fir
 1. All tasks completed or cancelled with a reason.
 2. **Summary**: what happened, impact, actions taken, open follow-ups.
 3. **Resolution status**: True positive (with or without impact), False positive, Duplicated, Indeterminate, Other.
-4. Confirmed IOCs stay marked as IOC, for the MISP export (backlog F14, with the Cortex + MISP owner).
+4. Confirmed IOCs stay marked as IOC, for the MISP export (BACKLOG.md T5.4, with the Cortex + MISP owner).

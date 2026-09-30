@@ -12,7 +12,8 @@ Alert triage and case management for analysts. **Apply your Community license be
 | `config/application.conf` | TheHive configuration; secrets come from the environment (`${VAR}`), never from this file |
 | `scripts/` | `thehive-export.sh` / `thehive-import.sh` (UI configuration ↔ `entities/`), `thehive-test-alert.sh` (test alerts) and their shared `lib.sh` |
 | `entities/` | Exported configuration: 9 custom fields, observable types (+ `user-account`), 4 case templates (JSON, committed) |
-| `docs/` | [FEATURES.md](docs/FEATURES.md) (features and backlog), [ALERT-FORMAT.md](docs/ALERT-FORMAT.md) (alert format, severity / TLP / PAP, template routing, alert-to-case rules), [TRIAGE.md](docs/TRIAGE.md) (triage procedure, users and roles) |
+| `BACKLOG.md` | TheHive's backlog: milestones M0–M7 to the 2026-12-01 delivery, tasks `T0.1`… with priority, "done when" and links to the integration register (`X-nn`) |
+| `docs/` | [ALERT-FORMAT.md](docs/ALERT-FORMAT.md) (alert format, severity / TLP / PAP, template routing, alert-to-case rules), [TRIAGE.md](docs/TRIAGE.md) (triage procedure, users and roles) |
 | `../storage.yml` (integrator-owned) | `cassandra` (TheHive's database) and `elasticsearch` (search index, shared with Cortex) |
 
 UI: `http://localhost:9000`, logins from `scripts/soc.sh info` (the analyst for daily work, `admin@thehive.local` for platform management and the license).
@@ -115,58 +116,11 @@ Pinned: `strangebee/thehive` 5.7.6, `cassandra` 4.1.12, `elasticsearch` 8.19.21 
 | License: challenge from `GET /api/v1/license/challenge` (instance ID from the graph variable `instance-id`), status from `GET /api/v1/status` → `.license` (`kind`, `plan`, `expiresAt`, `isValid`) | Used by `soc.sh info` and the bootstrap warning (A57) | Both endpoints still answer; a reset still starts a new trial |
 | Memory: `THEHIVE_MEM` 1900m / 1300m, swap capped at the limit | Measured need (PROJECT.md D40): TheHive uses ~550 MB beyond its heap | Re-measure the anonymous memory peak (`memory.stat`) through start, bootstrap and some API activity |
 
-## Features
-
-**Role in the SOC:** TheHive is where people work. Wazuh detects, n8n orchestrates and acts, Cortex + MISP enrich, Grafana measures; TheHive holds the **alerts and cases** that analysts triage, investigate and close. This component owns everything that shapes that work: the alert format it accepts, how alerts become cases, the case templates and their tasks, the custom fields, and the triage procedure.
-
-```
-Wazuh ──C1──▶ n8n ──C3──▶ TheHive alert ──triage──▶ case (template: tasks + fields) ──▶ closed
-                ▲                │  └──C5──▶ Cortex ──C7──▶ MISP (enrichment)
-                └──────C4────────┘  events back to n8n (playbooks, approvals)
-```
-
-| Feature | What it does |
-|---|---|
-| **Configuration as code** | `thehive-export.sh` / `thehive-import.sh` copy custom fields, observable types and case templates between TheHive and `entities/*.json`, so every change made in the UI reaches git and loads on any machine |
-| **Custom fields** | Every alert and case carries its Wazuh origin (`wazuh-alert-id`, `wazuh-rule-id`, `wazuh-rule-level`, `wazuh-agent-name`), its context (`mitre-technique`, `asset-criticality`), which n8n playbook handled it (`playbook`, `n8n-execution-id`) and what was done (`containment-action`) |
-| **Case templates** | A case created from an alert gets a ready-made checklist: `ssh-bruteforce`, `malware-detection`, `ids-network-alert` or `wazuh-generic`, each with Triage → Investigation → Response → Closure tasks |
-| **Observable type `user-account`** | User names (targeted or source accounts) are stored as real observables, not as `other` |
-| **Alert format** | One agreed shape for every alert n8n creates: fields, tags, custom fields, observables, and `sourceRef` = Wazuh alert ID so the same alert can never be created twice ([docs/ALERT-FORMAT.md](docs/ALERT-FORMAT.md)) |
-| **Severity / TLP / PAP mapping** | Wazuh rule level → TheHive severity (+1 for critical hosts); TLP / PAP AMBER by default so Cortex's MISP analyzer can run |
-| **Template routing** | The alert names its case template from the Wazuh rule groups (`caseTemplate`), so promotion applies the right tasks automatically |
-| **Alert-to-case rules** | When an alert becomes a case, is merged into an existing one, or is ignored; triage time targets per severity |
-| **Triage procedure and roles** | How an analyst works the queue, step by step, and which account does what under the 2-user Community license ([docs/TRIAGE.md](docs/TRIAGE.md)) |
-| **Test alerts** | `thehive-test-alert.sh` creates realistic Wazuh-style alerts through n8n's own account, so the whole flow can be tried in `cases` mode without Wazuh |
-
 ## Backlog (PROJECT.md 11.3)
 
-Phase 1 only built the baseline. The full list, with status, dependencies and a definition of done, is in [docs/FEATURES.md](docs/FEATURES.md).
+The plan and the features of this component are in [BACKLOG.md](BACKLOG.md): what TheHive does in the SOC, milestones M0–M7 to the 2026-12-01 delivery, and every task with its priority, "done when" and links to the integration register (`docs/integration-backlog.md`).
 
-### Done
-
-| Backlog item | Delivered | Where |
-|---|---|---|
-| Export/import scripts for the UI configuration | `thehive-export.sh`, `thehive-import.sh` (section "Exporting and importing the configuration") | `scripts/` |
-| Case templates and tasks | `ssh-bruteforce`, `malware-detection`, `ids-network-alert`, `wazuh-generic`, each with Triage → Investigation → Response → Closure tasks | `entities/case-templates.json` |
-| Custom fields | 9 fields: `wazuh-alert-id`, `wazuh-rule-id`, `wazuh-rule-level`, `wazuh-agent-name`, `mitre-technique`, `asset-criticality`, `containment-action`, `playbook`, `n8n-execution-id`; plus the observable type `user-account` | `entities/custom-fields.json`, `entities/observable-types.json` |
-| Users and roles | Accounts, profiles and the plan for the 2 Normal user seats | [docs/TRIAGE.md](docs/TRIAGE.md) |
-| Triage procedures | Alert queue, triage step by step, working and closing a case | [docs/TRIAGE.md](docs/TRIAGE.md) |
-| Test alerts (for the test loop, Wazuh doesn't run in `cases`) | `thehive-test-alert.sh`: realistic Wazuh-style alerts through n8n's account (C3) | `scripts/` |
-
-### Proposed: to agree with the n8n owner
-
-| Backlog item | Proposal | Where |
-|---|---|---|
-| Alert format | Fields, tags, custom fields and observables of every alert n8n creates; `sourceRef` = Wazuh alert ID (deduplication) | [docs/ALERT-FORMAT.md](docs/ALERT-FORMAT.md) §1, 4, 5 |
-| Severity / TLP / PAP mapping | Wazuh level 12–15 → Critical, 10–11 → High, 7–9 → Medium, +1 for critical assets; TLP / PAP AMBER (the MISP analyzer's limit) | [docs/ALERT-FORMAT.md](docs/ALERT-FORMAT.md) §2 |
-| Template routing | Which Wazuh rule groups get which case template (`caseTemplate` on the alert) | [docs/ALERT-FORMAT.md](docs/ALERT-FORMAT.md) §3 |
-| Alert-to-case rules | R1–R6 (alerts first, Critical promoted at once, merge same agent + template < 24 h, false positives, test alerts) and triage targets | [docs/ALERT-FORMAT.md](docs/ALERT-FORMAT.md) §6 |
-
-### Next
-
-TheHive dashboards · case metrics for Grafana (with the Grafana owner) · response approval from TheHive (C9, with the n8n and Wazuh owners) · IOC export to MISP (with the Cortex + MISP owner) · tags and taxonomies · playbook pages · more templates as Wazuh rules are added. Details: [docs/FEATURES.md](docs/FEATURES.md) F11–F16.
-
-### Trying it out
+## Trying it out
 
 ```bash
 nodes/cases/thehive/scripts/thehive-import.sh              # load the templates and fields (fresh machine)
