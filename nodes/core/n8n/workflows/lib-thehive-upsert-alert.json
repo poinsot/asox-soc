@@ -5,7 +5,7 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## lib-thehive-upsert-alert (N8N-2.1, 3.1)\n**Trigger:** called by playbooks through Execute Workflow, waiting for the result.\n**Inputs:** `{canonical (lib-normalize-wazuh-alert), config (lib-config), context: {playbook, n8n_execution_id}}`.\n**Actions taken:** builds the TheHive alert (ALERT-FORMAT §1-§5: caseTemplate and customFields are sent even though TheHive drops them until T1.3) and creates it; sourceRef = Wazuh alert id. HTTP 400 CreateError \"already exists\" = already done: the existing alert is looked up by type+source+sourceRef and returned with `duplicate: true`. Any other failure goes to lib-error (parked) and `{ok: false}` is returned.\n**Systems changed:** TheHive (creates one alert).\n**Approval:** not needed (no system changes outside TheHive).\n**Owner:** n8n.",
+        "content": "## lib-thehive-upsert-alert (N8N-2.1, 3.1)\n**Trigger:** called by playbooks through Execute Workflow, waiting for the result.\n**Inputs:** `{canonical (lib-normalize-wazuh-alert), config (lib-config), context: {playbook, n8n_execution_id}}`.\n**Actions taken:** when lib-config says TheHive isn't deployed here (`THEHIVE_ENABLED=false`), returns `{skipped: true, reason: \"TheHive not configured\"}` without any call. Otherwise builds the TheHive alert (ALERT-FORMAT §1-§5: caseTemplate and customFields are sent even though TheHive drops them until T1.3) and creates it; sourceRef = Wazuh alert id. HTTP 400 CreateError \"already exists\" = already done: the existing alert is looked up by type+source+sourceRef and returned with `duplicate: true`. Any other failure goes to lib-error (parked) and `{ok: false}` is returned. Returns `{ok, outcome, skipped}`.\n**Systems changed:** TheHive (creates one alert).\n**Approval:** not needed (no system changes outside TheHive).\n**Owner:** n8n.",
         "height": 340,
         "width": 520
       },
@@ -40,7 +40,7 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        260,
+        520,
         0
       ]
     },
@@ -68,7 +68,7 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        520,
+        780,
         0
       ],
       "credentials": {
@@ -88,7 +88,7 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        780,
+        1040,
         -100
       ]
     },
@@ -122,7 +122,7 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        1040,
+        1300,
         -100
       ]
     },
@@ -135,7 +135,7 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1300,
+        1560,
         -200
       ]
     },
@@ -169,7 +169,7 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        1300,
+        1560,
         0
       ]
     },
@@ -197,7 +197,7 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        1560,
+        1820,
         -60
       ],
       "credentials": {
@@ -217,7 +217,7 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1820,
+        2080,
         -100
       ]
     },
@@ -230,7 +230,7 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1560,
+        1820,
         200
       ]
     },
@@ -251,7 +251,7 @@
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.2,
       "position": [
-        1820,
+        2080,
         200
       ]
     },
@@ -264,23 +264,59 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        2080,
+        2340,
         200
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "f4ad8d70-fd3c-5ec0-8cd2-7c671328e82e",
+              "leftValue": "={{ $json.config?.thehive?.enabled !== false }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "e91640d1-dee9-521c-8a70-caa43d8d9ff2",
+      "name": "TheHive configured?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        260,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// THEHIVE_ENABLED=false: TheHive isn't deployed for this core (no cases node).\n// Not an outage: nothing is sent, nothing is parked.\nconst j = $input.first().json;\nreturn [{ json: {\n  ok: false, skipped: true, outcome: 'skipped', reason: 'TheHive not configured',\n  wazuh_alert_id: j.canonical?.wazuh_alert_id ?? null,\n  enabled_source: j.config?.thehive?.enabled_source ?? null,\n} }];\n"
+      },
+      "id": "20347fad-389a-508d-a9ae-f24427d4b943",
+      "name": "Not configured result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        520,
+        -200
       ]
     }
   ],
   "connections": {
-    "Called by a workflow": {
-      "main": [
-        [
-          {
-            "node": "Build alert",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
     "Build alert": {
       "main": [
         [
@@ -391,6 +427,35 @@
         [
           {
             "node": "Failed result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Called by a workflow": {
+      "main": [
+        [
+          {
+            "node": "TheHive configured?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "TheHive configured?": {
+      "main": [
+        [
+          {
+            "node": "Build alert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Not configured result",
             "type": "main",
             "index": 0
           }
