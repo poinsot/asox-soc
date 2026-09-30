@@ -4,7 +4,7 @@ IDs use the prefix `N8N-` so other backlogs and `docs/integration-backlog.md` ca
 
 Owner: Inigo (@poinsot), also the integrator. Branch: `n8n`. Node: `core`. Run mode: `core-cases`.
 
-Based on PROJECT.md (v2.1), docs/decisions.md, docs/handoff.md (2026-09-26), CHECKLIST.md, CONTRIBUTING.md and the component READMEs. Compared against the other owners' backlogs on 2026-09-30 (`docs/integration-backlog.md`) and updated with the contract decisions of that day (PROJECT.md 5, D44–D49): C9 (N8N-8.x), C10 (N8N-2.11), C11 (N8N-2.9), C13 (N8N-2.10), Suricata (N8N-4.4).
+Based on PROJECT.md (v2.2), docs/decisions.md, docs/handoff.md (2026-09-30), CHECKLIST.md, CONTRIBUTING.md and the component READMEs. Compared against the other owners' backlogs on 2026-09-30 (`docs/integration-backlog.md`) and updated with the contract decisions of that day (PROJECT.md 5, D44–D49): C9 (N8N-8.x), C10 (N8N-2.11), C11 (N8N-2.9), C13 (N8N-2.10), Suricata (N8N-4.4).
 
 **Caveats**
 - The docs may lag behind the repo; teammates may already have pushed changes.
