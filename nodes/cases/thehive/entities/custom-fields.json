@@ -17,7 +17,7 @@
     "name": "containment-action",
     "displayName": "Containment action",
     "group": "response",
-    "description": "Response action taken through an n8n playbook (never by hand: n8n is the only component that acts, PROJECT.md 6.2).",
+    "description": "Response action taken. Set by an n8n playbook for automated actions (C9, Phase 2): ip-blocked (firewall-drop / host-deny), user-disabled (disable-account). host-isolated and file-removed are manual-only until Wazuh has custom active-response scripts: set by the analyst, with a case comment.",
     "type": "string",
     "mandatory": false,
     "options": [

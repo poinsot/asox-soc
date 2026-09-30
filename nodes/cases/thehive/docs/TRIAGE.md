@@ -31,7 +31,7 @@ Open **Alerts**, filter on status **New**, sort by **severity**, then oldest fir
 | Verdict | Action in TheHive |
 |---|---|
 | Test alert (`asox-test`, `contract-check`) | Delete, or `thehive-test-alert.sh --cleanup` |
-| False positive | *Ignore* the alert, comment with the reason. Third time for the same rule → tell the Wazuh owner (tuning) |
+| False positive | *Ignore* the alert and write the reason in its summary / comment. Third time for the same rule → tell the Wazuh owner (tuning); `scripts/thehive-fp-report.sh` lists them by rule |
 | Same incident as an open case (same agent + template, < 24 h) | *Merge into case* |
 | True positive / needs investigation, or Critical | *Create case from alert*: the alert's template adds the tasks and fields |
 
@@ -44,6 +44,19 @@ Open **Alerts**, filter on status **New**, sort by **severity**, then oldest fir
 - **Response actions go through n8n, never by hand** (PROJECT.md 6.2: n8n is the only component that changes systems). Request the playbook's action, wait for its comment on the case, and check `containment-action` is set.
 - **What automation can do (C9, Phase 2):** block an IP (`containment-action` = `ip-blocked`) or disable an account (`user-disabled`). Host isolation and file removal have no automated action yet: if they are done outside the SOC's tools, set `host-isolated` / `file-removed` yourself and describe it in a comment.
 - Change the severity if the facts change (e.g. SSH brute force followed by a successful login → Critical).
+
+## Approving a response action (D-N5)
+
+Some playbook actions change systems (block an IP, disable an account: C9). n8n never runs them without an analyst's approval, given in TheHive itself:
+
+1. The playbook adds a task **"Approve: `<action>`"** (group `Approval`) to the case, e.g. "Approve: firewall-drop 203.0.113.66 on lab-agent", with what it will do, on which host and for how long in the task description.
+2. The analyst assigned to the case decides:
+   - **Approve**: close the task (*Completed*). Add a log if there is anything to add.
+   - **Reject**: *cancel* the task and write why in a log (e.g. "IP is our VPN gateway").
+3. TheHive sends the task update to n8n (C4). n8n runs the action only for a task closed by a user other than `n8n@asox.local`, then comments on the case with the result and sets `containment-action` (`ip-blocked`, `user-disabled`).
+4. **No answer within 1 hour**: n8n cancels the task with a log "Timed out, not executed". Nothing is done; the analyst can ask the playbook again.
+
+Only one pending approval per action and case. Closing the case cancels any pending approval task. A Slack button may later approve the same task through n8n's channel abstraction; TheHive stays the record of who approved what.
 
 ## Closing
 

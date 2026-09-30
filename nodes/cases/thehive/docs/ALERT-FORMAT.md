@@ -47,7 +47,14 @@ Then **+1 (max 4) when `asset-criticality` is `high` or `critical`**. Until an a
 | `ssh-bruteforce` | `rule.groups` has `sshd` and one of `authentication_failures`, `authentication_failed`, `invalid_login`; or `rule.mitre.id` has `T1110` |
 | `malware-detection` | `rule.groups` has one of `virustotal`, `rootcheck`, `yara`, `clamd`, `malware` |
 | `ids-network-alert` | `rule.groups` has `suricata` or `ids` (Suricata network IDS, D49; built-in rule 86601 "Suricata: Alert - …", fields `data.alert.signature`, `data.alert.severity`, `data.src_ip`, `data.dest_ip`, `data.dest_port`) |
+| `suspicious-login` *(proposed)* | `rule.mitre.id` has `T1078`, or a login success after failures (built-in 40112; Daniel's W2.2 rule when merged) |
+| `privilege-escalation` *(proposed)* | `rule.groups` has `sudo` and one of `authentication_failed`, `authentication_failures`; or `rule.mitre.id` has `T1548` |
+| `account-change` *(proposed)* | `rule.groups` has `adduser` or `addgroup` (e.g. 5902 "New user added"); or `rule.mitre.id` has `T1136` |
+| `ioc-match` *(proposed)* | `rule.groups` has `misp` or `ioc` (IOC match against the MISP lists, Daniel's W6.4 / C14, range 103xxx) |
+| `network-scan` *(proposed)* | `rule.groups` has `pfsense` and the rule is a port scan / repeated blocks (Daniel's W4.3, range 104xxx); or `rule.mitre.id` has `T1046` and the agent is the firewall |
 | `wazuh-generic` | everything else |
+
+Rows marked *proposed* are the templates added for the new detections (BACKLOG.md T3.5). Their rule IDs and groups follow Daniel's rule plan (W1.3) and are confirmed with him by 2026-10-20; until then n8n can send those alerts to `wazuh-generic`, which works for any alert.
 
 The alert only *names* the template; TheHive applies its tasks and custom fields when the alert is promoted to a case.
 

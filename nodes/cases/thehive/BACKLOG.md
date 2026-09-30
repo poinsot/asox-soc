@@ -83,10 +83,10 @@ Everything built in the UI reaches git, and alerts can be tested without Wazuh.
   - Done when: `thehive-export.sh` writes custom fields, observable types and case templates to `entities/*.json` (sorted, no IDs); `thehive-import.sh` recreates them by name, never deletes, and a second run says *unchanged*. Round trip tested on the real instance.
   - Files: `nodes/cases/thehive/scripts/`, `nodes/cases/thehive/entities/`
 - [x] **T1.2** Test alert generator · P1, C3
-  - Done when: `thehive-test-alert.sh [ssh|malware|ids|generic|all] [--critical-asset]` creates realistic Wazuh-style alerts through n8n's own account; `--cleanup` deletes them; `shellcheck` clean.
+  - Done when: `thehive-test-alert.sh [SCENARIO...|all] [--critical-asset] [--promote]` creates realistic Wazuh-style alerts through n8n's own account, one scenario per template (ssh, malware, ids, generic, login, sudo, newuser, ioc, portscan); `--promote` turns each into a case as n8n would; `--cleanup` deletes test alerts and test cases; `shellcheck` clean.
   - Files: `nodes/cases/thehive/scripts/thehive-test-alert.sh`
 - [ ] **T1.3** Run the starter configuration on the real instance · P1, X-03, X-15
-  - Done when: `thehive-import.sh` creates 9 fields, 1 observable type, 4 templates; `thehive-test-alert.sh all` creates 4 alerts; a case created from the SSH alert gets its 6 tasks and fields; `thehive-export.sh` then shows no diff. For X-15 also promote one test alert **with n8n's key** (`POST /api/v1/alert/<id>/case`, D-N4's auto-promotion), which confirms the `analyst` profile is enough. Tell Inigo, so X-03 and X-15 can be marked provided.
+  - Done when: `thehive-import.sh` creates 9 fields, 1 observable type, 9 templates; `thehive-test-alert.sh all --promote` creates 9 alerts and promotes each **with n8n's key** (`POST /api/v1/alert/<id>/case`, D-N4's auto-promotion: X-15), each case getting its template's tasks; `thehive-export.sh` then shows no diff. Tell Inigo, so X-03 and X-15 can be marked provided.
 ## M2 · Data model and alert format v1 (target: 2026-10-20)
 
 The data every other component relies on, agreed and merged at checkpoint 1 (milestone tag `v1.1-detections`).
@@ -130,14 +130,17 @@ Analysts can work every alert type from queue to closed case.
 - [ ] **T3.5** Templates for the new detections · P2, X-12
   - Done when: A template (or a documented choice of `wazuh-generic`) for each detection Daniel adds: login success after failures, sudo failure / privilege escalation, new user, IOC match (W6.4), pfSense port scan (W4.3). Exported, and routed in ALERT-FORMAT.md §3.
   - Files: `nodes/cases/thehive/entities/case-templates.json`, `nodes/cases/thehive/docs/ALERT-FORMAT.md`
+  - Status (2026-09-30): 5 templates written (`suspicious-login`, `privilege-escalation`, `account-change`, `ioc-match`, `network-scan`), routed as *proposed* in §3, with test scenarios; left: import + export on the real instance, rule IDs confirmed with Daniel.
   - With: Daniel (W2.2, W4.3, W6.4)
 - [ ] **T3.6** Adapt `ids-network-alert` to Suricata · P2, X-34
   - Done when: ALERT-FORMAT.md §3 routes `suricata` / `ids` (done 2026-09-30); the template's description and tasks name Suricata (rule 86601, `data.alert.signature`, `data.alert.severity`, `data.src_ip`, `data.dest_ip`, `data.dest_port`), exported; the `ids` test alert uses rule 86601 and those fields.
   - Files: `nodes/cases/thehive/entities/case-templates.json`, `nodes/cases/thehive/scripts/thehive-test-alert.sh`
+  - Status (2026-09-30): template and `ids` scenario done; left: import + export on the real instance.
   - With: Daniel (W3.7)
 - [ ] **T3.7** Align `containment-action` with C9's action catalog · P2, X-21
   - Done when: ALERT-FORMAT.md §4 and TRIAGE.md say which values an n8n playbook can set (`ip-blocked` ← `firewall-drop` / `host-deny`, `user-disabled` ← `disable-account`) and which stay manual-only (`host-isolated`, `file-removed`) until Wazuh has custom active-response scripts (docs done 2026-09-30); the field's description in `entities/custom-fields.json` says the same, imported and exported.
   - Files: `nodes/cases/thehive/entities/custom-fields.json`, `nodes/cases/thehive/docs/`
+  - Status (2026-09-30): description updated in `custom-fields.json`; left: import + export on the real instance.
   - With: Daniel (C9, Phase 2)
 ## M4 · Interface with n8n (target: 2026-11-10)
 
@@ -151,10 +154,12 @@ TheHive and n8n work together without loops, duplicates or unapproved actions.
   - With: Inigo (integrator)
 - [ ] **T4.3** Approval design in TheHive · P2, X-16
   - Done when: D-N5 written in TRIAGE.md: the playbook adds a task "Approve: <action>" (group `Approval`); closing it approves, cancelling rejects (with a comment); C4 carries the task update; no answer in 1 h → n8n cancels it. Slack can be added later behind n8n's channel abstraction.
+  - Status (2026-09-30): written in TRIAGE.md, "Approving a response action"; left: Inigo's review.
   - With: Inigo (n8n owner)
 - [ ] **T4.4** False-positive report for Wazuh tuning · P2, X-11
   - Done when: `scripts/thehive-fp-report.sh` lists cases and alerts closed as False positive / Ignored, grouped by `wazuh-rule-id` with counts and reasons; Daniel uses it for W2.4. Grafana gets the same rate from C11's `resolution` field.
   - Files: `nodes/cases/thehive/scripts/`
+  - Status (2026-09-30): `thehive-fp-report.sh [--days N] [--out FILE]` written (read-only, Markdown, test objects left out); left: run it on the real instance after T3.4, send it to Daniel.
   - With: Daniel (W2.4)
 ## M5 · Intel and metrics (target: 2026-11-17)
 
