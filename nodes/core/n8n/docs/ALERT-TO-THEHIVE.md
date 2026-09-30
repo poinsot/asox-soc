@@ -36,6 +36,7 @@ The key is `type:source:sourceRef` in the organisation. How `lib-thehive-upsert-
 
 1. `POST /api/v1/alert`. HTTP 201 → created; carry on with its `_id`.
 2. HTTP 400 with `type` = `CreateError` **and** a message ending in `already exists in organisation <org>` → don't fail, and don't rely on the message text alone: look the alert up (`POST /api/v1/query`, `listAlert` filtered on `type`, `source`, `sourceRef`) and carry on with the existing `_id` as **"already done"**. The execution records `outcome: duplicate` (not an error) and does not repeat actions already recorded on the alert (writeback, enrichment); new information is merged instead (N8N-3.2).
+   Implemented in `lib-thehive-upsert-alert` (2026-09-30). The lookup is `{"query": [{"_name": "listAlert"}, {"_name": "filter", "_and": [{"_field": "type", "_value": …}, {"_field": "source", "_value": …}, {"_field": "sourceRef", "_value": …}]}, {"_name": "page", "from": 0, "to": 2}]}` and must return exactly one alert, otherwise the workflow fails and `recv-n8n-error` parks it.
 3. Any other 400, a 404 or a 5xx → the error path (N8N-2.5, retry or park).
 4. Race: two executions of the same alert both get past step 1 at the same time → one gets 201, the other 400, which step 2 already covers.
 
@@ -69,7 +70,7 @@ Gaps:
 | `containment-action` (string, options) | set later by the acting playbook (C9, Phase 2) | Not set at creation. |
 
 - **Unknown custom fields are silently dropped:** tested in both body forms (array `[{name, value}]` and object `{name: value}`): HTTP 201, `customFields: []`. On the build instance none of the 9 fields exists yet (Park's `entities/` aren't loaded, T1.3), so today every n8n alert would lose all custom fields without an error.
-- Which body form does TheHive 5.7.6 expect when the fields do exist? Park's `thehive-test-alert.sh` uses the array form; to be confirmed on an instance with the fields loaded (T1.3).
+- Which body form does TheHive 5.7.6 expect when the fields do exist? Park's `thehive-test-alert.sh` uses the array form; to be confirmed on an instance with the fields loaded (T1.3). **Re-checked 2026-09-30:** the build instance still has no custom field (`listCustomField` → `[]`), so the question **can't be answered there**. `lib-thehive-upsert-alert` sends the array form `[{name, value}]` (HTTP 201, `customFields: []` returned) and records a warning when the alert comes back without them. Re-test when T1.3 is loaded.
 
 ## 5. AF §5: observables
 
@@ -108,7 +109,7 @@ From the 20 event fixtures (`../fixtures/thehive/`, captured from `recv-thehive-
 1. §1: `type: wazuh`, `source: wazuh` (`asox-test` for tests), `sourceRef` = Wazuh `id` as a string. n8n treats the duplicate refusal (HTTP 400 `CreateError … already exists …`) as "already done" (§2 above).
 2. §2: severity table and TLP/PAP AMBER as written; n8n sends `asset-criticality: medium` until an inventory exists.
 3. §4: the 9 fields and their types are fine; n8n converts `rule.id` (string in C1) to an integer for `wazuh-rule-id`.
-4. AF §7 item 4 (reporting what a playbook did): a comment on the alert or case, plus `playbook`, `n8n-execution-id` and, from C9, `containment-action`. Proposed comment format: `n8n <playbook> (execution <id>): <action list>`.
+4. AF §7 item 4 (reporting what a playbook did): a comment on the alert or case, plus `playbook`, `n8n-execution-id` and, from C9, `containment-action`. Implemented (`lib-thehive-writeback`, 2026-09-30) as a **comment on the alert**: TheHive 5.7.6 supports them (`POST /api/v1/alert/<id>/comment` `{message}` → 201; read back with the query `getAlert` + `comments`, author in `createdBy`). First line, fixed: `[asox-n8n writeback] wazuh-alert-id=<id>`, then the playbook, its n8n execution ID and the actions taken. A second run finds that line from `n8n@asox.local` and writes nothing. Errors use a different first line, `[asox-n8n error] wazuh-alert-id=<id>` (`lib-error`).
 
 **Questions:**
 1. **Load `entities/` on the build instance (T1.3) before checkpoint 1**: today the instance has no custom fields, no case templates and no `user-account` type. Templates and custom fields are then silently dropped, and `user-account` observables make TheHive refuse the whole alert (404). Can T1.3 happen on the build instance, or should n8n's playbook refuse to run without them?
