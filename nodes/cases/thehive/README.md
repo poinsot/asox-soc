@@ -10,6 +10,10 @@ Alert triage and case management for analysts. **Apply your Community license be
 |---|---|
 | `compose.yml` | `thehive` (TheHive 5, served on port 9000 at the root path) |
 | `config/application.conf` | TheHive configuration; secrets come from the environment (`${VAR}`), never from this file |
+| `scripts/` | `thehive-export.sh` / `thehive-import.sh` (UI configuration ↔ `entities/`), `thehive-test-alert.sh` (test alerts) and their shared `lib.sh` |
+| `entities/` | Exported configuration: 9 custom fields, observable types (+ `user-account`), 4 case templates (JSON, committed) |
+| `BACKLOG.md` | TheHive's backlog: milestones M0–M7 to the 2026-12-01 delivery, tasks `T0.1`… with priority, "done when" and links to the integration register (`X-nn`) |
+| `docs/` | [ALERT-FORMAT.md](docs/ALERT-FORMAT.md) (alert format, severity / TLP / PAP, template routing, alert-to-case rules), [TRIAGE.md](docs/TRIAGE.md) (triage procedure, users and roles) |
 | `../storage.yml` (integrator-owned) | `cassandra` (TheHive's database) and `elasticsearch` (search index, shared with Cortex) |
 
 UI: `http://localhost:9000`, logins from `scripts/soc.sh info` (the analyst for daily work, `admin@thehive.local` for platform management and the license).
@@ -68,7 +72,32 @@ Re-activating for a new instance ID uses the same portal page ("Activate or View
 | C4 TheHive → n8n | Webhook (endpoint `n8n` + notification rule "n8n (C4)"), token as `Authorization: Bearer` | Passes |
 | C5 TheHive → Cortex | Cortex connector (server "Cortex") | Passes |
 
-Check: `scripts/contracts-check.sh --only C3,C4,C5` (C3 and C4 create a test alert with `source: contract-check` and delete it). **Exporting changes:** TheHive's configuration (case templates, custom fields, ...) lives in its database; export/import scripts in this folder are the owner's first task (PROJECT.md 11.2, 11.6). Changing a contract needs the other owner's agreement first (PROJECT.md 5).
+Check: `scripts/contracts-check.sh --only C3,C4,C5` (C3 and C4 create a test alert with `source: contract-check` and delete it). **Exporting changes:** see the next section. Changing a contract needs the other owner's agreement first (PROJECT.md 5).
+
+## Exporting and importing the configuration
+
+TheHive keeps its configuration in its database, so changes made in the UI reach git only through these scripts (PROJECT.md 11.2). Run them on the machine hosting `cases`, while it is up.
+
+| What (kind) | Scope | File in `entities/` |
+|---|---|---|
+| `custom-fields` | Platform (Entities management → Custom fields) | `custom-fields.json` |
+| `observable-types` | Platform (Entities management → Observables) | `observable-types.json` |
+| `case-templates` | Organisation `SOC` (Organisation → Templates) | `case-templates.json` |
+
+```bash
+nodes/cases/thehive/scripts/thehive-export.sh              # TheHive -> entities/*.json
+nodes/cases/thehive/scripts/thehive-import.sh --dry-run    # what would change
+nodes/cases/thehive/scripts/thehive-import.sh              # entities/*.json -> TheHive
+```
+
+Both take kinds as arguments (default: all), e.g. `thehive-export.sh case-templates`.
+
+- **Export** leaves out IDs, dates and authors and sorts every list by name, so the files are identical on every machine and `git diff` shows only real changes. Export before committing, and before pulling someone else's changes.
+- **Import** matches objects by name: it creates what's missing and updates what differs, and never deletes anything (safe to re-run; no duplicates). Custom fields are imported before case templates, which refer to them. Objects that exist only in TheHive are listed and left as they are.
+- **Accounts:** the platform admin for custom fields and observable types; for case templates (organisation settings the admin can't reach) the Service account `THEHIVE_BOOTSTRAP_USER`, through a temporary API key revoked when the script exits, as `bootstrap.sh` does (D42). No password or key is written anywhere.
+- **Limits:** a custom field's `type` and an observable type's `isAttachment` can't be changed through the API (import warns; change them in the UI). If TheHive refuses to update a case template, import deletes and recreates it; cases already created from it keep their own copy.
+
+After a `restore.sh cases`, nothing needs re-importing (the configuration is in the backup); after a reset or on a new machine, run `thehive-import.sh`.
 
 ## Local patches and deprecations (re-check on upgrade)
 
@@ -89,9 +118,64 @@ Pinned: `strangebee/thehive` 5.7.6, `cassandra` 4.1.12, `elasticsearch` 8.19.21 
 
 ## Backlog (PROJECT.md 11.3)
 
-Pick from this list; Phase 1 only built the baseline.
+The plan and the features of this component are in [BACKLOG.md](BACKLOG.md): what TheHive does in the SOC, milestones M0–M7 to the 2026-12-01 delivery, and every task with its priority, "done when" and links to the integration register (`docs/integration-backlog.md`).
 
-- **First task:** export/import scripts for the UI configuration (case templates, custom fields), in this folder, so your work reaches git (PROJECT.md 11.2).
-- Case templates and tasks; custom fields; severity / TLP / PAP mapping.
-- Alert-to-case rules (with the n8n owner: alert format).
-- Users and roles for the team (the Community license allows 2 Normal users); triage procedures.
+## Trying it out
+
+```bash
+nodes/cases/thehive/scripts/thehive-import.sh              # load the templates and fields (fresh machine)
+nodes/cases/thehive/scripts/thehive-test-alert.sh all      # 4 test alerts (ssh, malware, ids, generic)
+# triage them in the UI (docs/TRIAGE.md), then:
+nodes/cases/thehive/scripts/thehive-test-alert.sh --cleanup
+```
+
+## Design discussion: direct links between Wazuh and TheHive (proposal, not decided)
+
+The team discussed **adding** two direct connections between Wazuh and TheHive. **Every existing connection stays as it is** (C1–C8: Wazuh → n8n, n8n ↔ TheHive, TheHive → Cortex, Cortex → MISP, Grafana → Wazuh indexer); these two are extra.
+
+```
+Existing (unchanged):   Wazuh Manager ──C1──▶ n8n ──C3──▶ TheHive ──C4──▶ n8n
+New A (push alerts):    Wazuh Manager ──────────────────▶ TheHive
+New B (pull logs):      TheHive ──(Cortex analyzer)──────▶ Wazuh indexer / API
+```
+
+| New link | Direction | What it does | How it can be built |
+|---|---|---|---|
+| **A. Wazuh → TheHive** | push | Wazuh creates TheHive alerts itself, without waiting for n8n | A Wazuh integration script (runs for each alert, calls `POST /api/v1/alert` with a TheHive Service account), or a TheHive *Function* (an endpoint in TheHive that turns the raw Wazuh JSON into an alert; check first that the Community license includes Functions) |
+| **B. TheHive → Wazuh** | pull | From inside a case, look up Wazuh's logs for an observable (IP, host, user, hash) | A Cortex analyzer that queries the Wazuh indexer or API with a **read-only** Wazuh account (fits the Cortex + MISP backlog item "seen before in Wazuh?"), or a link from the case to Grafana |
+
+### What goes where
+
+TheHive is for alerts a person must look at, not a log store: thousands of log lines per hour would drown the analysts and fill Cassandra / Elasticsearch. So **A pushes only alerts, and B pulls logs on demand**.
+
+| Where | What goes there |
+|---|---|
+| Wazuh indexer (viewed in Grafana, reachable from TheHive through B) | **All** logs and events: logins, system logs, pings (if collected) |
+| TheHive (through C1 → n8n → C3, and A) | Only the **important** ones: Wazuh alerts at level ≥ 7, decided by the rules |
+
+Pings aren't seen by Wazuh by default: they need firewall logging or an IDS (Snort, Phase 2) plus a Wazuh rule.
+
+### Points to settle
+
+- **No duplicates between A and n8n:** with both paths active, the same Wazuh alert can reach TheHive twice. Both paths must use the same `type` / `source` and `sourceRef` = Wazuh alert ID ([docs/ALERT-FORMAT.md](docs/ALERT-FORMAT.md)): TheHive then refuses the second one, and n8n's playbook looks up and **updates** the existing alert instead of creating it. Alternatively, split the work (e.g. A for some rule groups, n8n for the rest).
+- **Same format on both paths:** A must set the fields of docs/ALERT-FORMAT.md (severity, `caseTemplate`, custom fields, observables), or its alerts won't match the templates.
+- **Actions stay in n8n:** B only reads. Blocking an IP or isolating a host still goes through n8n (PROJECT.md 6.2).
+- **Accounts:** A needs a TheHive Service account for Wazuh (created in `scripts/bootstrap.sh`, integrator); B needs a read-only Wazuh / indexer account (Wazuh owner), like `grafana-ro`.
+
+### Who does what
+
+These are **new contracts** (e.g. C10 Wazuh → TheHive, C11 TheHive → Wazuh), added next to C1–C9 in PROJECT.md section 5 by the integrator:
+
+| Owner | Part |
+|---|---|
+| Wazuh (Daniel) | A's integration script (`nodes/core/wazuh/`); B's read-only account |
+| TheHive (Park) | Alert format for A, templates, and receiving / deduplicating on the TheHive side |
+| Cortex + MISP (Diego) | B's analyzer |
+| n8n (Inigo) | Playbooks update alerts created by A instead of duplicating them |
+| Integrator (Inigo) | Contracts, `bootstrap.sh` account, `contracts-check.sh` checks |
+
+The owners agree first; the integrator merges it at a checkpoint (CONTRIBUTING.md rule 5).
+
+### Architecture diagram, if adopted
+
+Keep every existing arrow and add two: **Wazuh Manager → TheHive** (A) and **TheHive → Wazuh** (B, through Cortex).

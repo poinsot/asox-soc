@@ -1,0 +1,87 @@
+[
+  {
+    "name": "asset-criticality",
+    "displayName": "Asset criticality",
+    "group": "context",
+    "description": "How important the affected host is. High or critical raises the case severity by one level (docs/ALERT-FORMAT.md).",
+    "type": "string",
+    "mandatory": false,
+    "options": [
+      "low",
+      "medium",
+      "high",
+      "critical"
+    ]
+  },
+  {
+    "name": "containment-action",
+    "displayName": "Containment action",
+    "group": "response",
+    "description": "Response action taken through an n8n playbook (never by hand: n8n is the only component that acts, PROJECT.md 6.2).",
+    "type": "string",
+    "mandatory": false,
+    "options": [
+      "none",
+      "ip-blocked",
+      "host-isolated",
+      "user-disabled",
+      "file-removed"
+    ]
+  },
+  {
+    "name": "mitre-technique",
+    "displayName": "MITRE ATT&CK technique",
+    "group": "context",
+    "description": "Main ATT&CK technique ID, e.g. T1110 (from Wazuh rule.mitre.id).",
+    "type": "string",
+    "mandatory": false
+  },
+  {
+    "name": "n8n-execution-id",
+    "displayName": "n8n execution",
+    "group": "automation",
+    "description": "ID of the n8n execution that created or updated this record (traceability, PROJECT.md 6.2).",
+    "type": "string",
+    "mandatory": false
+  },
+  {
+    "name": "playbook",
+    "displayName": "n8n playbook",
+    "group": "automation",
+    "description": "n8n playbook that handled the alert (pb-<use-case>).",
+    "type": "string",
+    "mandatory": false
+  },
+  {
+    "name": "wazuh-agent-name",
+    "displayName": "Wazuh agent",
+    "group": "wazuh",
+    "description": "Name of the Wazuh agent (host) that produced the alert (agent.name).",
+    "type": "string",
+    "mandatory": false
+  },
+  {
+    "name": "wazuh-alert-id",
+    "displayName": "Wazuh alert ID",
+    "group": "wazuh",
+    "description": "Wazuh alert ID (the alert's id field): links the record back to Wazuh and Grafana.",
+    "type": "string",
+    "mandatory": false
+  },
+  {
+    "name": "wazuh-rule-id",
+    "displayName": "Wazuh rule ID",
+    "group": "wazuh",
+    "description": "Wazuh rule that fired (rule.id).",
+    "type": "integer",
+    "mandatory": false
+  },
+  {
+    "name": "wazuh-rule-level",
+    "displayName": "Wazuh rule level",
+    "group": "wazuh",
+    "description": "Wazuh rule level, 0-15 (rule.level); mapped to severity in docs/ALERT-FORMAT.md.",
+    "type": "integer",
+    "mandatory": false
+  }
+]

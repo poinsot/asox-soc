@@ -1,0 +1,380 @@
+[
+  {
+    "name": "ids-network-alert",
+    "displayName": "IDS network alert",
+    "titlePrefix": "[IDS]",
+    "description": "Network intrusion detection alert (Snort / pfSense, Phase 2), received through Wazuh syslog. Triage procedure: nodes/cases/thehive/docs/TRIAGE.md.",
+    "severity": 2,
+    "tlp": 2,
+    "pap": 2,
+    "flag": false,
+    "tags": [
+      "ids",
+      "network",
+      "wazuh"
+    ],
+    "tasks": [
+      {
+        "title": "Review the signature",
+        "group": "Triage",
+        "description": "Read the IDS signature, its category and priority, the source and destination IP and port, and the protocol. Is the traffic expected for this host?",
+        "order": 0,
+        "mandatory": false
+      },
+      {
+        "title": "Check IP reputation",
+        "group": "Investigation",
+        "description": "Run the Cortex analyzers (MISP) on the source and destination IP observables. Note whether the external side is known malicious.",
+        "order": 1,
+        "mandatory": false
+      },
+      {
+        "title": "Check the internal host",
+        "group": "Investigation",
+        "description": "Look in Grafana / scripts/wazuh-query.sh for other Wazuh alerts on the internal host around the same time (new processes, logins, file changes).",
+        "order": 2,
+        "mandatory": false
+      },
+      {
+        "title": "Decide and respond",
+        "group": "Response",
+        "description": "True positive: request the containment through the n8n playbook (block IP / isolate host, with approval) and set containment-action. False positive: note the reason for IDS / Wazuh tuning.",
+        "order": 3,
+        "mandatory": false
+      },
+      {
+        "title": "Document and close",
+        "group": "Closure",
+        "description": "Write the summary (what, impact, action taken), set the resolution status and close the case.",
+        "order": 4,
+        "mandatory": false
+      }
+    ],
+    "customFields": [
+      {
+        "name": "wazuh-alert-id",
+        "order": 0
+      },
+      {
+        "name": "wazuh-rule-id",
+        "order": 1
+      },
+      {
+        "name": "wazuh-rule-level",
+        "order": 2
+      },
+      {
+        "name": "wazuh-agent-name",
+        "order": 3
+      },
+      {
+        "name": "mitre-technique",
+        "order": 4
+      },
+      {
+        "name": "asset-criticality",
+        "order": 5
+      },
+      {
+        "name": "containment-action",
+        "value": "none",
+        "order": 6
+      },
+      {
+        "name": "playbook",
+        "order": 7
+      },
+      {
+        "name": "n8n-execution-id",
+        "order": 8
+      }
+    ]
+  },
+  {
+    "name": "malware-detection",
+    "displayName": "Malware detection",
+    "titlePrefix": "[MALWARE]",
+    "description": "Malicious or suspicious file detected on a host (Wazuh syscheck / rootcheck, VirusTotal or YARA integration, known-bad hash). Triage procedure: nodes/cases/thehive/docs/TRIAGE.md.",
+    "severity": 3,
+    "tlp": 2,
+    "pap": 2,
+    "flag": false,
+    "tags": [
+      "malware",
+      "wazuh"
+    ],
+    "tasks": [
+      {
+        "title": "Identify the file",
+        "group": "Triage",
+        "description": "From the alert: file path, SHA-256 hash, agent (host), user, and which Wazuh module detected it. Add the hash and file name as observables if missing.",
+        "order": 0,
+        "mandatory": false
+      },
+      {
+        "title": "Analyze the hash",
+        "group": "Investigation",
+        "description": "Run the Cortex analyzers (MISP; VirusTotal once enabled) on the hash. Record the verdict and malware family in the case summary.",
+        "order": 1,
+        "mandatory": false
+      },
+      {
+        "title": "Scope: other hosts",
+        "group": "Investigation",
+        "description": "Search Wazuh (Grafana / scripts/wazuh-query.sh) for the same hash or file name on other agents. Add every affected host as a hostname observable.",
+        "order": 2,
+        "mandatory": false
+      },
+      {
+        "title": "Contain the host",
+        "group": "Response",
+        "description": "If confirmed malicious: request host isolation through the n8n playbook (analyst approval) and set containment-action to host-isolated.",
+        "order": 3,
+        "mandatory": false
+      },
+      {
+        "title": "Eradicate",
+        "group": "Response",
+        "description": "Remove the file and its persistence (with the host owner), verify with a new Wazuh scan, then request the host to be released from isolation.",
+        "order": 4,
+        "mandatory": false
+      },
+      {
+        "title": "Share IOCs and close",
+        "group": "Closure",
+        "description": "Mark confirmed hashes / domains / IPs as IOC so they can go to MISP (with the Cortex + MISP owner). Write the summary, set the resolution status and close.",
+        "order": 5,
+        "mandatory": false
+      }
+    ],
+    "customFields": [
+      {
+        "name": "wazuh-alert-id",
+        "order": 0
+      },
+      {
+        "name": "wazuh-rule-id",
+        "order": 1
+      },
+      {
+        "name": "wazuh-rule-level",
+        "order": 2
+      },
+      {
+        "name": "wazuh-agent-name",
+        "order": 3
+      },
+      {
+        "name": "mitre-technique",
+        "order": 4
+      },
+      {
+        "name": "asset-criticality",
+        "order": 5
+      },
+      {
+        "name": "containment-action",
+        "value": "none",
+        "order": 6
+      },
+      {
+        "name": "playbook",
+        "order": 7
+      },
+      {
+        "name": "n8n-execution-id",
+        "order": 8
+      }
+    ]
+  },
+  {
+    "name": "ssh-bruteforce",
+    "displayName": "SSH brute force",
+    "titlePrefix": "[SSH]",
+    "description": "Many failed SSH logins against a host (Wazuh sshd rules such as 5710, 5712, 5716, 5720, 5763). Main risk: a later successful login from the same source. Triage procedure: nodes/cases/thehive/docs/TRIAGE.md.",
+    "severity": 3,
+    "tlp": 2,
+    "pap": 2,
+    "flag": false,
+    "tags": [
+      "attack.t1110",
+      "brute-force",
+      "ssh",
+      "wazuh"
+    ],
+    "tasks": [
+      {
+        "title": "Confirm the attack",
+        "group": "Triage",
+        "description": "From the alert: source IP, targeted user name(s), number of failed attempts and time window. Is the source internal or external?",
+        "order": 0,
+        "mandatory": false
+      },
+      {
+        "title": "Check for a successful login",
+        "group": "Triage",
+        "description": "Search Wazuh for a successful SSH login (rule 5715) from the same source IP after the attack. If there is one: raise the severity to Critical and treat the host as compromised.",
+        "order": 1,
+        "mandatory": false
+      },
+      {
+        "title": "Check the source IP",
+        "group": "Investigation",
+        "description": "Run the Cortex analyzers (MISP) on the source IP observable. Record the result in the case summary.",
+        "order": 2,
+        "mandatory": false
+      },
+      {
+        "title": "Check the targeted accounts",
+        "group": "Investigation",
+        "description": "Do the targeted accounts exist? Are they privileged (root, admin)? Recommend disabling root / password SSH login on the host if allowed.",
+        "order": 3,
+        "mandatory": false
+      },
+      {
+        "title": "Block the source IP",
+        "group": "Response",
+        "description": "Request the IP block through the n8n playbook pb-ssh-bruteforce (analyst approval; active response arrives with C9 in Phase 2) and set containment-action to ip-blocked.",
+        "order": 4,
+        "mandatory": false
+      },
+      {
+        "title": "Document and close",
+        "group": "Closure",
+        "description": "Write the summary (source, accounts, outcome, action taken), set the resolution status and close the case.",
+        "order": 5,
+        "mandatory": false
+      }
+    ],
+    "customFields": [
+      {
+        "name": "wazuh-alert-id",
+        "order": 0
+      },
+      {
+        "name": "wazuh-rule-id",
+        "order": 1
+      },
+      {
+        "name": "wazuh-rule-level",
+        "order": 2
+      },
+      {
+        "name": "wazuh-agent-name",
+        "order": 3
+      },
+      {
+        "name": "mitre-technique",
+        "value": "T1110",
+        "order": 4
+      },
+      {
+        "name": "asset-criticality",
+        "order": 5
+      },
+      {
+        "name": "containment-action",
+        "value": "none",
+        "order": 6
+      },
+      {
+        "name": "playbook",
+        "value": "pb-ssh-bruteforce",
+        "order": 7
+      },
+      {
+        "name": "n8n-execution-id",
+        "order": 8
+      }
+    ]
+  },
+  {
+    "name": "wazuh-generic",
+    "displayName": "Wazuh alert (generic)",
+    "titlePrefix": "[WAZUH]",
+    "description": "Default template for any Wazuh alert without a specific template. Triage procedure: nodes/cases/thehive/docs/TRIAGE.md.",
+    "severity": 2,
+    "tlp": 2,
+    "pap": 2,
+    "flag": false,
+    "tags": [
+      "wazuh"
+    ],
+    "tasks": [
+      {
+        "title": "Review the alert",
+        "group": "Triage",
+        "description": "Read the rule description, level, agent and full log in the alert. Look in Grafana (SOC Overview, filtered on the agent) for related alerts around the same time.",
+        "order": 0,
+        "mandatory": false
+      },
+      {
+        "title": "True or false positive?",
+        "group": "Triage",
+        "description": "False positive: set the resolution status to False positive and write the reason, so the Wazuh owner can tune the rule. True positive: continue.",
+        "order": 1,
+        "mandatory": false
+      },
+      {
+        "title": "Analyze the observables",
+        "group": "Investigation",
+        "description": "Run the Cortex analyzers (MISP) on every IP, domain, URL and hash observable. Add any new observable you find.",
+        "order": 2,
+        "mandatory": false
+      },
+      {
+        "title": "Contain if needed",
+        "group": "Response",
+        "description": "If the host or account is at risk: request the containment through the matching n8n playbook (analyst approval) and set containment-action. Never change systems by hand.",
+        "order": 3,
+        "mandatory": false
+      },
+      {
+        "title": "Document and close",
+        "group": "Closure",
+        "description": "Write the summary (what happened, impact, action taken), set the resolution status and close the case.",
+        "order": 4,
+        "mandatory": false
+      }
+    ],
+    "customFields": [
+      {
+        "name": "wazuh-alert-id",
+        "order": 0
+      },
+      {
+        "name": "wazuh-rule-id",
+        "order": 1
+      },
+      {
+        "name": "wazuh-rule-level",
+        "order": 2
+      },
+      {
+        "name": "wazuh-agent-name",
+        "order": 3
+      },
+      {
+        "name": "mitre-technique",
+        "order": 4
+      },
+      {
+        "name": "asset-criticality",
+        "order": 5
+      },
+      {
+        "name": "containment-action",
+        "value": "none",
+        "order": 6
+      },
+      {
+        "name": "playbook",
+        "order": 7
+      },
+      {
+        "name": "n8n-execution-id",
+        "order": 8
+      }
+    ]
+  }
+]

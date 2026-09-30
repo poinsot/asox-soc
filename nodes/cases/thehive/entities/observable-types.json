@@ -1,0 +1,70 @@
+[
+  {
+    "name": "autonomous-system",
+    "isAttachment": false
+  },
+  {
+    "name": "domain",
+    "isAttachment": false
+  },
+  {
+    "name": "file",
+    "isAttachment": true
+  },
+  {
+    "name": "filename",
+    "isAttachment": false
+  },
+  {
+    "name": "fqdn",
+    "isAttachment": false
+  },
+  {
+    "name": "hash",
+    "isAttachment": false
+  },
+  {
+    "name": "hostname",
+    "isAttachment": false
+  },
+  {
+    "name": "ip",
+    "isAttachment": false
+  },
+  {
+    "name": "mail",
+    "isAttachment": false
+  },
+  {
+    "name": "mail-subject",
+    "isAttachment": false
+  },
+  {
+    "name": "other",
+    "isAttachment": false
+  },
+  {
+    "name": "regexp",
+    "isAttachment": false
+  },
+  {
+    "name": "registry",
+    "isAttachment": false
+  },
+  {
+    "name": "uri_path",
+    "isAttachment": false
+  },
+  {
+    "name": "url",
+    "isAttachment": false
+  },
+  {
+    "name": "user-account",
+    "isAttachment": false
+  },
+  {
+    "name": "user-agent",
+    "isAttachment": false
+  }
+]
