@@ -53,8 +53,21 @@ Pinned: `grafana/grafana` 12.4.11 and `grafana-opensearch-datasource` 2.34.4. On
 
 ## Backlog (PROJECT.md 11.3)
 
-Pick from this list; Phase 1 only built the baseline.
+KPI plan for dashboards across 3 levels based on currently available data.
 
-- Real SOC metrics: alert volume, top rules and agents, MTTD/MTTR (with TheHive data: a contract change with the TheHive owner).
-- Dashboards per audience (analyst, management).
-- Grafana alerting (`provisioning/alerting/`).
+### "SOC Status" Dashboard — ready to build with `wazuh-alerts-*`
+- 24h alerts, critical/high alerts, active endpoints (15 min)
+- Alerts per hour, by severity, by rule, by endpoint
+- Top source IPs, failed authentications, file changes (FIM)
+- Alerts by MITRE tactic and HIPAA control
+
+### "Attack Scenarios" Dashboard — requires additional rules and Snort/pfSense
+- AD brute force and phishing/ransomware: achievable with current agents
+- Network scanning and DDoS: require Snort or OPNsense forwarding logs to Wazuh
+
+### "Performance and Compliance" Dashboard — requires data from n8n + TheHive
+- MTTD/MTTA/MTTR, open/closed cases, executed playbooks, false positives
+- Requires a new contract: n8n writing to its own index (`asox-metrics`) and a role modification for `grafana-ro` to read it (coordinate with the n8n owner)
+
+### AI Layer — Phase 2+
+- Anomalous alerts, prioritized queue, precision/recall of the phishing classifier
