@@ -5,7 +5,8 @@
 #
 # Usage: scripts/contracts-check.sh [--only C3,C4]
 # One PASS/FAIL line per contract; exit code 1 if any contract fails.
-# C3/C4 create a test alert in TheHive (source contract-check) and delete it.
+# C3/C4 create a test alert in TheHive (source contract-check) and delete it;
+# C1 deletes the TheHive alert n8n makes from its test alert (source asox-test).
 set -euo pipefail
 # shellcheck source=scripts/lib/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
@@ -86,6 +87,46 @@ webhook_status() {
     -H 'Content-Type: application/json' -d '{"contract_check": true}' "$@" || true
 }
 
+# n8n's pb-generic turns the C1 test alert into a TheHive alert (source
+# asox-test, sourceRef = the Wazuh alert id). Delete it directly through
+# TheHive's API with n8n's key; only alerts with source asox-test. Never
+# fails: without pb-generic, TheHive or the key, it prints an INFO line.
+# Calls are bounded: an unreachable cases host must not stall the run.
+c1_thehive() { _call -H "Authorization: Bearer $1" --max-time 10 -- "$2" "$THEHIVE_API$3" "${4:-}"; }
+c1_thehive_cleanup() {
+  local key q r ids deadline
+  key=$(core_env THEHIVE_N8N_API_KEY)
+  [[ -n $key ]] || { info "C1 cleanup: THEHIVE_N8N_API_KEY is empty, no TheHive alert to delete"; return 0; }
+  # pb-generic runs after recv-wazuh-alert: wait for its alert only if n8n has it.
+  deadline=$SECONDS
+  [[ -n $(n8n_workflow_id_by_name pb-generic) ]] && deadline=$(( SECONDS + EVENT_TIMEOUT ))
+  q=$(jq -nc --arg r "$TEST_ALERT_ID" \
+    '{query: [{_name: "listAlert"}, {_name: "filter", _field: "sourceRef", _value: $r}]}')
+  while :; do
+    r=$(c1_thehive "$key" POST /api/v1/query "$q")
+    if [[ $(http_code "$r") != 200 ]]; then
+      info "C1 cleanup: TheHive not reachable at $THEHIVE_API (HTTP $(http_code "$r")), nothing deleted"
+      return 0
+    fi
+    ids=$(http_body "$r" | jq -r '.[]? | select(.source == "asox-test") | ._id')
+    [[ -n $ids ]] && break
+    if (( SECONDS >= deadline )); then
+      info "C1 cleanup: no TheHive alert with source asox-test and sourceRef $TEST_ALERT_ID (pb-generic not merged, or TheHive disabled)"
+      return 0
+    fi
+    sleep 3
+  done
+  local id
+  while IFS= read -r id; do
+    r=$(c1_thehive "$key" DELETE "/api/v1/alert/$id")
+    if [[ $(http_code "$r") == 204 ]]; then
+      info "C1 cleanup: deleted TheHive test alert $id (sourceRef $TEST_ALERT_ID)"
+    else
+      warn "C1 cleanup: deleting TheHive test alert $id returned HTTP $(http_code "$r"); delete it by hand"
+    fi
+  done <<<"$ids"
+}
+
 check_C1() {
   local c="C1 Wazuh -> n8n"
   # The webhook must refuse requests without the shared token, or with a wrong one.
@@ -106,6 +147,7 @@ check_C1() {
       | jq -r --arg a "$TEST_ALERT_ID" '[.data[]? | select(tostring | contains($a)) | .id] | first // empty')
     if [[ -n $e ]]; then
       pass "$c: alert $TEST_ALERT_ID recorded by recv-wazuh-alert (execution $e); requests without a valid token rejected (HTTP $no_token/$wrong_token)"
+      c1_thehive_cleanup
       return
     fi
     sleep 3

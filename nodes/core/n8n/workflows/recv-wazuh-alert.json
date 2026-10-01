@@ -5,17 +5,17 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## recv-wazuh-alert (stub, contract C1)\n**Trigger:** POST /webhook/wazuh-alert from the Wazuh `custom-n8n` integration (alerts with level >= WAZUH_ALERT_MIN_LEVEL), header `X-ASOX-Token` required.\n**Inputs:** raw Wazuh alert JSON (body).\n**Actions taken:** none (records the alert summary only).\n**Systems changed:** none.\n**Approval:** not applicable.\n**Owner:** n8n.\nThe Router de Playbooks attaches here (backlog).",
-        "height": 260,
-        "width": 420
+        "content": "## recv-wazuh-alert (contract C1, N8N-1.1)\n**Trigger:** POST /webhook/wazuh-alert from the Wazuh `custom-n8n` integration, header `X-ASOX-Token` required (403 without it, N8N-1.6). Answers 200 on receipt (C1 has a 10 s timeout and no retries).\n**Inputs:** raw Wazuh alert JSON (body). The full alert stays in this execution (the C1 check looks for it here).\n**Actions taken:** reads lib-config; drops alerts below WAZUH_ALERT_MIN_LEVEL (\"filtered: level ...\"); skips intake exclusions (TEMPORARY: rule group sca, \"skipped: sca (X-09)\"); hands every other alert to pb-generic without waiting. That single call site is where the Router de Playbooks (N8N-1.3) goes.\n**Systems changed:** none here (pb-generic changes TheHive).\n**Approval:** not applicable.\n**Owner:** n8n.\nError workflow: recv-n8n-error.",
+        "height": 340,
+        "width": 520
       },
-      "id": "946348bc-2992-5222-8ec3-7241af85b226",
+      "id": "abac45f7-10ec-54cb-be5b-6506602eaa25",
       "name": "About this workflow",
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
       "position": [
         -40,
-        -320
+        -380
       ]
     },
     {
@@ -26,7 +26,7 @@
         "responseMode": "onReceived",
         "options": {}
       },
-      "id": "0d1f6031-d3b1-5132-9dd2-5485fa70a09a",
+      "id": "1f7bc56a-a64c-5130-87bc-623e71570603",
       "name": "Wazuh alert",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
@@ -44,55 +44,115 @@
     },
     {
       "parameters": {
-        "assignments": {
-          "assignments": [
-            {
-              "id": "b2180ad9-96b6-5f2b-b1e0-e04076bd2ffb",
-              "name": "wazuh_alert_id",
-              "value": "={{ $json.body.id }}",
-              "type": "string"
-            },
-            {
-              "id": "e2f89279-8980-5778-a2aa-df38d0b3819a",
-              "name": "rule_id",
-              "value": "={{ $json.body.rule.id }}",
-              "type": "string"
-            },
-            {
-              "id": "9c56439d-b29e-579f-99a2-e575a56abe2d",
-              "name": "rule_level",
-              "value": "={{ $json.body.rule.level }}",
-              "type": "number"
-            },
-            {
-              "id": "a9905577-fe3d-5cb2-bf51-095b1b9f5434",
-              "name": "rule_description",
-              "value": "={{ $json.body.rule.description }}",
-              "type": "string"
-            },
-            {
-              "id": "7aebd726-2138-5548-bf87-d032e87dd101",
-              "name": "agent_name",
-              "value": "={{ $json.body.agent.name }}",
-              "type": "string"
-            },
-            {
-              "id": "8aa2aff9-ef38-55ff-803c-aeaa4799d72c",
-              "name": "timestamp",
-              "value": "={{ $json.body.timestamp }}",
-              "type": "string"
-            }
-          ]
-        },
-        "options": {}
+        "jsCode": "// Only the body goes further: the request headers carry the webhook token.\nreturn [{ json: { alert: $input.first().json.body } }];\n"
       },
-      "id": "ec0dd8b9-8120-51c1-9591-f3e39251afec",
-      "name": "Alert summary",
-      "type": "n8n-nodes-base.set",
-      "typeVersion": 3.4,
+      "id": "321b0b79-4d1a-5bf2-ae5c-66c1309af330",
+      "name": "Intake input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
       "position": [
         260,
         0
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "asoxLibConfig001",
+          "cachedResultName": "lib-config"
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "bd98f5d6-964f-52c5-9502-360c3df09444",
+      "name": "Config (lib-config)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        520,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Level filter, then intake exclusions (lib-config). An alert whose level is\n// missing or not numeric is not filtered here: pb-generic's normalizer parks it.\nconst alert = $('Intake input').first().json.alert;\nconst cfg = $input.first().json;\nconst rule = alert !== null && typeof alert === 'object' ? alert.rule : undefined;\nconst raw = rule !== null && typeof rule === 'object' ? rule.level : undefined;\nconst level = typeof raw === 'number' && Number.isInteger(raw) ? raw\n  : typeof raw === 'string' && /^\\d+$/.test(raw.trim()) ? Number(raw.trim()) : null;\nconst groups = rule !== null && typeof rule === 'object' && Array.isArray(rule.groups) ? rule.groups : [];\nlet decision = 'handoff';\nlet status = 'handed off to pb-generic';\nif (level !== null && level < cfg.min_level) {\n  decision = 'filtered';\n  status = `filtered: level ${level} < ${cfg.min_level}`;\n} else {\n  const ex = cfg.intake_exclusions.find((e) => groups.includes(e.rule_group));\n  if (ex) { decision = 'skipped'; status = `skipped: ${ex.label}`; }\n}\nreturn [{ json: {\n  decision, status,\n  wazuh_alert_id: typeof alert?.id === 'string' ? alert.id : null,\n  rule_id: rule?.id ?? null, rule_level: level,\n  alert, config: cfg, recv_execution_id: $execution.id,\n} }];\n"
+      },
+      "id": "e87c7def-1f8e-5ea2-a5c2-4e02fac06898",
+      "name": "Intake decision",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        780,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "9bdd1638-21bc-5377-be4f-896695e16a36",
+              "leftValue": "={{ $json.decision === 'handoff' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "fc365327-c831-53cf-973d-a357f74efa9d",
+      "name": "Hand off?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1040,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "asoxPbGeneric001",
+          "cachedResultName": "pb-generic"
+        },
+        "options": {
+          "waitForSubWorkflow": false
+        }
+      },
+      "id": "90b551e0-7e53-59a2-a239-2e86976b4bb4",
+      "name": "Playbook: pb-generic (router call site, N8N-1.3)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1300,
+        -100
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "0630d7bf-2e58-5f16-9fa1-e65b1ddcb938",
+      "name": "Not handed off (see Intake decision)",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1300,
+        120
       ]
     }
   ],
@@ -101,7 +161,58 @@
       "main": [
         [
           {
-            "node": "Alert summary",
+            "node": "Intake input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Intake input": {
+      "main": [
+        [
+          {
+            "node": "Config (lib-config)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config (lib-config)": {
+      "main": [
+        [
+          {
+            "node": "Intake decision",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Intake decision": {
+      "main": [
+        [
+          {
+            "node": "Hand off?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hand off?": {
+      "main": [
+        [
+          {
+            "node": "Playbook: pb-generic (router call site, N8N-1.3)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Not handed off (see Intake decision)",
             "type": "main",
             "index": 0
           }
@@ -113,7 +224,8 @@
     "executionOrder": "v1",
     "saveDataSuccessExecution": "all",
     "saveDataErrorExecution": "all",
-    "saveManualExecutions": true
+    "saveManualExecutions": true,
+    "errorWorkflow": "asoxRecvN8nError"
   },
   "meta": {
     "templateCredsSetupCompleted": true

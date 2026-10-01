@@ -5,6 +5,7 @@
 # Usage: scripts/bootstrap.sh <node>
 #   core : Wazuh API user n8n-api with a read-only role (C2);
 #          indexer user grafana-ro, read-only on wazuh-alerts-* (C8);
+#          n8n recreated if its .env changed (docker compose up --wait),
 #          n8n owner, n8n credentials (incl. TheHive and Cortex, C3/C6),
 #          and the workflows from nodes/core/n8n/workflows/ that n8n
 #          doesn't have yet
@@ -204,7 +205,15 @@ n8n_credentials_json() {
 }
 
 bootstrap_n8n() {
-  local body
+  local body out
+  # Apply the freshly rendered .env (e.g. THEHIVE_ENABLED, R-18): Compose
+  # recreates n8n only when its configuration changed.
+  if out=$(compose core up -d --wait n8n 2>&1); then
+    pass "n8n: container matches nodes/core/.env"
+  else
+    printf '%s\n' "$out" >&2
+    fail "n8n: docker compose up -d --wait n8n failed"; return
+  fi
   if n8n_owner_exists; then
     n8n_login || { fail "n8n: owner exists but the login from nodes/core/.env is refused"; return; }
     pass "n8n: owner $(core_env N8N_OWNER_EMAIL) can log in"
