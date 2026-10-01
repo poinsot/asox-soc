@@ -1,0 +1,18 @@
+{
+  "warninglists": {
+    "maxEntries": 100000
+  },
+  "n8n": {
+    "user": "n8n@asox.local"
+  },
+  "feeds": [
+    {
+      "name": "The Botvrij.eu Data",
+      "enabled": true
+    },
+    {
+      "name": "CIRCL OSINT Feed",
+      "enabled": false
+    }
+  ]
+}
