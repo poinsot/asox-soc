@@ -68,7 +68,7 @@ Close the known gaps before core is exposed on a LAN, and build the tools the la
   - Done when: `nodes/core/wazuh/tests/` holds sample log lines with the expected rule ID and level; `tests/run.sh` sends each one through the manager's logtest (`wazuh-logtest` in the container, or the API `PUT /logtest`) and prints one PASS/FAIL line per case with a non-zero exit on failure; `shellcheck` clean.
   - Files: `nodes/core/wazuh/tests/`
 - [ ] **W1.5** Add attack scenarios to the lab trigger · P1, C1
-  - Done when: `nodes/lab/trigger.sh --scenario <name>` writes realistic lines, for example `ssh-bruteforce` (enough `sshd` failures for built-in rule 5763), `ssh-success-after-fail`, `sudo-fail`, `new-user`, `ioc-ip` (seed IOC 203.0.113.66). The default without `--scenario` stays the C1 test event. n8n has no fixtures for sshd, sudo, FIM, rootcheck or rules with `rule.mitre` until these exist; tell Inigo when they land so he captures them in `nodes/core/n8n/fixtures/` (`replay.sh`).
+  - Done when: `nodes/lab/trigger.sh --scenario <name>` writes realistic lines, for example `ssh-bruteforce` (enough `sshd` failures for built-in rule 5763), `ssh-success-after-fail`, `sudo-fail`, `new-user`, `ioc-ip` (seed IOC 203.0.113.66). The default without `--scenario` stays the C1 test event. n8n has no fixtures for sshd, sudo, FIM, rootcheck or rules with `rule.mitre` until these exist; tell Inigo when they land so he captures them in `nodes/core/n8n/fixtures/` (`replay.sh`). Every scenario uses attacker IPs from documentation ranges (`203.0.113.0/24`, `198.51.100.0/24`), and `ioc-ip` uses exactly the MISP seed IOC `203.0.113.66`: the lab's own `172.18.x.x` addresses are internal, so n8n would never send them to Cortex or MISP (memo item 7).
   - Files: `nodes/lab/trigger.sh`
   - With: Inigo (fixtures for playbooks), Park (TheHive's end-to-end test uses `ssh-bruteforce`), Jesus (dashboard data)
   - Refs: X-05
@@ -82,15 +82,20 @@ Close the known gaps before core is exposed on a LAN, and build the tools the la
   - Files: `nodes/core/wazuh/README.md`
   - With: Inigo (integrator)
   - Refs: X-20, X-26, X-27, X-33
-- [ ] **W1.8** Decide C1 delivery retries with the n8n owner · P2, C1
-  - Done when: An answer to X-10. Proposal: a bounded retry in `custom-n8n.py` (2 retries on a connection error or HTTP 5xx, backoff of 2 s then 5 s, under 20 s in total), safe because n8n dedups by Wazuh alert ID (D-N1); failures stay in `integrations.log`. It changes C1's behaviour, so it goes in at checkpoint 1 only if Inigo agrees; otherwise record "accept the risk" in the README. Context: n8n already retries its own TheHive calls (A80) and accepted the dedup race for concurrent copies (A78), which C1 retries could only produce if a retry overlapped the original.
+- [ ] **W1.8** Record C1's "send once, no retries" (X-10) · P3, C1
+  - Done when: Inigo answered (memo item 8): n8n accepts C1's send-once behaviour and answers 200 on receipt, so no retries are added. Record it in the README's contracts section: any future retry in `custom-n8n.py` needs the n8n owner's agreement first, because TheHive's duplicate refusal isn't atomic and overlapping copies create two alerts (A78). Also note that `custom-n8n.py` must keep sending valid JSON (`json.dumps`): n8n rejects anything else with HTTP 422 before a workflow runs, so only `integrations.log` would show it.
   - Files: `nodes/core/wazuh/integrations/custom-n8n.py`
   - With: Inigo (n8n owner)
-  - Refs: X-10, D-N1, A78, A80
-- [ ] **W1.9** Send Inigo the R-06 spec (he is blocked on it) · P1
-  - Done when: Inigo has the format and default of `WAZUH_SYSLOG_ALLOWED_IPS` so he can add R-06 before 2026-10-09. Proposal: comma-separated IPv4 addresses or CIDRs, no spaces (your entrypoint script writes one `<allowed-ips>` per entry); default in single-host mode `127.0.0.1` plus the `soc-net` subnet (so the lab can test W4.5); in distributed mode the optional `SYSLOG_ALLOWED_IPS` from `topology.env`, and when it is empty the listener accepts no source (fail closed) and `render-env.sh` warns.
+  - Refs: X-10, A78
+- [ ] **W1.9** Test syslog source IPs, then send Inigo the R-06 spec (by 2026-10-07) · P1
+  - Done when: First test which source IP the manager sees for UDP syslog sent to the published port (`${BIND_ADDR}:514:514/udp`): from the WSL host to `127.0.0.1`, from the lab container over `soc-net`, and, if you can, from another machine. Traffic through Docker's userland proxy may show every sender as the bridge gateway (`172.x.0.1`); if so, any `172.16.0.0/12` default lets every source through and W1.1's negative check can't pass. Then reply to Inigo (memo item 10) by 2026-10-07 so R-06 is on `main` by 2026-10-09: format comma-separated IPv4 addresses or CIDRs, no spaces, one `<allowed-ips>` per entry; a default chosen from the test result (Inigo proposes `172.16.0.0/12`; the narrower alternative is `127.0.0.1` plus the `soc-net` subnet); per machine, the optional `SYSLOG_ALLOWED_IPS` in `topology.env`. Record the test in `nodes/core/wazuh/docs/n8n-requests-2026-09-30.md`.
   - With: Inigo (integrator)
   - Refs: R-06
+- [ ] **W1.10** Answer n8n's memo of 2026-09-30 · P1, C1, C14
+  - Done when: Every item in `nodes/core/wazuh/docs/n8n-requests-2026-09-30.md` has a status and an answer in its reply column, sent to Inigo: items 6, 7, 8, 9 and 10 by their dates (10 by 2026-10-07, 9 by 2026-10-16), the rest at checkpoint 1 (2026-10-20). The tasks that deliver each item are listed there.
+  - Files: `nodes/core/wazuh/docs/n8n-requests-2026-09-30.md`
+  - With: Inigo (n8n owner)
+  - Refs: X-01, X-05, X-09, X-10, X-24, X-32, R-06
 
 ## M2 · Detection content v1 (target: 2026-10-20)
 
@@ -102,7 +107,7 @@ The first real detections, tuned and mapped, merged at checkpoint 1 (milestone t
   - With: Inigo (n8n), Park (ALERT-FORMAT.md §2), Jesus (D-G4)
   - Refs: X-09, D-N4, D-G4
 - [ ] **W2.2** Linux authentication detections · P1
-  - Done when: Rules (or checks that built-ins already fire) for SSH brute force, a successful login after failures (correlation), sudo failures, new user or group, direct root login. Each has test cases in the runner and a lab scenario.
+  - Done when: Rules (or checks that built-ins already fire) for SSH brute force, a successful login after failures (correlation), sudo failures, new user or group, direct root login. Each has test cases in the runner and a lab scenario. Decoders use Wazuh's standard field names (`srcip`, `dstip`, `srcuser`, `dstuser`), which n8n, C13 and TheHive rely on (memo item 3).
   - Files: `nodes/core/wazuh/rules/`, `nodes/core/wazuh/tests/`
   - With: Inigo (`pb-ssh-bruteforce` needs the success-after-failures rule, N8N-4.2), Park (a template per detection, T3.5)
 - [ ] **W2.3** Map every custom rule to MITRE ATT&CK · P1
@@ -114,7 +119,7 @@ The first real detections, tuned and mapped, merged at checkpoint 1 (milestone t
   - Files: `nodes/core/wazuh/rules/`
   - Refs: X-11
 - [ ] **W2.5** Agree n8n's alert-field draft, then write the detection catalog and C13's field map · P1, C1, C13
-  - Done when: (1) Review `nodes/core/n8n/docs/WAZUH-FIELDS.md`, n8n's draft of the C1 fields verified against real alerts, instead of writing the list from scratch: answer its "To agree with the Wazuh owner" questions and correct anything wrong, so Inigo can mark it agreed (the file is n8n's; your README links to it). Fields marked "not seen yet" (`data.*`, `syscheck.*`, `rule.mitre.*`) get confirmed as your scenarios produce them. (2) README: a detection catalog, one row per custom rule (ID, group, level, MITRE ID, lab scenario), used by n8n's router, TheHive's templates and Grafana's panels. (3) C13's field map (PROJECT.md 5) checked against real alerts (`data.srcip`/`data.dstip`, Suricata's `data.src_ip`/`data.dest_ip`, `agent.ip`, `agent.name`, `data.srcuser`/`dstuser`, `syscheck.*_after`); Diego asked to keep it stable. Documenting is not a contract change; changing the payload is.
+  - Done when: (1) Review `nodes/core/n8n/docs/WAZUH-FIELDS.md`, n8n's draft of the C1 fields verified against real alerts, instead of writing the list from scratch: answer its "To agree with the Wazuh owner" questions and correct anything wrong, so Inigo can mark it agreed. Promise stable types: `id` and `rule.id` as strings, `rule.level` as a number, `rule.groups` as an array, the same `timestamp` format (memo item 1) (the file is n8n's; your README links to it). Fields marked "not seen yet" (`data.*`, `syscheck.*`, `rule.mitre.*`) get confirmed as your scenarios produce them. (2) README: a detection catalog, one row per custom rule (ID, group, level, MITRE ID, lab scenario), used by n8n's router, TheHive's templates and Grafana's panels. (3) C13's field map (PROJECT.md 5) checked against real alerts (`data.srcip`/`data.dstip`, Suricata's `data.src_ip`/`data.dest_ip`, `agent.ip`, `agent.name`, `data.srcuser`/`dstuser`, `syscheck.*_after`); Diego asked to keep it stable. Documenting is not a contract change; changing the payload is.
   - Files: `nodes/core/wazuh/README.md`, `nodes/core/n8n/docs/WAZUH-FIELDS.md (review only)`
   - With: Inigo (n8n), Park (templates), Jesus (panels), Diego (C13 analyzer)
   - Refs: X-01, X-26
@@ -122,7 +127,7 @@ The first real detections, tuned and mapped, merged at checkpoint 1 (milestone t
   - Done when: `git pull --no-rebase --no-edit origin main`, `healthcheck.sh` green, `contracts-check.sh --only C1,C2,C8` passes, `ci-checks.sh all` passes, pull request `wazuh` → `main` opened and merged by the integrator. The first slice of `v1.1-detections` (alert → enriched TheHive alert) depends on it, together with TheHive's T2.7.
   - With: Inigo (review and merge)
 - [ ] **W2.7** Answer X-09: should SCA alerts reach n8n? · P1, C1
-  - Done when: Decided with Inigo by 2026-10-20 and written in the README. Each agent start sends ~130 level-7 SCA alerts (rules 19007, 19004), and n8n excludes group `sca` only temporarily. Recommendation: fix it at the source with overwrite rules in your tuning file that lower 19007/19004 below `WAZUH_ALERT_MIN_LEVEL` (e.g. level 5). They stay in the indexer for Grafana's compliance panels, never flood n8n or TheHive, and Inigo can then remove the temporary exclusion from `lib-config`. Also answer TheHive's question whether SCA needs a compliance template (ALERT-TO-THEHIVE.md, question 4).
+  - Done when: Decided with Inigo by 2026-10-20 and written in the README. Each agent start sends ~130 level-7 SCA alerts (rules 19007, 19004), and n8n excludes group `sca` only temporarily. Inigo's options (memo item 6): raise their level threshold, exclude the `sca` group from `custom-n8n`, or let n8n aggregate them (N8N-1.4). Recommendation: fix it at the source with overwrite rules in your tuning file that lower 19007/19004 below `WAZUH_ALERT_MIN_LEVEL` (e.g. level 5). They stay in the indexer for Grafana's compliance panels, never flood n8n or TheHive, and Inigo can then remove the temporary exclusion from `lib-config`. Also answer TheHive's question whether SCA needs a compliance template (ALERT-TO-THEHIVE.md, question 4).
   - Files: `nodes/core/wazuh/rules/`
   - With: Inigo (n8n), Park (template question), Jesus (compliance panels)
   - Refs: X-09
@@ -141,7 +146,7 @@ A Suricata sensor watches the lab traffic and its alerts arrive in Wazuh through
   - With: Inigo: R-07 (memory variable in `nodes/lab/.env.example` and `render-env.sh`)
   - Refs: R-07
 - [ ] **W3.3** EVE JSON into Wazuh · P1, C1
-  - Done when: Suricata writes `eve.json` (alert events only, to keep the volume low) to a volume shared with the lab agent, which reads it with `<localfile><log_format>json</log_format>`. Built-in rule 86601 ("Suricata: Alert - …") fires and the alert is in the indexer with `data.alert.signature`, `data.src_ip`, `data.dest_ip`.
+  - Done when: Suricata writes `eve.json` (alert events only, to keep the volume low) to a volume shared with the lab agent, which reads it with `<localfile><log_format>json</log_format>`. Built-in rule 86601 ("Suricata: Alert - …") fires and the alert is in the indexer with `data.alert.signature`, `data.src_ip`, `data.dest_ip`. Keep Suricata's own names (`data.src_ip`, `data.dest_ip`, `data.dest_port`); don't rename them in custom rules or decoders (memo item 3).
   - Files: `nodes/lab/docker-compose.yml`, `nodes/lab/entrypoint.sh`
 - [ ] **W3.4** Test traffic in the lab trigger · P1
   - Done when: `trigger.sh --scenario ids-test` (a `curl http://testmynids.org/uid/index.html` from the lab agent, ET rule 2100498) and `--scenario ids-scan` (an `nmap` scan against a lab target) produce Suricata alerts in Wazuh within a minute. `curl` and `nmap` added to the lab image.
@@ -167,7 +172,7 @@ Syslog from network devices is decoded and classified, ready for the real device
   - Files: `nodes/core/wazuh/tests/samples/`
   - With: Team: which router and pfSense version
 - [ ] **W4.2** Check built-in coverage, then write decoders for the gaps · P1
-  - Done when: Every sample run through logtest; the result of the built-in ruleset noted; custom decoders only where fields are missing (`srcip`, `dstip`, `dstport`, `action`, `protocol`).
+  - Done when: Every sample run through logtest; the result of the built-in ruleset noted; custom decoders only where fields are missing (`srcip`, `dstip`, `dstport`, `action`, `protocol`). Decoders use Wazuh's standard field names (`srcip`, `dstip`, `srcuser`, `dstuser`), which n8n, C13 and TheHive rely on (memo item 3).
   - Files: `nodes/core/wazuh/decoders/`
 - [ ] **W4.3** pfSense rules · P1
   - Done when: Port scan (many blocked ports from one source, frequency rule), bursts of blocked connections, failed GUI logins, configuration changes. Test cases and MITRE IDs.
@@ -216,7 +221,7 @@ Real endpoints can enroll into groups with policies that fit them.
 Wazuh flags events that match IOCs kept in MISP. This is contract C14 (proposed); its design with Diego is the earliest cross-owner deadline of the whole team (2026-10-16).
 
 - [ ] **W6.1** Design C14 with Diego (by 2026-10-16) · P1, C14
-  - Done when: Written and sent to Inigo for PROJECT.md 5: which attributes (IPs, domains, MD5/SHA-256), which events (published, `to_ids`, a tag), refresh cadence, and who runs the sync: (a) a Wazuh-side script with its own read-only MISP key (R-08, a new `__from:intel__` value), or (b) an n8n scheduled workflow reusing C10's key (D45) (R-08 dropped; C10 waits for MISP's warninglist memory fix, R-14). Either way the CDB lists and the rules live in your folder.
+  - Done when: Written and sent to Inigo for PROJECT.md 5: which attributes (IPs, domains, MD5/SHA-256), which events (published, `to_ids`, a tag), refresh cadence, and who runs the sync. Inigo prefers (a) (memo item 9): if n8n ran it, it would need write access to Wazuh's CDB lists, a new permission and a contract change like C9. Options: (a) a Wazuh-side script with its own read-only MISP key (R-08, a new `__from:intel__` value), or (b) an n8n scheduled workflow reusing C10's key (D45) (R-08 dropped; C10 waits for MISP's warninglist memory fix, R-14). Either way the CDB lists and the rules live in your folder.
   - With: Diego (Cortex + MISP), Inigo (PROJECT.md; R-08 or the n8n side)
   - Refs: X-24, R-08, R-14, D45
 - [ ] **W6.2** MISP to CDB export · P1, C14
