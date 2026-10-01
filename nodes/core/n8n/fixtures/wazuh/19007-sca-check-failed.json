@@ -1,0 +1,121 @@
+{
+  "agent": {
+    "name": "lab-agent",
+    "id": "001"
+  },
+  "manager": {
+    "name": "wazuh-manager"
+  },
+  "data": {
+    "sca": {
+      "scan_id": "207960452",
+      "check": {
+        "result": "failed",
+        "remediation": "Run the following commands to remove excess permissions, set owner, and set group on /etc/security/opasswd and /etc/security/opasswd.old is they exist: # [ -e \"/etc/security/opasswd\" ] && chmod u-x,go-rwx /etc/security/opasswd # [ -e \"/etc/security/opasswd\" ] && chown root:root /etc/security/opasswd # [ -e \"/etc/security/opasswd.old\" ] && chmod u-x,go-rwx /etc/security/opasswd.old # [ -e \"/etc/security/opasswd.old\" ] && chown root:root /etc/security/opasswd.old.",
+        "compliance": {
+          "cis_csc_v8": "3.3",
+          "hipaa": "164.308(a)(3)(i),164.308(a)(3)(ii)(A),164.312(a)(1)",
+          "nist_sp_800-53": "AC-5,AC-6",
+          "mitre_tactics": "TA0005",
+          "mitre_techniques": "T1003,T1003.008,T1222,T1222.002",
+          "cis": "7.1.10",
+          "cmmc_v2": {
+            "0": "AC.L1-3.1.1,AC.L1-3.1.2,AC.L2-3.1.3,AC.L2-3.1.5,MP.L2-3.8.2"
+          },
+          "iso_27001-2013": "A.9.1.1",
+          "mitre_mitigations": "M1022",
+          "pci_dss_v4": {
+            "0": "1.3.1,7.1"
+          },
+          "soc_2": "CC5.2,CC6.1",
+          "pci_dss_v3": {
+            "2": {
+              "1": "7.1,7.1.1,7.1.2,7.1.3"
+            }
+          },
+          "cis_csc_v7": "14.6"
+        },
+        "description": "/etc/security/opasswd and it's backup /etc/security/opasswd.old hold user's previous passwords if pam_unix or pam_pwhistory is in use on the system.",
+        "id": "35770",
+        "title": "Ensure permissions on /etc/security/opasswd are configured.",
+        "rationale": "It is critical to ensure that /etc/security/opasswd is protected from unauthorized access. Although it is protected by default, the file permissions could be changed either inadvertently or through malicious actions.",
+        "command": [
+          "stat -c \"%a %U %G\" /etc/security/opasswd",
+          "stat -c \"%a %U %G\" /etc/security/opasswd.old"
+        ]
+      },
+      "type": "check",
+      "policy": "CIS Ubuntu Linux 24.04 LTS Benchmark v1.0.0."
+    }
+  },
+  "rule": {
+    "cis_csc_v8": [
+      "3.3"
+    ],
+    "mail": false,
+    "level": 7,
+    "pci_dss": [
+      "2.2"
+    ],
+    "tsc": [
+      "CC7.1",
+      "CC7.2"
+    ],
+    "hipaa": [
+      "164.308(a)(3)(i)",
+      "164.308(a)(3)(ii)(A)",
+      "164.312(a)(1)"
+    ],
+    "nist_sp_800-53": [
+      "AC-5",
+      "AC-6"
+    ],
+    "description": "CIS Ubuntu Linux 24.04 LTS Benchmark v1.0.0.: Ensure permissions on /etc/security/opasswd are configured.",
+    "groups": [
+      "sca"
+    ],
+    "mitre_tactics": [
+      "TA0005"
+    ],
+    "mitre_techniques": [
+      "T1003",
+      "T1003.008",
+      "T1222",
+      "T1222.002"
+    ],
+    "cis": [
+      "7.1.10"
+    ],
+    "iso_27001-2013": [
+      "A.9.1.1"
+    ],
+    "nist_800_53": [
+      "CM.1"
+    ],
+    "mitre_mitigations": [
+      "M1022"
+    ],
+    "gdpr": [
+      "IV_35.7.d"
+    ],
+    "firedtimes": 130,
+    "soc_2": [
+      "CC5.2",
+      "CC6.1"
+    ],
+    "id": "19007",
+    "cis_csc_v7": [
+      "14.6"
+    ]
+  },
+  "decoder": {
+    "name": "sca"
+  },
+  "input": {
+    "type": "log"
+  },
+  "@timestamp": "2026-09-25T23:15:32.147Z",
+  "location": "sca",
+  "id": "1790378132.1860721",
+  "timestamp": "2026-09-25T23:15:32.147+0000"
+}

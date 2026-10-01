@@ -36,6 +36,14 @@ services:
       WAZUH_API_URL: ${WAZUH_API_URL}
       THEHIVE_URL: ${THEHIVE_URL}
       CORTEX_URL: ${CORTEX_URL}
+      # C1 threshold, also applied by recv-wazuh-alert (non-secret; lib-config
+      # holds 7 only as a fallback).
+      WAZUH_ALERT_MIN_LEVEL: ${WAZUH_ALERT_MIN_LEVEL:-7}
+      # Is TheHive deployed for this core? false on a machine without the
+      # cases node: playbooks record "skipped: TheHive not configured" instead
+      # of parking every alert (non-secret; rendered by render-env.sh once the
+      # integrator adds it, R-18; unset = true, the previous behaviour).
+      THEHIVE_ENABLED: ${THEHIVE_ENABLED:-true}
       # Also n8n's own setting: base URL of its webhooks (what other nodes call).
       N8N_WEBHOOK_URL: ${N8N_WEBHOOK_URL}
       # PostgreSQL instead of SQLite (profile "pg"): uncomment together with

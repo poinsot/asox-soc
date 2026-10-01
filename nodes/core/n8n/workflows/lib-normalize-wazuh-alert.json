@@ -1,0 +1,216 @@
+{
+  "id": "asoxLibNormWazAl",
+  "name": "lib-normalize-wazuh-alert",
+  "active": true,
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## lib-normalize-wazuh-alert (N8N-1.2)\n**Trigger:** called by playbooks (pb-generic) through Execute Workflow, waiting for the result.\n**Inputs:** `{alert: <raw Wazuh alert>, context: {playbook, n8n_execution_id}}`.\n**Actions taken:** validates the required fields of docs/WAZUH-FIELDS.md and returns `{ok: true, canonical}`. A malformed alert (no id, no rule, missing or non-numeric level, ...) is handed to lib-error, which parks it, and `{ok: false, parked: true}` is returned: never dropped silently.\n**Systems changed:** none.\n**Approval:** not applicable.\n**Owner:** n8n.\nThe alert id stays a string (Number() loses digits); rule.id is kept as a string plus `id_int` for TheHive's integer custom field. MITRE from `rule.mitre.id` only (the `rule.mitre_techniques` fallback waits for TheHive, AF §7 Q2).\nSuccessful executions are not saved (N8N-6.5): the calling playbook records the result; failed ones are kept.",
+        "height": 300,
+        "width": 520
+      },
+      "id": "dc9d8bab-bd6e-5844-8198-1024ffaa325b",
+      "name": "About this workflow",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -40,
+        -380
+      ]
+    },
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "id": "206312d0-c690-5273-b24d-af0dd602fc1d",
+      "name": "Called by a workflow",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Canonical Wazuh alert (docs/WAZUH-FIELDS.md). Required fields missing or\n// mistyped -> malformed. The alert id stays a string end to end.\nconst input = $input.first().json;\nconst alert = input.alert;\nconst isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);\nconst str = (v) => (typeof v === 'string' && v.trim() !== '' ? v : null);\nconst opt = (v) => (typeof v === 'string' && v.trim() !== '' ? v.trim() : typeof v === 'number' ? String(v) : null);\nconst problems = [];\nconst a = isObj(alert) ? alert : {};\nif (!isObj(alert)) problems.push('alert is not a JSON object');\nconst id = str(a.id);\nif (!id) problems.push(typeof a.id === 'number' ? 'id is a number (digits may be lost), expected a string' : 'id missing');\nconst rule = isObj(a.rule) ? a.rule : null;\nconst agent = isObj(a.agent) ? a.agent : null;\nlet ruleId = null;\nlet level = null;\nif (!rule) {\n  problems.push('rule missing');\n} else {\n  ruleId = typeof rule.id === 'string' && rule.id.trim() !== '' ? rule.id.trim()\n    : Number.isInteger(rule.id) ? String(rule.id) : null;\n  if (!ruleId) problems.push('rule.id missing');\n  if (typeof rule.level === 'number' && Number.isInteger(rule.level)) level = rule.level;\n  else if (typeof rule.level === 'string' && /^\\d+$/.test(rule.level.trim())) level = Number(rule.level.trim());\n  else problems.push('rule.level missing or not numeric');\n  if (!str(rule.description)) problems.push('rule.description missing');\n  if (!Array.isArray(rule.groups) || !rule.groups.every((g) => typeof g === 'string')) {\n    problems.push('rule.groups missing or not an array of strings');\n  }\n}\nif (!agent || !str(agent.id) || !str(agent.name)) problems.push('agent.id / agent.name missing');\nconst ts = str(a.timestamp);\nconst dateMs = ts ? Date.parse(ts) : NaN;\nif (!ts || Number.isNaN(dateMs)) problems.push('timestamp missing or unparseable');\n\nif (problems.length > 0) {\n  return [{ json: {\n    ok: false,\n    error_class: 'malformed_input',\n    problems,\n    wazuh_alert_id: id ?? (a.id === undefined || a.id === null ? null : String(a.id)),\n    context: input.context ?? {},\n    alert: alert === undefined ? null : alert,\n  } }];\n}\n\nconst d = isObj(a.data) ? a.data : {};\nconst sc = isObj(a.syscheck) ? a.syscheck : {};\nconst mitreId = isObj(rule.mitre) ? rule.mitre.id : undefined;\nconst mitre = Array.isArray(mitreId) ? mitreId.filter((t) => typeof t === 'string' && t !== '')\n  : typeof mitreId === 'string' && mitreId !== '' ? [mitreId] : [];\nreturn [{ json: { ok: true, canonical: {\n  wazuh_alert_id: id,\n  timestamp: ts,\n  date_ms: dateMs,\n  date_iso: new Date(dateMs).toISOString(),\n  rule: {\n    id: ruleId,\n    id_int: /^\\d+$/.test(ruleId) ? Number.parseInt(ruleId, 10) : null,\n    level,\n    description: rule.description,\n    groups: rule.groups,\n    firedtimes: typeof rule.firedtimes === 'number' ? rule.firedtimes : null,\n    mitre_ids: mitre,\n  },\n  agent: { id: agent.id, name: agent.name, ip: opt(agent.ip) },\n  manager_name: opt(a.manager?.name),\n  location: opt(a.location),\n  decoder_name: opt(a.decoder?.name),\n  full_log: typeof a.full_log === 'string' && a.full_log !== '' ? a.full_log : null,\n  network: {\n    srcip: opt(d.srcip), dstip: opt(d.dstip), src_ip: opt(d.src_ip), dest_ip: opt(d.dest_ip),\n    dest_port: opt(d.dest_port), srcuser: opt(d.srcuser), dstuser: opt(d.dstuser),\n    hostname: opt(d.hostname), url: opt(d.url),\n  },\n  syscheck: {\n    path: opt(sc.path), event: opt(sc.event), md5_after: opt(sc.md5_after),\n    sha1_after: opt(sc.sha1_after), sha256_after: opt(sc.sha256_after),\n  },\n  virustotal_sha256: opt(d.virustotal?.source?.sha256),\n} } }];\n"
+      },
+      "id": "3d955e86-ddc8-5da9-84e4-07e96d4fa1ad",
+      "name": "Validate and normalize",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        260,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "06a846e0-469f-5c83-b5a3-a24b432ec678",
+              "leftValue": "={{ $json.ok }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "3ee12489-1694-5b12-afaf-e1a8138df734",
+      "name": "Well formed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        520,
+        0
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "c55eb516-915e-5710-9f87-22e5ebf1c35b",
+      "name": "Return canonical alert",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        780,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Malformed input: lib-error parks it with the whole payload (N8N-1.2).\nconst j = $input.first().json;\nreturn [{ json: {\n  error_class: 'malformed_input',\n  stage: 'normalize',\n  workflow: $workflow.name,\n  execution_id: j.context?.n8n_execution_id ?? $execution.id,\n  sub_execution_id: $execution.id,\n  node: 'Validate and normalize',\n  wazuh_alert_id: j.wazuh_alert_id,\n  thehive_alert_id: null,\n  message: 'malformed Wazuh alert: ' + j.problems.join('; '),\n  payload: j.alert,\n} }];\n"
+      },
+      "id": "81be22a6-bb5a-5ad3-9af0-55e29cb3131b",
+      "name": "Error input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        780,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "asoxLibError0001",
+          "cachedResultName": "lib-error"
+        },
+        "options": {
+          "waitForSubWorkflow": false
+        }
+      },
+      "id": "1b16f60b-b1e3-5afd-999a-6ec38269ec70",
+      "name": "Park (lib-error)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1040,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const e = $('Error input').first().json;\nreturn [{ json: { ok: false, parked: true, error_class: 'malformed_input', wazuh_alert_id: e.wazuh_alert_id, message: e.message } }];\n"
+      },
+      "id": "fecde18d-0187-54f0-9993-af2977579b8f",
+      "name": "Parked result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1300,
+        120
+      ]
+    }
+  ],
+  "connections": {
+    "Called by a workflow": {
+      "main": [
+        [
+          {
+            "node": "Validate and normalize",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate and normalize": {
+      "main": [
+        [
+          {
+            "node": "Well formed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Well formed?": {
+      "main": [
+        [
+          {
+            "node": "Return canonical alert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Error input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Error input": {
+      "main": [
+        [
+          {
+            "node": "Park (lib-error)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Park (lib-error)": {
+      "main": [
+        [
+          {
+            "node": "Parked result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataSuccessExecution": "none",
+    "saveDataErrorExecution": "all",
+    "saveManualExecutions": true
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "nodeGroups": [],
+  "tags": [],
+  "pinData": {}
+}

@@ -11,7 +11,7 @@ How the team works on the platform after the Phase 1 baseline (`v1.0-baseline`).
 | Grafana | Jesus (@JC-535) | `grafana` | `nodes/core/grafana/` | `core` |
 | TheHive | Park (@Jinhyuk-P) | `thehive` | `nodes/cases/thehive/` | `cases` |
 | Cortex + MISP | Diego (@DiegoGuerraA00835430) | `cortex-misp` | `nodes/cases/cortex/`, `nodes/intel/misp/` | `cases-intel` |
-| Integrator | Inigo (@poinsot) | `main` | Everything else: node root compose files, `soc-net.yml`, `nodes/cases/storage.yml`, `.env.example` files, `scripts/`, `topology.env.example`, `windows/`, `docs/`, `PROJECT.md`, `CHECKLIST.md`, this file, `CLAUDE.md`, `.gitattributes`, `.github/` | — |
+| Integrator | Inigo (@poinsot) | `main` | Everything else: node root compose files, `soc-net.yml`, `nodes/cases/storage.yml`, `.env.example` files, `scripts/`, `topology.env.example`, `windows/`, `docs/`, `PROJECT.md`, `CHECKLIST.md`, this file, `.gitattributes`, `.github/` | — |
 
 `main` is the integrated, working platform; only the integrator merges into it (by team agreement: there is no branch protection). The integrator is also the n8n owner and follows the same rules for n8n work.
 

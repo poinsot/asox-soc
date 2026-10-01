@@ -5,7 +5,7 @@
 > **Audience:** This is the source of truth for the Claude Code session that builds Phase 1, and for the team that develops the components afterwards.
 > - Claude Code reads the whole document before creating files, follows the build steps in section 10 in order, and updates section 17 (Status) as work progresses.
 > - When blocked by an item marked **[ASSUMPTION]** or **[OPEN]**, Claude Code picks the simplest option and logs it in `docs/decisions.md`.
-> - Companion documents: `CHECKLIST.md` (tools and prerequisites) and `CLAUDE.md` (a short pointer that Claude Code reads automatically at the start of every session).
+> - Companion document: `CHECKLIST.md` (tools and prerequisites). `CLAUDE.md` is a personal, git-ignored file for the integrator's Claude Code sessions, not part of the repository.
 
 ---
 
@@ -506,7 +506,7 @@ The team workflow is deliberately simple: one branch per owner, merged into `mai
 | Grafana | `nodes/core/grafana/` |
 | TheHive | `nodes/cases/thehive/` |
 | Cortex + MISP | `nodes/cases/cortex/`, `nodes/intel/misp/` |
-| Integrator | Everything else: node root compose files, `soc-net.yml` overrides, `nodes/cases/storage.yml`, `.env.example` files, `scripts/`, `topology.env.example`, `windows/`, `docs/`, `PROJECT.md`, `CHECKLIST.md`, `CONTRIBUTING.md`, `CLAUDE.md`, `.gitattributes`, `.github/` |
+| Integrator | Everything else: node root compose files, `soc-net.yml` overrides, `nodes/cases/storage.yml`, `.env.example` files, `scripts/`, `topology.env.example`, `windows/`, `docs/`, `PROJECT.md`, `CHECKLIST.md`, `CONTRIBUTING.md`, `.gitattributes`, `.github/` |
 
 **The five light rules**
 1. **Work only on your branch.**
@@ -660,7 +660,7 @@ Each node's root compose file only `include`s per-component compose files. That 
 asox-soc/
 ├── PROJECT.md
 ├── CHECKLIST.md
-├── CLAUDE.md                   # pointer for Claude Code: read PROJECT.md, follow section 10 and 10.1
+├── CLAUDE.md                   # personal Claude Code instructions, git-ignored (not in the repository since 2026-09-30)
 ├── CONTRIBUTING.md             # light rules (11.1), export rules (11.2), onboarding (11.6)
 ├── README.md                   # quick start
 ├── topology.env.example        # copied to topology.env (git-ignored)
@@ -868,7 +868,7 @@ These are the **design** decisions made while planning. Implementation choices m
 3. How much RAM do the Wazuh, Grafana, TheHive and Cortex + MISP owners' machines have? This confirms who needs the `low` profile (the n8n owner uses the 32 GB machine). Default: keep it, since it costs little.
 4. Who hosts and maintains the optional shared instance, and on which machines? Default: none until the team needs whole-chain testing. Whoever hosts it runs `windows/firewall-rules.ps1` on each hosting machine (A71) and pastes the `__from:` values between machines (section 4).
 5. Can one TheHive Community license be re-activated on a new instance (after `soc.sh reset cases`, or for the fresh-clone and shared instances)? StrangeBee doesn't document it (A57). Default: avoid resets, restore backups instead; ask StrangeBee when requesting the license.
-6. The build instance's TheHive runs on its trial until **2026-10-11**. Once the integrator's Community license is activated: back up `cases` (`backup.sh cases --with-secrets`) and confirm C4 still passes, i.e. that the Community license includes the `notification.webhook` capability (`healthcheck.sh` warns if not; docs/decisions.md A64). If it doesn't, C4 needs another design. **Evidence (2026-09-30):** the TheHive owner's instance runs a Community license (valid until 2027-09-29) and `healthcheck.sh` shows no webhook-capability warning, so the capability is very likely included; C4 itself hasn't yet run against a Community license (TheHive T0.5, T4.2).
+6. ~~Does the TheHive Community license include the `notification.webhook` capability that C4 needs?~~ **Answered 2026-09-30: yes.** The build instance's Community license is active (valid until 2027-09-28) and backed up (`backup.sh cases --with-secrets`), and C4 works on it: 20 C4 events were received by `recv-thehive-event` during the n8n E0 session (docs/integration-backlog.md X-19). The TheHive owner's instance also runs a Community license (until 2027-09-29, TheHive T0.4).
 
 ---
 
