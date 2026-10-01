@@ -1,0 +1,86 @@
+{
+  "defaults": {
+    "configuration": {
+      "auto_extract_artifacts": false,
+      "check_tlp": true,
+      "max_tlp": 2,
+      "check_pap": true,
+      "max_pap": 2
+    },
+    "jobCache": 10,
+    "jobTimeout": 30
+  },
+  "analyzers": [
+    {
+      "match": "^MISPWarningLists_[0-9]+_[0-9]+$",
+      "enabled": false,
+      "configuration": {},
+      "test": {
+        "dataType": "ip",
+        "data": "8.8.8.8"
+      }
+    },
+    {
+      "match": "^AbuseIPDB_[0-9]+_[0-9]+$",
+      "enabled": true,
+      "configuration": {
+        "key": "${ABUSEIPDB_API_KEY}",
+        "days": 30
+      },
+      "rate": 1000,
+      "rateUnit": "Day",
+      "test": {
+        "dataType": "ip",
+        "data": "8.8.8.8"
+      }
+    },
+    {
+      "match": "^OTXQuery_[0-9]+_[0-9]+$",
+      "enabled": true,
+      "configuration": {
+        "key": "${OTX_API_KEY}"
+      },
+      "test": {
+        "dataType": "ip",
+        "data": "8.8.8.8"
+      }
+    },
+    {
+      "match": "^URLhaus_[0-9]+_[0-9]+$",
+      "enabled": true,
+      "configuration": {
+        "API_Key": "${ABUSECH_AUTH_KEY}"
+      },
+      "test": {
+        "dataType": "domain",
+        "data": "example.com"
+      }
+    },
+    {
+      "match": "^MalwareBazaar_[0-9]+_[0-9]+$",
+      "enabled": true,
+      "configuration": {
+        "api_key": "${ABUSECH_AUTH_KEY}"
+      },
+      "test": {
+        "dataType": "hash",
+        "data": "275a021bbfb6489e54d471899f7db9d1663fc695ec2fe2a2c4538aabf651fd0f"
+      }
+    },
+    {
+      "match": "^VirusTotal_GetReport_[0-9]+_[0-9]+$",
+      "enabled": true,
+      "configuration": {
+        "key": "${VIRUSTOTAL_API_KEY}",
+        "polling_interval": 60,
+        "rescan_hash_older_than_days": 30
+      },
+      "rate": 500,
+      "rateUnit": "Day",
+      "test": {
+        "dataType": "hash",
+        "data": "275a021bbfb6489e54d471899f7db9d1663fc695ec2fe2a2c4538aabf651fd0f"
+      }
+    }
+  ]
+}

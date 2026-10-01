@@ -12,6 +12,8 @@ nodes/core/certs/*
 # Cortex analyzer job directory (host side)
 nodes/cases/cortex/jobs/*
 !nodes/cases/cortex/jobs/.gitkeep
+# API keys of the online Cortex analyzers (see analyzer-keys.env.example there)
+nodes/cases/cortex/analyzers/analyzer-keys.env
 
 # Backups (may contain data and credentials)
 backups/

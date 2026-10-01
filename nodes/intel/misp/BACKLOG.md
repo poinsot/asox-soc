@@ -52,7 +52,7 @@ Aligned with the shared team dates (integration backlog, section F).
 |---|---|---|
 | ⏭️ C14 design with Daniel: which attributes (IPs, domains, MD5/SHA-256), which events (published, `to_ids`, a tag), refresh cadence, who runs the sync | Wazuh (W6.1) | **Due 2026-10-16.** Open: a Wazuh-side script with its own read-only MISP key (R-08), or an n8n scheduled workflow reusing C10's key (R-08 dropped). Written up for Inigo, who completes C14 in PROJECT.md 5 |
 | ⏭️ Re-measure intel memory with the warninglists and Botvrij on, on `standard` and `low`, including batch `checkValue` calls | — | Memory limits rule (PROJECT.md D40). Needed before C10 goes live (R-14). If limits must rise, the integrator changes the `.env.example` files. |
-| ⏭️ Verify the Read Only role can call `POST /warninglists/checkValue` | — | For C10. If it can't, a custom role with no write permission. C10's check also expects a write (`POST /events/add`) to be refused |
+| ✅ Read Only role can call `POST /warninglists/checkValue` | — | Verified 2026-10-01 with the Read Only key of `cortex@asox.local`: a batch of six values returns HTTP 200 with the expected lists, and `POST /events/add` is refused (HTTP 403). C10 needs no custom role |
 | ⏭️ Scheduled feed refresh (daily) | Check the misp-core image's cron settings | Today feeds refresh only with `misp-config.sh fetch` |
 | ⏭️ Turn on CIRCL OSINT | The re-measure above | Also grows `intel` backups |
 | ⏭️ Choose which taxonomies and galaxies to use | TheHive (Park) for tag names | Tags that show up on cases |
@@ -63,8 +63,8 @@ Aligned with the shared team dates (integration backlog, section F).
 ✅ **Accepted 2026-09-30 (D45)** by the n8n owner (Inigo) and me. Full text in PROJECT.md 5. Not built yet.
 
 - **What:** before enrichment, n8n sends all of an alert's observables to MISP in one call (`POST /warninglists/checkValue`) and learns which ones are *common* (public DNS, cloud and CDN ranges, top sites, private ranges…). A match means *common*, **not** *safe*: attackers use Google, GitHub and AWS too. n8n may skip quota-limited online analyzers for a match and tags the observable, but never closes, suppresses or downgrades an alert because of it (D12). MISP unreachable = n8n continues without it.
-- **Why direct and not through Cortex:** one call for all observables, and it always uses MISP's current lists. Until C10 is live, n8n gets the same answer one observable at a time through the MISPWarningLists analyzer in Cortex (C6).
-- **Before it goes live:** R-14's size cap merged (this branch), misp-core re-measured under batch checks, the Read Only role verified for `checkValue` (Next, above).
+- **Why direct and not through Cortex:** one call for all observables, and it always uses MISP's current lists. There is **no interim fallback through Cortex**: the catalog's MISPWarningLists analyzer doesn't query MISP and fails without its own copy of the lists (tested 2026-10-01, disabled; Cortex backlog). Until C10 is live, n8n has no warninglist signal. Analysts see C10's result as n8n's tag on the observable, so TheHive needs no warninglist analyzer.
+- **Before it goes live:** R-14's size cap merged (this branch), misp-core re-measured under batch checks. The Read Only role is verified for `checkValue` (2026-10-01).
 - **Work:**
   - MISP (me): a Read Only user `n8n@asox.local` with its own API key.
   - Integrator (R-13): `MISP_N8N_API_KEY=__from:intel__` and `MISP_URL` in `nodes/core/.env.example` and `render-env.sh`, the user in `bootstrap.sh intel`, the n8n credential "MISP API (n8n)" in `bootstrap.sh core`, and `chk-misp-api` + C10 in `contracts-check.sh` (`8.8.8.8` is on a public-DNS list; a write is refused).
@@ -87,7 +87,7 @@ MISP enables a 1,000,000-entry warninglist (Cisco Umbrella top 1M) by default. W
 
 | Owner | What changes for you |
 |---|---|
-| **n8n** (Inigo) | C10 is accepted; build `lib-misp-warninglist` (N8N-2.11) once R-13 and R-14 are in. Until then, use the MISPWarningLists analyzer through Cortex. If C14's sync runs in n8n, it reuses C10's key. |
+| **n8n** (Inigo) | C10 is accepted; build `lib-misp-warninglist` (N8N-2.11) once R-13 and R-14 are in. Until then there is no warninglist check: the MISPWarningLists analyzer in Cortex doesn't work and is disabled (2026-10-01), so don't plan on it through C6. If C14's sync runs in n8n, it reuses C10's key. |
 | **TheHive** (Park) | Later: sending confirmed IOCs to MISP (T5.4), and tag names (taxonomies). |
 | **Wazuh** (Daniel) | C14 design together by 2026-10-16 (W6.1). |
 | **Grafana** (Jesus) | Nothing planned. |

@@ -16,7 +16,7 @@ The baseline is done: Cortex runs and contracts C5, C6 and C7 pass. The current 
 |---|---|---|
 | **D-N3 confirmed** (X-17): n8n enriches automatically at intake through C6; analysts re-run analyzers by hand from TheHive through C5 | No double analysis. n8n is the only automatic caller; `n8n-enrichment.md` is written for that path | docs/decisions.md D-N3, n8n N8N-5.4, TheHive T4.1 |
 | **C13 acknowledged** (D48): "seen before in Wazuh?" is a custom Cortex analyzer that calls n8n's read-only webhook `/webhook/wazuh-lookup` with its own token `N8N_LOOKUP_TOKEN`; n8n queries the Wazuh indexer | The analyzer holds **no Wazuh credential** and never reaches the indexer directly. It replaces TheHive's link B (T5.3) and serves both C5 and C6 | PROJECT.md 5 (C13), 15 (D48); X-26 |
-| **C10 accepted** (D45): n8n → MISP warninglist check | Until C10 is live, n8n uses the MISPWarningLists analyzer through C6 | [MISP backlog](../../intel/misp/BACKLOG.md) |
+| **C10 accepted** (D45): n8n → MISP warninglist check | Warninglist checks go through C10 only: there is no Cortex fallback (the MISPWarningLists analyzer is disabled, see "In progress"). Analysts see the result as n8n's tag on the observable | [MISP backlog](../../intel/misp/BACKLOG.md) |
 | **C12 rejected** (D47) | Nothing for Cortex | PROJECT.md 15 |
 
 ## Dates
@@ -43,9 +43,9 @@ Aligned with the shared team dates (integration backlog, section F).
 
 | Item | Status | Notes |
 |---|---|---|
-| Analyzers as code: `analyzers/analyzers.json` + `analyzers/analyzers.sh apply / export / test` | 🔨 written, shellcheck clean, **not yet run against Cortex** | `apply` enables the analyzers from the JSON file; `export` writes UI changes back to the file; `test` runs each analyzer on a sample value using n8n's API key. The MISP analyzer stays with `bootstrap.sh` (C7). |
-| Online analyzers: AbuseIPDB, OTXQuery, URLhaus, MalwareBazaar, VirusTotal_GetReport | 🔨 defined in `analyzers.json`, **need API keys** | Keys go in `analyzers/analyzer-keys.env` (git-ignored, R-09; see the `.example`). Each person gets their own free keys. Analyzers without a key are skipped. The setting names come from pre-repo work and still need checking against the Cortex catalog. |
-| MISPWarningLists analyzer (no key needed) | 🔨 | Tells n8n whether an indicator is *common* (public DNS, cloud ranges, top domains…). Works through the existing C6 until C10 is live. |
+| Analyzers as code: `analyzers/analyzers.json` + `analyzers/analyzers.sh apply / export / test` | 🔨 run against Cortex 2026-10-01 without keys: `apply` is idempotent, keyed analyzers are skipped, `export` round-trips unchanged; **`test` not yet exercised on a working analyzer** | `apply` enables the analyzers from the JSON file; `export` writes UI changes back to the file; `test` runs each analyzer on a sample value using n8n's API key. The MISP analyzer stays with `bootstrap.sh` (C7). |
+| Online analyzers: AbuseIPDB, OTXQuery, URLhaus, MalwareBazaar, VirusTotal_GetReport | 🔨 defined in `analyzers.json`, **need API keys** | Keys go in `analyzers/analyzer-keys.env` (git-ignored, R-09; see the `.example`). Each person gets their own free keys. Analyzers without a key are skipped. Setting names checked against the Cortex catalog on 2026-10-01: all match (AbuseIPDB_2_0, OTXQuery_2_0, URLhaus_2_0, MalwareBazaar_1_0, VirusTotal_GetReport_3_1). These are the analyzers analysts see and run from TheHive (C5). |
+| MISPWarningLists analyzer | ⛔ disabled (`"enabled": false`) | Tested 2026-10-01: the job fails with "wrong configuration settings". The catalog analyzer doesn't query our MISP; it needs its own copy of the `misp-warninglists` repository or a database inside the analyzer container, and the image has neither. Not needed: n8n checks MISP's warninglists directly (C10) and tags the observable in TheHive. |
 | Data-sharing defaults on every analyzer | 🔨 | `max_tlp` / `max_pap` = 2 (AMBER): TLP:RED data is never sent to online services. TheHive defaults new alerts to TLP/PAP AMBER (T2.5), so analyzers can run. Job cache 10 min. Rate limits: AbuseIPDB 1000/day, VirusTotal 500/day (X-18). |
 | n8n enrichment guide (`n8n-enrichment.md`) | 🔨 due 2026-10-20 | The deliverable for X-06 and X-07 (n8n's N8N-2.4 `lib-enrich-observable`): which Cortex calls to use, which analyzers per observable type with expected run time, how to reduce reports to a verdict, quotas, and the "common is not safe" rules for warninglist matches. |
 
@@ -53,10 +53,10 @@ Aligned with the shared team dates (integration backlog, section F).
 
 | Item | Depends on | Notes |
 |---|---|---|
-| ⏭️ Verify the analyzer setting names, run `apply` + `test` with real keys | My own API keys | Then merge at checkpoint 1 |
+| ⏭️ Run `apply` + `test` with real keys | My own API keys | Then merge at checkpoint 1 |
 | ⏭️ Written TLP/PAP data-sharing policy (X-08) | — | What each TLP level may be sent to; n8n enforces it before running online analyzers (N8N-2.4, N8N-2.6). Today only the defaults above exist |
 | ⏭️ Local analyzers: FileInfo, YARA, GeoIP (MaxMind) | MaxMind free key for GeoIP | No data leaves the lab |
-| ⏭️ Re-measure Cortex memory with several analyzers running in parallel | — | Memory limits rule (PROJECT.md D40); each analyzer container is capped at 256 MiB. The last report already flags Cortex's limit (600 → 650) |
+| ⏭️ Re-measure Cortex memory with several analyzers running in parallel | — | Memory limits rule (PROJECT.md D40); each analyzer container is capped at 256 MiB. The last report already flags Cortex's limit (600 → 650). **2026-10-01: Cortex was OOM-killed at its 650m limit** (`standard`) during an `analyzers.sh` session (several catalog listings, one analyzer job, then disabling an analyzer); it restarted on its own and kept its configuration. To report to the integrator with a measurement (`CORTEX_MEM` is in `nodes/cases/.env.example`) |
 | ⏭️ Load custom analyzers from `analyzers/` | Integrator (R-10, compose/config change) | Cortex has to read this folder as well as the online catalog. **Needed by C13** |
 | ⏭️ C13 analyzer "seen before in Wazuh?" (`analyzers/`) | R-10; R-15 (token, bootstrap); R-16 (`n8n-indexer`); n8n's `recv-wazuh-lookup` (N8N-2.10); Wazuh field names (W2.5) | POSTs `{dataType, data, days}` to `${N8N_WEBHOOK_URL}/webhook/wazuh-lookup` with header `X-ASOX-Token`; answers count, first/last seen, top rules, agents, up to 10 alert IDs. Reaches n8n like MISP (A49). Check: wrong token → 403; `lab-agent` returns the C1 test alert |
 

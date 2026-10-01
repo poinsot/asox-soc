@@ -1,0 +1,15 @@
+{
+  "warninglists": {
+    "maxEntries": 100000
+  },
+  "feeds": [
+    {
+      "name": "The Botvrij.eu Data",
+      "enabled": true
+    },
+    {
+      "name": "CIRCL OSINT Feed",
+      "enabled": false
+    }
+  ]
+}
