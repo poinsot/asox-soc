@@ -64,3 +64,5 @@ Only one pending approval per action and case. Closing the case cancels any pend
 2. **Summary**: what happened, impact, actions taken, open follow-ups.
 3. **Resolution status**: True positive (with or without impact), False positive, Duplicated, Indeterminate, Other.
 4. Confirmed IOCs stay marked as IOC, for the MISP export (BACKLOG.md T5.4, with the Cortex + MISP owner).
+
+**Never delete a real case: close it.** Deleting a case puts its alert back to *InProgress* without a case, and TheHive sends no event for the alert, so n8n and the metrics (C11) never learn of it. Deleting is only for test objects (`asox-test`, `contract-check`), with `thehive-test-alert.sh --cleanup`.
