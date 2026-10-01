@@ -66,7 +66,7 @@ Aligned with the shared team dates (integration backlog, section F).
 - **Why direct and not through Cortex:** one call for all observables, and it always uses MISP's current lists. There is **no interim fallback through Cortex**: the catalog's MISPWarningLists analyzer doesn't query MISP and fails without its own copy of the lists (tested 2026-10-01, disabled; Cortex backlog). Until C10 is live, n8n has no warninglist signal. Analysts see C10's result as n8n's tag on the observable, so TheHive needs no warninglist analyzer.
 - **Before it goes live:** R-14's size cap merged (this branch), misp-core re-measured under batch checks. The Read Only role is verified for `checkValue` (2026-10-01).
 - **Work:**
-  - MISP (me): a Read Only user `n8n@asox.local` with its own API key.
+  - MISP (me): ✅ a Read Only user `n8n@asox.local` with its own API key (2026-10-01: created by `misp-config.sh apply`, key in `nodes/intel/.env` as `MISP_N8N_API_KEY`; reachable from the n8n container). What is left for n8n and the integrator: [C10-handoff-n8n.md](C10-handoff-n8n.md).
   - Integrator (R-13): `MISP_N8N_API_KEY=__from:intel__` and `MISP_URL` in `nodes/core/.env.example` and `render-env.sh`, the user in `bootstrap.sh intel`, the n8n credential "MISP API (n8n)" in `bootstrap.sh core`, and `chk-misp-api` + C10 in `contracts-check.sh` (`8.8.8.8` is on a public-DNS list; a write is refused).
   - n8n (Inigo): `lib-misp-warninglist` (N8N-2.11), target v1.2 (2026-11-10).
 
