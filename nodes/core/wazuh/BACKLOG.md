@@ -37,7 +37,7 @@ Your machine runs the `core` mode and passes the Wazuh contracts before you chan
   - Done when: Ends with an all-green `healthcheck.sh` (5–15 min the first time; ~19 GB of disk).
 - [x] **W0.6** Verify the baseline you now own · P1, C1, C2, C8
   - Done when: `contracts-check.sh --only C1,C2,C8` passes; `id=$(nodes/lab/trigger.sh) && scripts/wazuh-query.sh --rule 100100 --match "$id"` finds the alert; it shows in Grafana.
-- [ ] **W0.7** Read the contracts and the Wazuh chapter *(in progress)* · P2
+- [x] **W0.7** Read the contracts and the Wazuh chapter · P2
   - Done when: Read PROJECT.md 5, 6.1, 11 and 13, `nodes/core/wazuh/README.md`, CONTRIBUTING.md; run `scripts/ci-checks.sh all` once.
   - Files: `PROJECT.md`, `CONTRIBUTING.md`, `nodes/core/wazuh/README.md`
 - [ ] **W0.8** Tell the integrator your RAM and Windows version *(in progress)* · P3
