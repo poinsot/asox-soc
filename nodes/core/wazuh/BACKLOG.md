@@ -25,7 +25,7 @@ Your machine runs the `core` mode and passes the Wazuh contracts before you chan
 - [x] **W0.1** Accept the GitHub invite and check SSH access from WSL · P1
   - Done when: `ssh -T git@github.com` greets @dmelgar1110; `git fetch origin` works.
   - With: Inigo (integrator), if the invite is missing
-- [ ] **W0.2** Complete the teammate gate of CHECKLIST.md *(in progress)* · P1
+- [x] **W0.2** Complete the teammate gate of CHECKLIST.md · P1
   - Done when: Sections 1–5, 7 and 9 checked; `scripts/preflight.sh` passes.
   - Files: `CHECKLIST.md`
 - [x] **W0.3** Bring main into the `wazuh` branch · P1
@@ -37,10 +37,10 @@ Your machine runs the `core` mode and passes the Wazuh contracts before you chan
   - Done when: Ends with an all-green `healthcheck.sh` (5–15 min the first time; ~19 GB of disk).
 - [x] **W0.6** Verify the baseline you now own · P1, C1, C2, C8
   - Done when: `contracts-check.sh --only C1,C2,C8` passes; `id=$(nodes/lab/trigger.sh) && scripts/wazuh-query.sh --rule 100100 --match "$id"` finds the alert; it shows in Grafana.
-- [ ] **W0.7** Read the contracts and the Wazuh chapter · P2
+- [ ] **W0.7** Read the contracts and the Wazuh chapter *(in progress)* · P2
   - Done when: Read PROJECT.md 5, 6.1, 11 and 13, `nodes/core/wazuh/README.md`, CONTRIBUTING.md; run `scripts/ci-checks.sh all` once.
   - Files: `PROJECT.md`, `CONTRIBUTING.md`, `nodes/core/wazuh/README.md`
-- [ ] **W0.8** Tell the integrator your RAM and Windows version · P3
+- [ ] **W0.8** Tell the integrator your RAM and Windows version *(in progress)* · P3
   - Done when: Inigo has the answer to PROJECT.md 16, questions 1 and 3.
   - With: Inigo (integrator)
 - [x] **W0.9** Re-sync your machine after the n8n merge (2026-10-01) · P1
