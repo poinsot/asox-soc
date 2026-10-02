@@ -87,7 +87,7 @@ Close the known gaps before core is exposed on a LAN, and build the tools the la
   - Files: `nodes/core/wazuh/integrations/custom-n8n.py`
   - With: Inigo (n8n owner)
   - Refs: X-10, A78
-- [ ] **W1.9** Test syslog source IPs, then send Inigo the R-06 spec (by 2026-10-07) · P1
+- [ ] **W1.9** Test syslog source IPs, then send Inigo the R-06 spec (by 2026-10-07) *(in progress)* · P1
   - Done when: First test which source IP the manager sees for UDP syslog sent to the published port (`${BIND_ADDR}:514:514/udp`): from the WSL host to `127.0.0.1`, from the lab container over `soc-net`, and, if you can, from another machine. Traffic through Docker's userland proxy may show every sender as the bridge gateway (`172.x.0.1`); if so, any `172.16.0.0/12` default lets every source through and W1.1's negative check can't pass. Then reply to Inigo (memo item 10) by 2026-10-07 so R-06 is on `main` by 2026-10-09: format comma-separated IPv4 addresses or CIDRs, no spaces, one `<allowed-ips>` per entry; a default chosen from the test result (Inigo proposes `172.16.0.0/12`; the narrower alternative is `127.0.0.1` plus the `soc-net` subnet); per machine, the optional `SYSLOG_ALLOWED_IPS` in `topology.env`. Record the test in `nodes/core/wazuh/docs/n8n-requests-2026-09-30.md`.
   - With: Inigo (integrator)
   - Refs: R-06

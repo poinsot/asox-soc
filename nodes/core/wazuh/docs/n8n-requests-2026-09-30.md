@@ -15,19 +15,23 @@ Received by the Wazuh owner on 2026-10-01. The original message is kept below as
 | 7 | `ioc-ip` and the other scenarios use documentation-range attacker IPs (`203.0.113.66` for `ioc-ip`) | 2026-10-09 | W1.5 | open | |
 | 8 | C1 retries: n8n accepts send-once; tell n8n before adding any | before any change | W1.8 | open | |
 | 9 | C14: n8n prefers a Wazuh-side sync script with its own MISP key (R-08) | 2026-10-16 | W6.1 | open | |
-| 10 | R-06: format, default, and a test of which source IP the manager sees through the published UDP port | **2026-10-07** | W1.9 | open | |
+| 10 | R-06: format, default, and a test of which source IP the manager sees through the published UDP port | **2026-10-07** | W1.9 | answered | Test below. Spec in [request-integrator-r06-syslog-allowed-ips.md](request-integrator-r06-syslog-allowed-ips.md): comma-separated IPv4/CIDR, empty by default; the entrypoint always adds the manager's own Docker subnets; not `172.16.0.0/12` |
 
 Status values: `open`, `answered`, `done`, `declined` (with the reason in Reply).
 
 ### Syslog source-IP test (item 10c)
 
-Fill in from W1.9.
+Run on 2026-10-01 (W1.9). Setup: `DEPLOY_MODE=single`, so 514/udp is published on `127.0.0.1` only. Docker 29.8.1 with the userland proxy on (the default): `docker-proxy -proto udp -host-ip 127.0.0.1 -host-port 514 -container-ip 172.19.0.5`. The manager is on `asox-core_default` (172.19.0.5, gateway 172.19.0.1) and on `soc-net` (172.18.0.3). Each sender sent `ASOX_TEST_EVENT id=w19-<sender>-1790909801`, so rule 100100 fired. The IP is the alert's `location`, which is what `<allowed-ips>` is checked against.
 
 | Sender | Sent to | Source IP the manager saw |
 |---|---|---|
-| WSL host | `127.0.0.1:514/udp` | |
-| lab container | `wazuh-manager:514/udp` over `soc-net` | |
-| another machine (optional) | host LAN IP `:514/udp` (distributed mode) | |
+| WSL host (`logger -n 127.0.0.1`) | `127.0.0.1:514/udp` (published port) | **`172.19.0.1`**, the gateway of `asox-core_default` (the proxy) |
+| Windows host (PowerShell `UdpClient`, mirrored networking) | `127.0.0.1:514/udp` (published port) | **`172.19.0.1`**, the same gateway |
+| lab container | `wazuh-manager:514/udp` over `soc-net` | `172.18.0.4`, its real address |
+| throwaway container on `soc-net` | `wazuh-manager:514/udp` | `172.18.0.5`, its real address |
+| another machine | host LAN IP `:514/udp` (distributed mode) | not tested: no second computer, and in single mode the port is bound to `127.0.0.1` |
+
+**Result:** through the published port every sender looks the same: the gateway of core's own network, chosen by Docker. Over `soc-net` the manager sees each container's real address. Docker picks the subnets per machine (`soc-net` is created without a fixed subnet), so no fixed narrow range is portable.
 
 ---
 
