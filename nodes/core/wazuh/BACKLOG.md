@@ -56,7 +56,7 @@ Close the known gaps before core is exposed on a LAN, and build the tools the la
   - Files: `nodes/core/wazuh/config/ossec.conf`, `nodes/core/wazuh/config/entrypoint-scripts/`
   - With: Inigo: R-06 (the variable in `nodes/core/.env.example` and `render-env.sh`), needed by 2026-10-09
   - Refs: R-06
-- [ ] **W1.2** Remove upstream placeholders from ossec.conf · P2, C1
+- [x] **W1.2** Remove upstream placeholders from ossec.conf · P2, C1
   - Done when: The cluster block (disabled, but it carries upstream's public default `<key>`) and the `smtp.example` email values are removed or neutralised; `wazuh-analysisd -t` shows no errors; C1 still passes.
   - Files: `nodes/core/wazuh/config/ossec.conf`
 - [ ] **W1.3** Define the rule ID plan, rule groups and file layout · P1
