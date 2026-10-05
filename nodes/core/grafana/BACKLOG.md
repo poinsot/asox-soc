@@ -38,11 +38,19 @@ Based on PROJECT.md (v2.1), docs/decisions.md, docs/handoff.md, CHECKLIST.md, CO
 |---|---|---|---|---|
 | GRAF-1.1 | Stat panels: alerts 24h (+ trend), critical (≥12) / high (10–11), active endpoints (15 min override) | P0 | S | none |
 | GRAF-1.2 | Severity distribution (4 range queries as one bar chart) | P0 | S | none |
-| GRAF-1.3 | Top rules and top endpoints (Terms on `rule.description.keyword` / `agent.name.keyword`) | P0 | S | Wazuh (more rules/agents needed to validate) |
+| GRAF-1.3 | Top rules and top endpoints (Terms on `rule.id` + `rule.description` / `agent.name`; plain `keyword` fields, no `.keyword` subfield) | P0 | S | Wazuh (more rules/agents needed to validate) |
 | GRAF-1.4 | Top source IPs table | P0 | S | none |
 | GRAF-1.5 | Failed authentications over time + top targeted users (`rule.groups:authentication_failed`, `data.dstuser`) | P1 | M | Wazuh (rule must exist) |
 | GRAF-1.6 | FIM spikes (`rule.groups:syscheck`) | P1 | S | Wazuh (rule must exist) |
 | GRAF-1.7 | Alerts by MITRE tactic and by HIPAA control | P1 | M | Wazuh (rules must tag `rule.mitre` / `rule.hipaa`) |
+
+**Status (2026-10-05):** GRAF-1.1 to 1.7 built in `provisioning/dashboards/soc-status.json` ("SOC Status", uid `asox-soc-status`), every panel on `$min_level` except "Active endpoints" (activity of any level). Fields checked against the live index mapping and with queries through Grafana as `grafana-ro` (GRAF-0.1):
+- All fields exist; strings are plain `keyword` (no `.keyword` subfield), `rule.level` is `long`.
+- sshd failed logins put the user in `data.srcuser` (invalid user, rule 5710) or `data.dstuser` (valid user, 5760), Windows in `data.win.eventdata.targetUserName`: "Top targeted users" merges the three. "Top source IPs" merges `data.srcip` and Suricata's `data.src_ip` (X-34).
+- Failed authentications = groups `authentication_failed` / `win_authentication_failed`; brute-force correlation alerts (`authentication_failures`) are a separate series so they aren't double counted.
+- "Active endpoints" counts agents with an alert in the last 15 min (manager 000 excluded): agent connection state isn't in the indexer.
+- The OpenSearch plugin (2.34.4) returns nothing for a `filters` bucket alone; severity buckets use `filters` + `date_histogram`, reduced in the panel.
+- Validated with lab data only: sshd failures and a FIM change written on the lab agent, plus `trigger.sh`. Real breakdowns still wait on Wazuh's rules (risk 2).
 
 ## E2: Dashboard "Escenarios de ataque"
 
