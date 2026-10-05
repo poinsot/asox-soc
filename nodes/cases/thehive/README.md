@@ -123,11 +123,20 @@ The plan and the features of this component are in [BACKLOG.md](BACKLOG.md): wha
 ## Trying it out
 
 ```bash
-nodes/cases/thehive/scripts/thehive-import.sh              # load the templates and fields (fresh machine)
-nodes/cases/thehive/scripts/thehive-test-alert.sh all      # 4 test alerts (ssh, malware, ids, generic)
+nodes/cases/thehive/scripts/thehive-import.sh                  # load the templates and fields (fresh machine)
+nodes/cases/thehive/scripts/thehive-test-alert.sh all          # 9 test alerts, one per case template
+nodes/cases/thehive/scripts/thehive-test-alert.sh all --promote  # same, and promote each to a case as n8n would
 # triage them in the UI (docs/TRIAGE.md), then:
-nodes/cases/thehive/scripts/thehive-test-alert.sh --cleanup
+nodes/cases/thehive/scripts/thehive-test-alert.sh --cleanup    # delete the test alerts and test cases
+nodes/cases/thehive/scripts/thehive-fp-report.sh --days 30     # false positives by Wazuh rule (Markdown)
 ```
+
+| Script | What it does |
+|---|---|
+| `thehive-export.sh` | Saves custom fields, observable types and case templates from TheHive into `entities/` |
+| `thehive-import.sh` | Loads `entities/` into TheHive (creates / updates, never deletes; `--dry-run`) |
+| `thehive-test-alert.sh` | Test alerts shaped like n8n's (`ssh malware ids generic login sudo newuser ioc portscan`), `--critical-asset`, `--promote`, `--cleanup` |
+| `thehive-fp-report.sh` | Cases and alerts closed as false positive / ignored, grouped by `wazuh-rule-id`, for Wazuh tuning (`--days N`, `--out FILE`) |
 
 ## Design discussion: direct links between Wazuh and TheHive (decided 2026-09-30)
 
