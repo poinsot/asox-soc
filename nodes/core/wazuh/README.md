@@ -114,7 +114,7 @@ Everything here works around upstream behaviour or depends on details of the pin
 
 ## Backlog (PROJECT.md 11.3)
 
-Pick from this list; Phase 1 only built the baseline. The owner's plan, split into milestones with a "done when" check per task, is in [BACKLOG.md](BACKLOG.md).
+Pick from this list; Phase 1 only built the baseline. The owner's plan, split into milestones with a "done when" check per task, is in [BACKLOG.md](BACKLOG.md). Requests from other owners and the replies are kept in [docs/](docs/).
 
 - **Restrict syslog sources** (`<allowed-ips>` of the 514/udp listener in `config/ossec.conf`, currently any source) to the real devices before `core` is exposed on a LAN.
 - Detection rules and decoders for the environment; false-positive tuning; the alert level threshold (`WAZUH_ALERT_MIN_LEVEL`, default 7).
