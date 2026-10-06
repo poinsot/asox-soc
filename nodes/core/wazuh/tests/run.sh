@@ -84,9 +84,8 @@ parse() {
     END { flush() }'
 }
 
-run_case() {  # file, name, expect, lines
-  local file=$1 name=$2 expect=$3 lines=$4 results want_rule="" want_level="" want_groups="" want_dec="" kv
-  [[ -z $filter || $file == *"$filter"* || $name == *"$filter"* ]] || return 0
+check() {  # file, name, one expect line, logtest results
+  local file=$1 name=$2 expect=$3 results=$4 want_rule="" want_level="" want_groups="" want_dec="" kv
   for kv in $expect; do
     case $kv in
       rule=*) want_rule=${kv#rule=} ;;
@@ -97,7 +96,6 @@ run_case() {  # file, name, expect, lines
     esac
   done
   [[ -n $want_rule ]] || { fail "$file: $name: expect needs rule=<id> or rule=none"; return; }
-  results=$(printf '%s\n' "$lines" | docker exec -i "$MANAGER" "$OSSEC/bin/wazuh-logtest" 2>&1 | parse)
 
   if [[ $want_rule == none ]]; then
     if grep -q '|yes$' <<<"$results"; then
@@ -125,6 +123,15 @@ run_case() {  # file, name, expect, lines
   fail "$file: $name: expected rule $want_rule; $hit"
 }
 
+run_case() {  # file, name, expect lines, log lines
+  local file=$1 name=$2 expects=$3 lines=$4 results e
+  [[ -z $filter || $file == *"$filter"* || $name == *"$filter"* ]] || return 0
+  [[ -n $expects ]] || { fail "$file: $name: no expect line"; return; }
+  [[ -n $lines ]] || { fail "$file: $name: no log, repeat or scenario line"; return; }
+  results=$(printf '%s\n' "$lines" | docker exec -i "$MANAGER" "$OSSEC/bin/wazuh-logtest" 2>&1 | parse)
+  while IFS= read -r e; do check "$file" "$name" "$e" "$results"; done <<<"$expects"
+}
+
 shopt -s nullglob
 files=("$TESTS_DIR"/cases/*.cases)
 (( ${#files[@]} )) || { echo "ERROR no case files in $TESTS_DIR/cases/" >&2; exit 2; }
@@ -136,8 +143,12 @@ for cf in "${files[@]}"; do
       case\ *)
         [[ -z $name ]] || run_case "$file" "$name" "$expect" "$lines"
         name=${line#case } expect="" lines="" ;;
-      expect\ *) expect=${line#expect } ;;
+      expect\ *) expect+="${expect:+$'\n'}${line#expect }" ;;
       log\ *) lines+="${lines:+$'\n'}${line#log }" ;;
+      scenario\ *)
+        # The lines nodes/lab/trigger.sh writes for that scenario, so cases
+        # and scenarios can't drift apart.
+        lines+="${lines:+$'\n'}$("$REPO_DIR/nodes/lab/trigger.sh" --scenario "${line#scenario }" --print --id runner)" ;;
       repeat\ *)
         read -r _ n rest <<<"$line"
         for (( i = 0; i < n; i++ )); do lines+="${lines:+$'\n'}$rest"; done ;;

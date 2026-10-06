@@ -67,12 +67,12 @@ Close the known gaps before core is exposed on a LAN, and build the tools the la
 - [x] **W1.4** Build a rule test runner · P1
   - Done when: `nodes/core/wazuh/tests/` holds sample log lines with the expected rule ID and level; `tests/run.sh` sends each one through the manager's logtest (`wazuh-logtest` in the container, or the API `PUT /logtest`) and prints one PASS/FAIL line per case with a non-zero exit on failure; `shellcheck` clean.
   - Files: `nodes/core/wazuh/tests/`
-- [ ] **W1.5** Add attack scenarios to the lab trigger · P1, C1
+- [x] **W1.5** Add attack scenarios to the lab trigger · P1, C1
   - Done when: `nodes/lab/trigger.sh --scenario <name>` writes realistic lines, for example `ssh-bruteforce` (enough `sshd` failures for built-in rule 5763), `ssh-success-after-fail`, `sudo-fail`, `new-user`, `ioc-ip` (seed IOC 203.0.113.66). The default without `--scenario` stays the C1 test event. n8n has no fixtures for sshd, sudo, FIM, rootcheck or rules with `rule.mitre` until these exist; tell Inigo when they land so he captures them in `nodes/core/n8n/fixtures/` (`replay.sh`). Every scenario uses attacker IPs from documentation ranges (`203.0.113.0/24`, `198.51.100.0/24`), and `ioc-ip` uses exactly the MISP seed IOC `203.0.113.66`: the lab's own `172.18.x.x` addresses are internal, so n8n would never send them to Cortex or MISP (memo item 7).
   - Files: `nodes/lab/trigger.sh`
   - With: Inigo (fixtures for playbooks), Park (TheHive's end-to-end test uses `ssh-bruteforce`), Jesus (dashboard data)
   - Refs: X-05
-- [ ] **W1.6** Attack-start marker for lab scenarios · P1, C11
+- [ ] **W1.6** Attack-start marker for lab scenarios *(in progress)* · P1, C11
   - Done when: Every `trigger.sh --scenario` first writes `ASOX_ATTACK_START scenario=<name> id=<uuid>`, and the scenario's own events carry the same id. A dedicated low-noise rule (ID in the 1001xx test range, level agreed with Jesus and Inigo) catches it; Grafana draws it as an annotation. It is C11's `t_attack_start`: without it there is no MTTD.
   - Files: `nodes/lab/trigger.sh`, `nodes/core/wazuh/rules/`
   - With: Jesus (GRAF-2.2, D-G3), Inigo (C11 writer)

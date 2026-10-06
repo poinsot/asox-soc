@@ -7,3 +7,11 @@ log Oct  5 10:00:00 lab-agent asox-test: ASOX_TEST_EVENT id=runner-1
 case test rule ignores lines without the marker
 expect rule=none
 log Oct  5 10:00:00 lab-agent asox-test: ASOX_TEST id=runner-2
+
+case attack-start marker
+expect rule=100101 level=3 groups=asox,test,attack_start decoder=asox-lab
+log Oct  5 10:00:00 lab-agent asox-lab: ASOX_ATTACK_START scenario=ssh-bruteforce id=3f2a9c1e-0b7d-4c55-9a51-6f1d2e8b4a10
+
+case attack-start text from another program is not a marker
+expect rule=none
+log Oct  5 10:00:00 lab-agent someapp: ASOX_ATTACK_START scenario=x id=y
