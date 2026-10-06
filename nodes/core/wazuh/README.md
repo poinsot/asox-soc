@@ -42,6 +42,68 @@ In the commands below, `<instance>` is `SOC_INSTANCE` from `topology.env` (defau
      ```
   4. Every teammate who pulls the change runs the same `rm` on their machine (mention it in the checkpoint pull request). A `soc.sh reset core` also clears it, but deletes all core data.
 
+## Rules: ID plan, files and groups (W1.3)
+
+Status: **proposal**, to be agreed with the n8n owner (router, D-N2) and the TheHive owner (case templates, ALERT-FORMAT.md §3) by checkpoint 1 (2026-10-20); see [docs/request-n8n-rule-groups.md](docs/request-n8n-rule-groups.md). Once a rule ID, file name or group ships on `main`, it is **never renamed or reused**. Other owners route on them, and removing a file needs the manual `rm` above.
+
+**Prefer built-in rules.** Wazuh's ruleset already covers sshd brute force (5763), sudo, new users, FIM, rootcheck and Suricata (86601). A custom rule is written only to fill a gap, to correlate, or to retune. Built-ins are retuned in the tuning file with `overwrite="yes"`, keeping their original ID.
+
+### ID ranges and files
+
+Custom IDs live in 100000–120999 (Wazuh reserves everything below 100000). Each source has its own range and its own file, and the file name starts with the range's first four digits:
+
+| Range | File (`rules/`) | Source | Milestone |
+|---|---|---|---|
+| 100100–100199 | `local_rules.xml` | Tests and lab markers: 100100 test rule (C1, C8), 100101 attack-start marker (W1.6) | M0, M1 |
+| 100200–100299 | `1002-linux-auth.xml` | Linux authentication: SSH, sudo, accounts | M2 |
+| 100300–100499 | `1003-linux-system.xml` | Linux system: FIM, rootcheck, malware | M2, M5 |
+| 100500–100999 | `1005-windows.xml` | Windows endpoints | M5 |
+| 101000–101999 | `1010-suricata.xml` | Suricata IDS (on top of built-in 86601) | M3 |
+| 102000–102999 | `1020-router.xml` | Router syslog | M4 |
+| 103000–103999 | `1030-pfsense.xml` | pfSense syslog | M4 |
+| 108000–108999 | `1080-misp-ioc.xml` | MISP IOC matches from CDB lists (C14), across every source above | M6 |
+| 109000–109999 | `1090-tuning.xml` | Tuning: `overwrite="yes"` of built-ins (original IDs) and level-0 children that silence noise (109xxx), one reason per rule | M2 on |
+| 110000–120999 | — | Reserved | — |
+
+Custom decoders follow the same names in `decoders/` (e.g. `1030-pfsense.xml`).
+
+**Why the number prefix:** the manager loads `etc/rules/` in **alphabetical order**, after the built-in ruleset. A child rule (`if_sid`) whose parent sits in a file loaded *later* is **dropped with only a warning** (`7617 Signature ID ... was not found`, `7619 Empty 'if_sid' value`), and the manager starts anyway (tested 2026-10-05). So a file may only depend on built-ins and on files that sort before it: that's why MISP IOC rules (1080) come after every source, and tuning (1090) comes last. `local_rules.xml` sorts after the digits, so nothing may depend on it. The rule test runner (W1.4) fails on these warnings.
+
+### Rule groups (the routing key)
+
+Every custom rule carries three kinds of groups:
+
+1. **`asox`**: marks it as ours, so a Grafana panel or n8n can tell custom from built-in.
+2. **One source group:** `test`, `linux`, `windows`, `suricata`, `router`, `pfsense` or `misp_ioc`.
+3. **Wazuh's standard groups for what it detects**, spelled exactly as the built-in rules spell them. n8n's router and TheHive's templates already match on these:
+
+| Detects | Standard groups | Case template (ALERT-FORMAT.md §3) |
+|---|---|---|
+| SSH failures, brute force | `sshd`, `authentication_failed` / `authentication_failures`, `invalid_login` | `ssh-bruteforce` |
+| Successful login | `authentication_success` | `wazuh-generic` |
+| sudo | `sudo` | `wazuh-generic` |
+| New user or group | `adduser` (Wazuh uses it for both: 5901 new group, 5902 new user), `account_changed` | `wazuh-generic` |
+| File integrity | `syscheck` | `wazuh-generic` |
+| Malware, rootkits | `rootcheck`, `malware`, `virustotal` | `malware-detection` |
+| Network IDS | `ids` (plus the source `suricata`) | `ids-network-alert` |
+| Firewall blocks, scans | `firewall_drop`, `recon` | `wazuh-generic` (until a template exists) |
+
+New group names are added only for things Wazuh has no name for: `attack_start` (the lab marker, W1.6) and `misp_ioc` (C14). Every custom rule also has a `<mitre>` block (W2.3), so the technique arrives as `rule.mitre.id`.
+
+Example:
+
+```xml
+<group name="asox,linux,sshd,authentication_success,">
+  <rule id="100210" level="12" frequency="..." timeframe="...">
+    ...
+    <mitre><id>T1110</id></mitre>
+    <description>ASOX: successful SSH login after repeated failures from $(srcip)</description>
+  </rule>
+</group>
+```
+
+Routing (D-N2): n8n routes on these groups first, and on a short map of specific rule IDs where a group is too broad. The catalog of every custom rule (ID, groups, level, MITRE, lab scenario) is added here in W2.5.
+
 ## Indexer admin password
 
 `INDEXER_ADMIN_PASSWORD` (in `nodes/core/.env`, generated per machine) is written into the indexer's security index **only on the indexer's first start** (from `nodes/core/certs/internal_users.yml`, created by `gen-certs.sh`). Changing the value in `.env` afterwards does nothing by itself, and the manager's Filebeat would then fail to log in.
