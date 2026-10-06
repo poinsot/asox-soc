@@ -1,0 +1,9 @@
+# Cases for rules/local_rules.xml (100100-100199: tests and lab markers).
+
+case test rule fires on the marker
+expect rule=100100 level=10 groups=asox,test
+log Oct  5 10:00:00 lab-agent asox-test: ASOX_TEST_EVENT id=runner-1
+
+case test rule ignores lines without the marker
+expect rule=none
+log Oct  5 10:00:00 lab-agent asox-test: ASOX_TEST id=runner-2

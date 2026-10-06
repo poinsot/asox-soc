@@ -4,7 +4,7 @@ Owner: Daniel (@dmelgar1110). Branch: `wazuh`. Node: `core` (plus the `lab` test
 
 Collects events from agents and syslog, decodes them, classifies them with rules, stores alerts in the Wazuh indexer and forwards relevant alerts to n8n.
 
-**Start here:** [CONTRIBUTING.md](../../../CONTRIBUTING.md) (light rules, exporting changes, onboarding), then this file. First time: `./scripts/soc.sh init core`; then `soc.sh up core` / `soc.sh down`. Test loop: edit a rule → `docker restart <instance>-core-wazuh-manager-1` → `nodes/lab/trigger.sh` → `scripts/wazuh-query.sh` or Grafana. Details: [PROJECT.md](../../../PROJECT.md) 6.1.
+**Start here:** [CONTRIBUTING.md](../../../CONTRIBUTING.md) (light rules, exporting changes, onboarding), then this file. First time: `./scripts/soc.sh init core`; then `soc.sh up core` / `soc.sh down`. Test loop: edit a rule → `nodes/core/wazuh/tests/run.sh` (no restart needed) → `docker restart <instance>-core-wazuh-manager-1` → `nodes/lab/trigger.sh` → `scripts/wazuh-query.sh` or Grafana. Details: [PROJECT.md](../../../PROJECT.md) 6.1.
 
 | Folder / file | What it is |
 |---|---|
@@ -14,6 +14,7 @@ Collects events from agents and syslog, decodes them, classifies them with rules
 | `config/certs.yml` | Nodes for the certificate generator (`scripts/gen-certs.sh`) |
 | `config/entrypoint-scripts/` | Scripts the manager image runs before Wazuh starts (writes the agent enrollment password) |
 | `rules/`, `decoders/` | Custom rules and decoders (`local_rules.xml` holds the Phase 1 test rule `100100`) |
+| `tests/` | Rule test runner: `tests/run.sh` checks the ruleset against sample log lines through `wazuh-logtest` ([tests/README.md](tests/README.md)) |
 
 No Wazuh web UI (the Wazuh dashboard isn't deployed): alerts are in Grafana (`http://localhost:3000`) and `scripts/wazuh-query.sh`; the Wazuh API is `https://localhost:55000` (self-signed certificate), login from `scripts/soc.sh info`. Agents connect on 1514/tcp and enroll on 1515/tcp; syslog on 514/udp.
 

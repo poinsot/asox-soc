@@ -64,7 +64,7 @@ Close the known gaps before core is exposed on a LAN, and build the tools the la
   - Files: `nodes/core/wazuh/rules/`, `nodes/core/wazuh/README.md`
   - With: Inigo (router), Park (case templates)
   - Refs: X-04, D-N2
-- [ ] **W1.4** Build a rule test runner · P1
+- [x] **W1.4** Build a rule test runner · P1
   - Done when: `nodes/core/wazuh/tests/` holds sample log lines with the expected rule ID and level; `tests/run.sh` sends each one through the manager's logtest (`wazuh-logtest` in the container, or the API `PUT /logtest`) and prints one PASS/FAIL line per case with a non-zero exit on failure; `shellcheck` clean.
   - Files: `nodes/core/wazuh/tests/`
 - [ ] **W1.5** Add attack scenarios to the lab trigger · P1, C1
