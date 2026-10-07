@@ -1,0 +1,574 @@
+{
+  "id": "asoxLibCortexJob",
+  "name": "lib-cortex-job",
+  "active": true,
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## lib-cortex-job (N8N-2.4, C6)\n**Trigger:** called by lib-enrich-observable through Execute Workflow (one item: one analyzer on one value), waiting for the result.\n**Inputs:** `{job: {key, dataType, data, analyzer, analyzer_id, timeout_s, tlp, pap, force}, cortex_http, message}`.\n**Actions taken:** `POST /api/analyzer/<id>/run` with the Cortex API (n8n) credential, then `GET /api/job/<id>/waitreport?atMost=<timeout_s>seconds` (one blocking call, Cortex 4.1; no polling loop). Each call has lib-config's `cortex_http` timeout (waitreport: timeout_s + 5 s) and is retried after a connection error or 5xx (and the run call after a timeout), never after a 4xx (N8N-6.2). Retrying the run call is safe: with `force: false` a run that was accepted comes back from Cortex's job cache as the same job.\n**Result:** `{kind: 'cortex_job_result', outcome: success | failed, job_id, from_cache, taxonomies, class, attempts, message}`; classes `cortex_unreachable` (after the last call), `cortex_4xx`, `job_failure` (analyzer error), `timeout` (not finished within timeout_s; the job goes on in Cortex), `cortex_error`. Never parks: enrichment must not stop the alert.\n**Systems changed:** none (Cortex jobs are read-only lookups).\n**Approval:** not needed.\n**Owner:** n8n.\nSuccessful executions are not saved (N8N-6.5).",
+        "height": 380,
+        "width": 600
+      },
+      "id": "794402ea-7c7e-517e-a28e-64267487915a",
+      "name": "About this workflow",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -40,
+        -420
+      ]
+    },
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "id": "e4ef6c1e-5083-50cf-9a02-b27e19b9047b",
+      "name": "Called by a workflow",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.CORTEX_URL }}/api/analyzer/{{ encodeURIComponent($('Called by a workflow').first().json.job.analyzer_id) }}/run",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "cortexApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ data: $('Called by a workflow').first().json.job.data, dataType: $('Called by a workflow').first().json.job.dataType, tlp: $('Called by a workflow').first().json.job.tlp, pap: $('Called by a workflow').first().json.job.pap, force: $('Called by a workflow').first().json.job.force === true, message: $('Called by a workflow').first().json.message }) }}",
+        "options": {
+          "timeout": "={{ $('Called by a workflow').first().json.cortex_http.timeout_ms }}",
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "8b045396-367b-5af1-9099-c9d473306cc3",
+      "name": "Run Cortex job",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        260,
+        0
+      ],
+      "credentials": {
+        "cortexApi": {
+          "id": "asoxCortexApi001",
+          "name": "Cortex API (n8n)"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Retry policy for Cortex calls (N8N-6.2; lib-config cortex_http): a\n// connection error, a timeout or HTTP 5xx -> wait and call again; anything\n// else (2xx, and 4xx, which a retry never fixes) -> passed on. A transient\n// failure on the last call is passed on as an error with the number of calls.\nconst r = $input.first().json;\nconst policy = $('Called by a workflow').first().json.cortex_http;\nconst NODE = 'Run Cortex job';\nconst attempt = $runIndex + 1; // this node runs once per call\nconst status = typeof r.statusCode === 'number' ? r.statusCode : null;\nconst thrown = r.error !== undefined && status === null; // HTTP node error output\nconst NETWORK = /ECONNREFUSED|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|ECONNRESET|EHOSTUNREACH|ENETUNREACH|ECONNABORTED|timeout|timed out|socket hang up|connection cannot be established/i;\nconst transient = thrown ? NETWORK.test(JSON.stringify(r)) : status >= 500;\nconst calls = policy.retry_waits_s.length + 1;\nif (transient && attempt < calls) {\n  return [{ json: { decision: 'retry', stage: NODE, attempt, wait_s: policy.retry_waits_s[attempt - 1],\n    reason: thrown ? 'connection error or timeout' : `HTTP ${status}` } }];\n}\nif (thrown || transient) {\n  const e = r.error;\n  const detail = thrown\n    ? (typeof e === 'string' ? e : [e?.message, e?.description].filter(Boolean).join(': ') || JSON.stringify(r))\n    : `HTTP ${status}: ${typeof r.body === 'string' ? r.body : JSON.stringify(r.body)}`;\n  return [{ json: { decision: 'error', stage: NODE, node: NODE, attempts: attempt, retry_exhausted: transient,\n    http_status: status, error_code: e?.code ?? e?.cause?.code ?? null,\n    message: `${detail}`.slice(0, 1000) + (transient ? ` (${attempt} calls)` : '') } }];\n}\nreturn [{ json: { ...r, decision: 'response', attempts: attempt } }];\n"
+      },
+      "id": "c1d6d591-69c6-5d75-8071-156860873f50",
+      "name": "Assess: Run Cortex job",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        520,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "40b1ccbf-191c-58a3-89f1-08d6953a972d",
+              "leftValue": "={{ $json.decision === 'retry' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "08ce4593-bd55-5a97-8304-1eb1c27c24cb",
+      "name": "Retry: Run Cortex job?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        780,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "resume": "timeInterval",
+        "amount": "={{ $json.wait_s }}",
+        "unit": "seconds"
+      },
+      "id": "75bcb891-2ab4-5afa-b5cf-c61be55d2c03",
+      "name": "Wait before retry: Run Cortex job",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        780,
+        -200
+      ],
+      "webhookId": "780c87db-d3ee-5b1d-b8dd-e2539745740f"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "779afe12-e9f3-55dc-a63b-e9e9c7f778de",
+              "leftValue": "={{ $json.decision === 'response' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "db948a60-73f8-54de-aab3-e0e9b72fb126",
+      "name": "Answered: Run Cortex job?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1040,
+        60
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// 2xx with a job id = job accepted (status Waiting, or Success when Cortex\n// answered from its job cache); anything else is a refusal (4xx: unknown\n// analyzer, TLP/PAP above the analyzer's max, bad input).\nconst r = $input.first().json;\nconst b = r.body ?? {};\nif (r.statusCode >= 200 && r.statusCode < 300 && typeof b.id === 'string') {\n  return [{ json: { ok: true, job_id: b.id, status: b.status ?? null, from_cache: b.status === 'Success', run_attempts: r.attempts } }];\n}\nreturn [{ json: { ok: false, class: r.statusCode >= 400 && r.statusCode < 500 ? 'cortex_4xx' : 'cortex_error',\n  http_status: r.statusCode ?? null, attempts: r.attempts,\n  message: `run refused: HTTP ${r.statusCode}: ${typeof r.body === 'string' ? r.body : JSON.stringify(r.body)}`.slice(0, 500) } }];\n"
+      },
+      "id": "865a6940-ab4c-57a7-91c4-39da4bbd8f66",
+      "name": "Interpret run",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1300,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "3bc231c2-27b0-58c6-9c4d-e5580627ffdb",
+              "leftValue": "={{ $json.ok === true }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "d9efae14-db45-51cb-981e-f78b05ff1c49",
+      "name": "Job started?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1560,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.CORTEX_URL }}/api/job/{{ encodeURIComponent($('Interpret run').first().json.job_id) }}/waitreport?atMost={{ $('Called by a workflow').first().json.job.timeout_s }}seconds",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "cortexApi",
+        "options": {
+          "timeout": "={{ ($('Called by a workflow').first().json.job.timeout_s + 5) * 1000 }}",
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "59593bc8-1681-5df1-b229-45d0ed74acd7",
+      "name": "Wait for Cortex report",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1820,
+        -200
+      ],
+      "credentials": {
+        "cortexApi": {
+          "id": "asoxCortexApi001",
+          "name": "Cortex API (n8n)"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Retry policy for Cortex calls (N8N-6.2; lib-config cortex_http): a\n// connection error or HTTP 5xx -> wait and call again; anything else (2xx,\n// 4xx) -> passed on. A client timeout is NOT retried here: this call already\n// waited the job's whole time budget, so it ends as class `timeout`.\nconst r = $input.first().json;\nconst policy = $('Called by a workflow').first().json.cortex_http;\nconst NODE = 'Wait for Cortex report';\nconst attempt = $runIndex + 1; // this node runs once per call\nconst status = typeof r.statusCode === 'number' ? r.statusCode : null;\nconst thrown = r.error !== undefined && status === null; // HTTP node error output\nconst NETWORK = /ECONNREFUSED|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|ECONNRESET|EHOSTUNREACH|ENETUNREACH|ECONNABORTED|timeout|timed out|socket hang up|connection cannot be established/i;\nconst TIMEOUT = /timeout|timed out|ETIMEDOUT|ECONNABORTED/i;\nif (thrown && TIMEOUT.test(JSON.stringify(r))) {\n  return [{ json: { decision: 'error', stage: NODE, node: NODE, attempts: attempt, retry_exhausted: false,\n    timed_out: true, http_status: null, error_code: r.error?.code ?? null,\n    message: `no answer within the HTTP timeout (${attempt} calls)` } }];\n}\nconst transient = thrown ? NETWORK.test(JSON.stringify(r)) : status >= 500;\nconst calls = policy.retry_waits_s.length + 1;\nif (transient && attempt < calls) {\n  return [{ json: { decision: 'retry', stage: NODE, attempt, wait_s: policy.retry_waits_s[attempt - 1],\n    reason: thrown ? 'connection error or timeout' : `HTTP ${status}` } }];\n}\nif (thrown || transient) {\n  const e = r.error;\n  const detail = thrown\n    ? (typeof e === 'string' ? e : [e?.message, e?.description].filter(Boolean).join(': ') || JSON.stringify(r))\n    : `HTTP ${status}: ${typeof r.body === 'string' ? r.body : JSON.stringify(r.body)}`;\n  return [{ json: { decision: 'error', stage: NODE, node: NODE, attempts: attempt, retry_exhausted: transient,\n    http_status: status, error_code: e?.code ?? e?.cause?.code ?? null,\n    message: `${detail}`.slice(0, 1000) + (transient ? ` (${attempt} calls)` : '') } }];\n}\nreturn [{ json: { ...r, decision: 'response', attempts: attempt } }];\n"
+      },
+      "id": "29ad8292-bb0b-58b2-8256-e12e2f3c0067",
+      "name": "Assess: Wait for Cortex report",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2080,
+        -200
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "a5ba13a5-88d4-56a7-b4b9-356384583f88",
+              "leftValue": "={{ $json.decision === 'retry' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "cac4b85e-7cbb-56f0-9986-0919a68be117",
+      "name": "Retry: Wait for Cortex report?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2340,
+        -200
+      ]
+    },
+    {
+      "parameters": {
+        "resume": "timeInterval",
+        "amount": "={{ $json.wait_s }}",
+        "unit": "seconds"
+      },
+      "id": "068fce79-6b28-58ea-a5d4-acb9aef8f3db",
+      "name": "Wait before retry: Wait for Cortex report",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        2340,
+        -400
+      ],
+      "webhookId": "e9eb16c1-5074-5a9f-ad23-6d8889246638"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "20739de3-9755-5ecc-b81d-d1ecdff35cb1",
+              "leftValue": "={{ $json.decision === 'response' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "43d3455f-6814-5ee3-8fed-dac42d200f4f",
+      "name": "Answered: Wait for Cortex report?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2600,
+        -140
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// waitreport answers when the job ends or atMost has passed: Success (report\n// with summary.taxonomies), Failure (analyzer error), or still Waiting /\n// InProgress (= timeout here; the job goes on in Cortex).\nconst r = $input.first().json;\nconst j = $('Called by a workflow').first().json.job;\nconst run = $('Interpret run').first().json;\nconst b = r.body ?? {};\nconst base = { kind: 'cortex_job_result', key: j.key, dataType: j.dataType, data: j.data, analyzer: j.analyzer,\n  job_id: run.job_id, from_cache: run.from_cache };\nif (r.statusCode !== 200) {\n  return [{ json: { ...base, outcome: 'failed', class: r.statusCode >= 400 && r.statusCode < 500 ? 'cortex_4xx' : 'cortex_error',\n    attempts: r.attempts, message: `waitreport: HTTP ${r.statusCode}`.slice(0, 500) } }];\n}\nif (b.status === 'Success') {\n  const tax = b.report?.summary?.taxonomies;\n  return [{ json: { ...base, outcome: 'success', status: b.status, taxonomies: Array.isArray(tax) ? tax : [] } }];\n}\nif (b.status === 'Failure') {\n  // The error's last line is the analyzer's own message (earlier lines are often warnings).\n  const msg = String(b.errorMessage ?? '').split('\\n').filter((l) => l.trim()).pop() ?? '';\n  return [{ json: { ...base, outcome: 'failed', class: 'job_failure', status: b.status, attempts: 1, message: msg.slice(0, 500) } }];\n}\nreturn [{ json: { ...base, outcome: 'failed', class: 'timeout', status: b.status ?? null, attempts: r.attempts,\n  message: `job not finished within ${j.timeout_s} s (status ${b.status}); it goes on in Cortex` } }];\n"
+      },
+      "id": "75d501d9-3ae8-5b0d-9e8d-df6cbb094a93",
+      "name": "Interpret report",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2860,
+        -300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// A call that failed for good (after its retries), or a refused run.\nconst x = $input.first().json;\nconst j = $('Called by a workflow').first().json.job;\nconst run = $('Interpret run').isExecuted ? $('Interpret run').first().json : null;\nconst cls = x.class ?? (x.timed_out ? 'timeout' : x.retry_exhausted ? 'cortex_unreachable' : 'cortex_error');\nreturn [{ json: { kind: 'cortex_job_result', key: j.key, dataType: j.dataType, data: j.data, analyzer: j.analyzer,\n  job_id: run?.job_id ?? null, from_cache: run?.from_cache ?? false, outcome: 'failed', class: cls,\n  stage: x.stage ?? 'Run Cortex job', attempts: x.attempts ?? null, http_status: x.http_status ?? null,\n  message: x.message ?? null } }];\n"
+      },
+      "id": "ebb6e270-01d8-55d4-95c2-938778e0da3e",
+      "name": "Failed result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2860,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Called by a workflow": {
+      "main": [
+        [
+          {
+            "node": "Run Cortex job",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run Cortex job": {
+      "main": [
+        [
+          {
+            "node": "Assess: Run Cortex job",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Assess: Run Cortex job",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Assess: Run Cortex job": {
+      "main": [
+        [
+          {
+            "node": "Retry: Run Cortex job?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Retry: Run Cortex job?": {
+      "main": [
+        [
+          {
+            "node": "Wait before retry: Run Cortex job",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Answered: Run Cortex job?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait before retry: Run Cortex job": {
+      "main": [
+        [
+          {
+            "node": "Run Cortex job",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Answered: Run Cortex job?": {
+      "main": [
+        [
+          {
+            "node": "Interpret run",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Failed result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Interpret run": {
+      "main": [
+        [
+          {
+            "node": "Job started?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Job started?": {
+      "main": [
+        [
+          {
+            "node": "Wait for Cortex report",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Failed result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait for Cortex report": {
+      "main": [
+        [
+          {
+            "node": "Assess: Wait for Cortex report",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Assess: Wait for Cortex report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Assess: Wait for Cortex report": {
+      "main": [
+        [
+          {
+            "node": "Retry: Wait for Cortex report?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Retry: Wait for Cortex report?": {
+      "main": [
+        [
+          {
+            "node": "Wait before retry: Wait for Cortex report",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Answered: Wait for Cortex report?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait before retry: Wait for Cortex report": {
+      "main": [
+        [
+          {
+            "node": "Wait for Cortex report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Answered: Wait for Cortex report?": {
+      "main": [
+        [
+          {
+            "node": "Interpret report",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Failed result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataSuccessExecution": "none",
+    "saveDataErrorExecution": "all",
+    "saveManualExecutions": true
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "nodeGroups": [],
+  "tags": [],
+  "pinData": {}
+}
