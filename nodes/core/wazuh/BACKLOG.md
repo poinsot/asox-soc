@@ -77,12 +77,12 @@ Close the known gaps before core is exposed on a LAN, and build the tools the la
   - Files: `nodes/lab/trigger.sh`, `nodes/core/wazuh/rules/`
   - With: Jesus (GRAF-2.2, D-G3), Inigo (C11 writer)
   - Refs: X-32
-- [ ] **W1.7** Answer the contract decisions (by 2026-10-16) · P1, C9, C11, C12, C13
+- [ ] **W1.7** Answer the contract decisions (by 2026-10-16) *(in progress)* · P1, C9, C11, C12, C13
   - Done when: Your answer reaches Inigo for `docs/integration-backlog.md`. C9 (D44): accept the separate `n8n-response` user instead of widening `n8n-api` (W7.1 already updated). C11 (D46): the `asox-metrics` index lives in your indexer; agree a retention and check it fits the indexer on `low` (heap 512 MB, limit 1.15 GB). C12 (D47): noted as rejected. C13 (D48): confirm the field map against real alerts (W2.5); you are the last owner to acknowledge (n8n and Diego have). Then update the README's contracts table: C9 row per D44, and rows for C11, C13 and C14.
   - Files: `nodes/core/wazuh/README.md`
   - With: Inigo (integrator)
   - Refs: X-20, X-26, X-27, X-33
-- [ ] **W1.8** Record C1's "send once, no retries" (X-10) · P3, C1
+- [x] **W1.8** Record C1's "send once, no retries" (X-10) · P3, C1
   - Done when: Inigo answered (memo item 8): n8n accepts C1's send-once behaviour and answers 200 on receipt, so no retries are added. Record it in the README's contracts section: any future retry in `custom-n8n.py` needs the n8n owner's agreement first, because TheHive's duplicate refusal isn't atomic and overlapping copies create two alerts (A78). Also note that `custom-n8n.py` must keep sending valid JSON (`json.dumps`): n8n rejects anything else with HTTP 422 before a workflow runs, so only `integrations.log` would show it.
   - Files: `nodes/core/wazuh/integrations/custom-n8n.py`
   - With: Inigo (n8n owner)
@@ -91,7 +91,7 @@ Close the known gaps before core is exposed on a LAN, and build the tools the la
   - Done when: First test which source IP the manager sees for UDP syslog sent to the published port (`${BIND_ADDR}:514:514/udp`): from the WSL host to `127.0.0.1`, from the lab container over `soc-net`, and, if you can, from another machine. Traffic through Docker's userland proxy may show every sender as the bridge gateway (`172.x.0.1`); if so, any `172.16.0.0/12` default lets every source through and W1.1's negative check can't pass. Then reply to Inigo (memo item 10) by 2026-10-07 so R-06 is on `main` by 2026-10-09: format comma-separated IPv4 addresses or CIDRs, no spaces, one `<allowed-ips>` per entry; a default chosen from the test result (Inigo proposes `172.16.0.0/12`; the narrower alternative is `127.0.0.1` plus the `soc-net` subnet); per machine, the optional `SYSLOG_ALLOWED_IPS` in `topology.env`. Record the test in `nodes/core/wazuh/docs/n8n-requests-2026-09-30.md`.
   - With: Inigo (integrator)
   - Refs: R-06
-- [ ] **W1.10** Answer n8n's memo of 2026-09-30 · P1, C1, C14
+- [ ] **W1.10** Answer n8n's memo of 2026-09-30 *(in progress)* · P1, C1, C14
   - Done when: Every item in `nodes/core/wazuh/docs/n8n-requests-2026-09-30.md` has a status and an answer in its reply column, sent to Inigo: items 6, 7, 8, 9 and 10 by their dates (10 by 2026-10-07, 9 by 2026-10-16), the rest at checkpoint 1 (2026-10-20). The tasks that deliver each item are listed there.
   - Files: `nodes/core/wazuh/docs/n8n-requests-2026-09-30.md`
   - With: Inigo (n8n owner)

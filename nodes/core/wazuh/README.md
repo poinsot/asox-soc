@@ -81,15 +81,15 @@ Every custom rule carries three kinds of groups:
 | Detects | Standard groups | Case template (ALERT-FORMAT.md §3) |
 |---|---|---|
 | SSH failures, brute force | `sshd`, `authentication_failed` / `authentication_failures`, `invalid_login` | `ssh-bruteforce` |
-| Successful login | `authentication_success` | `wazuh-generic` |
-| sudo | `sudo` | `wazuh-generic` |
-| New user or group | `adduser` (Wazuh uses it for both: 5901 new group, 5902 new user), `account_changed` | `wazuh-generic` |
+| Successful login | `authentication_success`; failures then success: built-in 40112 (`attacks`, T1078 + T1110, level 12) | `suspicious-login` (40112 only) |
+| sudo | `sudo` (built-in 5404 has no `authentication_*` group; its MITRE is T1548.003) | `privilege-escalation` |
+| New, deleted or changed user or group | `adduser` (Wazuh uses it for all of them: 5901 new group, 5902 new user, 5903, 5904) | `account-change` |
 | File integrity | `syscheck` | `wazuh-generic` |
 | Malware, rootkits | `rootcheck`, `malware`, `virustotal` | `malware-detection` |
 | Network IDS | `ids` (plus the source `suricata`) | `ids-network-alert` |
-| Firewall blocks, scans | `firewall_drop`, `recon` | `wazuh-generic` (until a template exists) |
+| Firewall blocks, scans | `pfsense` or `router` source, plus `firewall_drop`, `recon` (scans carry T1046) | `network-scan` |
 
-New group names are added only for things Wazuh has no name for: `attack_start` (the lab marker, W1.6) and `misp_ioc` (C14). Every custom rule also has a `<mitre>` block (W2.3), so the technique arrives as `rule.mitre.id`.
+New group names are added only for things Wazuh has no name for: `attack_start` (the lab marker, W1.6) and `misp_ioc` (C14, template `ioc-match`). Every custom rule also has a `<mitre>` block (W2.3), so the technique arrives as `rule.mitre.id`.
 
 Example:
 
@@ -170,12 +170,17 @@ A containerized Wazuh agent (`lab-agent`), enrolled exactly like a real endpoint
 
 ## Contracts and exporting changes
 
-| Contract | Role | Status at `v1.0-baseline` |
+| Contract | Role | Status |
 |---|---|---|
-| C1 Wazuh → n8n | Sends alerts with level ≥ `WAZUH_ALERT_MIN_LEVEL` through `custom-n8n`, with the webhook token | Passes |
+| C1 Wazuh → n8n | Sends alerts with level ≥ `WAZUH_ALERT_MIN_LEVEL` through `custom-n8n`, with the webhook token. Sends each alert once, with no retries (A48); n8n accepts this (X-10) | Passes |
 | C2 n8n → Wazuh API | Provides the read-only user `n8n-api` | Passes |
 | C8 Grafana → Wazuh indexer | Provides the read-only user `grafana-ro` (`wazuh-alerts-*`) | Passes |
-| C9 n8n → endpoints (Phase 2) | Active response through the API; extends `n8n-api`'s role (contract change) | Planned |
+| C9 n8n → endpoints (Phase 2, D44) | Active response through the API as a **separate** user and role `n8n-response` (`active-response:command` + `agent:read`, actionable agent groups only); `n8n-api` stays read-only, so C2 keeps passing. Built-in `firewall-drop`, `host-deny`, `disable-account` with timeouts; protected hosts in Wazuh's `<white_list>` (W7.1) | Planned; acknowledged 2026-10-07 |
+| C11 n8n → indexer → Grafana (D46) | Hosts the `asox-metrics` index (one document per alert, written by `n8n-indexer`, read by `grafana-ro`). Proposed: 1 shard, 0 replicas, no deletion until after delivery. `t_attack_start` comes from the lab marker (rule 100101, W1.6) | Planned; acknowledged 2026-10-07 |
+| C13 Cortex → n8n → indexer (D48) | Keeps the alert field names stable for the "seen before in Wazuh?" lookup: `data.srcip`/`dstip`, `data.src_ip`/`dest_ip` (Suricata), `agent.ip`, `agent.name`, `data.srcuser`/`dstuser`, `syscheck.*_after` (W2.5) | Planned; acknowledged 2026-10-07 (fields checked on live alerts, Suricata and FIM pending) |
+| C14 MISP → Wazuh CDB lists | IOC lists in `lists/`, rules in `rules/1080-misp-ioc.xml` (group `misp_ioc`); who runs the sync is the design question (W6.1) | Proposed; design due 2026-10-16 |
+
+**C1 sends once (X-10, A48, A78):** `custom-n8n.py` posts each alert once and never retries; n8n answers on receipt and accepts that a lost post is lost (the alert stays in the indexer). **Don't add retries without the n8n owner's agreement first:** TheHive's duplicate refusal isn't atomic, so overlapping copies of one alert create two TheHive alerts. `custom-n8n.py` must also keep sending valid JSON (`json.dumps` of the alert): n8n refuses anything else with HTTP 422 before a workflow runs, so only `/var/ossec/logs/integrations.log` would show it. That log only records failures; a "Read timed out" there can still mean n8n got the alert (seen 2026-10-05, `docs/n8n-requests-2026-09-30.md`).
 
 Check: `scripts/contracts-check.sh --only C1,C2,C8`. **Exporting changes:** Wazuh is configured by files (`config/`, `rules/`, `decoders/`, `integrations/`): edit, restart the manager, commit (section "How configuration reaches the manager"). Changing a contract needs the other owner's agreement first (PROJECT.md 5).
 

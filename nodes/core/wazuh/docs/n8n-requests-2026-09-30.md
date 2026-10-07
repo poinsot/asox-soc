@@ -13,7 +13,7 @@ Received by the Wazuh owner on 2026-10-01. The original message is kept below as
 | 5 | Attack-start marker and its low-noise rule | before 2026-10-20 | W1.6 | answered | Rule 100101, level 3 (proposed): indexed, never sent through C1. Fields `data.scenario`, `data.run_id`; every event of the run ends with `asox_run=<run id>`. Level to confirm with you and Jesus |
 | 6 | Should SCA alerts reach n8n? | 2026-10-20 | W2.7 | open | |
 | 7 | `ioc-ip` and the other scenarios use documentation-range attacker IPs (`203.0.113.66` for `ioc-ip`) | 2026-10-09 | W1.5 | answered | `ioc-ip` brute-forces from `203.0.113.66` (rule 5712, `data.srcip`); the others use `198.51.100.23` / `.24` |
-| 8 | C1 retries: n8n accepts send-once; tell n8n before adding any | before any change | W1.8 | open | |
+| 8 | C1 retries: n8n accepts send-once; tell n8n before adding any | before any change | W1.8 | done | Recorded in the README's contracts section 2026-10-07: no retries without your agreement; valid JSON only |
 | 9 | C14: n8n prefers a Wazuh-side sync script with its own MISP key (R-08) | 2026-10-16 | W6.1 | open | |
 | 10 | R-06: format, default, and a test of which source IP the manager sees through the published UDP port | **2026-10-07** | W1.9 | done | Test below. Spec in [request-integrator-r06-syslog-allowed-ips.md](request-integrator-r06-syslog-allowed-ips.md): comma-separated IPv4/CIDR, empty by default; the entrypoint always adds the manager's own Docker subnets; not `172.16.0.0/12` |
 
