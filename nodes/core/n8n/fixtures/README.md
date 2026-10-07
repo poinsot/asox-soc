@@ -47,6 +47,7 @@ The only files here that are **not** real payloads: test inputs for the malforme
 
 | File | Changed from `wazuh/100100-asox-test-c1.json` | Exercises | Expected |
 |---|---|---|---|
+| `synthetic/100100-misp-hit.json` | `data.srcip = "203.0.113.66"` (the MISP seed IOC, a documentation address) | enrichment (N8N-2.4): `MISP_2_1` hit; needs `full` (MISP) | `asox-test` alert; `203.0.113.66` (tags `src`, `range:documentation`) enriched by `MISP_2_1`: tags `asox:verdict=suspicious`, `analyzer:MISP_2_1`, `ioc` false; agent IP and hostname skipped; all in the writeback |
 | `synthetic/100100-user-account.json` | `data.srcuser = "asox-test-src"`, `data.dstuser = "asox-test-target"` | `user-account` observables (N8N-2.3; needs TheHive's `entities/` loaded, T1.3) | `asox-test` alert with `user-account` observables `asox-test-src` (tag `src`) and `asox-test-target` (tag `target`), besides the agent's `ip` and `hostname` |
 
 ## TheHive events
