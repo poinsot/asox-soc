@@ -53,10 +53,13 @@ check_syslog_allowed_ips() {
       # 0.0.0.0/0, or any /0, matches every address.
       (( 10#${BASH_REMATCH[6]} > 0 )) \
         || die "topology.env: SYSLOG_ALLOWED_IPS entry '$entry' accepts every source, which disables the syslog restriction; list the senders' addresses instead"
+      # /1 to /7 cover at least 2^25 addresses: more than any syslog sender list needs.
+      (( 10#${BASH_REMATCH[6]} >= 8 )) \
+        || die "topology.env: SYSLOG_ALLOWED_IPS entry '$entry': prefix /${BASH_REMATCH[6]} is too broad (below /8)"
     fi
-    # 0.0.0.0 means "this host" / unspecified, never a sender.
-    [[ ${entry%/32} != 0.0.0.0 ]] \
-      || die "topology.env: SYSLOG_ALLOWED_IPS entry '$entry': 0.0.0.0 is not a source address"
+    # 0.0.0.0/8 is "this network" (RFC 1122): never a sender's address.
+    [[ ${BASH_REMATCH[1]} != 0 ]] \
+      || die "topology.env: SYSLOG_ALLOWED_IPS entry '$entry': 0.x.x.x is not a source address"
   done
 }
 check_syslog_allowed_ips "$TOPO_SYSLOG_ALLOWED_IPS"
