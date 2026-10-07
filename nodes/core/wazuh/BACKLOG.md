@@ -40,7 +40,7 @@ Your machine runs the `core` mode and passes the Wazuh contracts before you chan
 - [x] **W0.7** Read the contracts and the Wazuh chapter · P2
   - Done when: Read PROJECT.md 5, 6.1, 11 and 13, `nodes/core/wazuh/README.md`, CONTRIBUTING.md; run `scripts/ci-checks.sh all` once.
   - Files: `PROJECT.md`, `CONTRIBUTING.md`, `nodes/core/wazuh/README.md`
-- [ ] **W0.8** Tell the integrator your RAM and Windows version *(in progress)* · P3
+- [x] **W0.8** Tell the integrator your RAM and Windows version · P3
   - Done when: Inigo has the answer to PROJECT.md 16, questions 1 and 3.
   - With: Inigo (integrator)
 - [x] **W0.9** Re-sync your machine after the n8n merge (2026-10-01) · P1
@@ -51,7 +51,7 @@ Your machine runs the `core` mode and passes the Wazuh contracts before you chan
 
 Close the known gaps before core is exposed on a LAN, and build the tools the later milestones depend on.
 
-- [ ] **W1.1** Restrict syslog sources on 514/udp · P1
+- [x] **W1.1** Restrict syslog sources on 514/udp · P1
   - Done when: After W1.9: `<allowed-ips>` is no longer `0.0.0.0/0`. Because the allowed range differs per machine, write it from an env var (e.g. `WAZUH_SYSLOG_ALLOWED_IPS`) in a new `config/entrypoint-scripts/30-syslog-allowed-ips.sh`. A message from an allowed source produces an alert; one from another source does not. The entrypoint script splits the comma-separated list from R-06.
   - Files: `nodes/core/wazuh/config/ossec.conf`, `nodes/core/wazuh/config/entrypoint-scripts/`
   - With: Inigo: R-06 (the variable in `nodes/core/.env.example` and `render-env.sh`), needed by 2026-10-09
@@ -87,7 +87,7 @@ Close the known gaps before core is exposed on a LAN, and build the tools the la
   - Files: `nodes/core/wazuh/integrations/custom-n8n.py`
   - With: Inigo (n8n owner)
   - Refs: X-10, A78
-- [ ] **W1.9** Test syslog source IPs, then send Inigo the R-06 spec (by 2026-10-07) *(in progress)* · P1
+- [x] **W1.9** Test syslog source IPs, then send Inigo the R-06 spec (by 2026-10-07) · P1
   - Done when: First test which source IP the manager sees for UDP syslog sent to the published port (`${BIND_ADDR}:514:514/udp`): from the WSL host to `127.0.0.1`, from the lab container over `soc-net`, and, if you can, from another machine. Traffic through Docker's userland proxy may show every sender as the bridge gateway (`172.x.0.1`); if so, any `172.16.0.0/12` default lets every source through and W1.1's negative check can't pass. Then reply to Inigo (memo item 10) by 2026-10-07 so R-06 is on `main` by 2026-10-09: format comma-separated IPv4 addresses or CIDRs, no spaces, one `<allowed-ips>` per entry; a default chosen from the test result (Inigo proposes `172.16.0.0/12`; the narrower alternative is `127.0.0.1` plus the `soc-net` subnet); per machine, the optional `SYSLOG_ALLOWED_IPS` in `topology.env`. Record the test in `nodes/core/wazuh/docs/n8n-requests-2026-09-30.md`.
   - With: Inigo (integrator)
   - Refs: R-06

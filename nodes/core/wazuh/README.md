@@ -12,7 +12,7 @@ Collects events from agents and syslog, decodes them, classifies them with rules
 | `config/ossec.conf` | Manager configuration |
 | `config/wazuh-indexer.yml` | Indexer (OpenSearch) configuration |
 | `config/certs.yml` | Nodes for the certificate generator (`scripts/gen-certs.sh`) |
-| `config/entrypoint-scripts/` | Scripts the manager image runs before Wazuh starts (writes the agent enrollment password) |
+| `config/entrypoint-scripts/` | Scripts the manager image runs before Wazuh starts: restart fixes, enrollment password, n8n integration (C1), syslog sources |
 | `rules/`, `decoders/` | Custom rules and decoders (`local_rules.xml` holds the Phase 1 test rule `100100`) |
 | `tests/` | Rule test runner: `tests/run.sh` checks the ruleset against sample log lines through `wazuh-logtest` ([tests/README.md](tests/README.md)) |
 
@@ -140,6 +140,25 @@ To change it:
 
 Agents must present `WAZUH_ENROLLMENT_PASSWORD` (in `nodes/core/.env`, generated per machine) to enroll on port 1515. `config/entrypoint-scripts/10-enrollment-password.sh` writes it to `/var/ossec/etc/authd.pass` at every manager start. To rotate it, change it in `nodes/core/.env` and in every agent, then run `scripts/soc.sh up core`. Already enrolled agents keep working: the password is only checked at enrollment.
 
+## Syslog sources (514/udp)
+
+Devices that can't run an agent (pfSense, routers) send syslog to the manager on 514/udp. The manager only accepts it from a list of sources, which `config/entrypoint-scripts/30-syslog-allowed-ips.sh` writes into `ossec.conf` at every start (W1.1, R-06, docs/decisions.md A81):
+
+1. **Always:** the subnets of the Docker networks the manager is attached to, read from `/proc/net/route` inside the container. That covers the lab agent and Suricata over `soc-net`, and anything sent to the published port from this machine: Docker's proxy delivers it from core's network gateway (W1.9 test, `docs/n8n-requests-2026-09-30.md`).
+2. **Plus** each entry of `SYSLOG_ALLOWED_IPS` in `topology.env` (comma-separated IPv4 addresses or CIDRs, no spaces). `render-env.sh` validates it and renders it into core's `WAZUH_SYSLOG_ALLOWED_IPS`.
+
+The list is never `0.0.0.0/0`. If the variable is invalid, the script logs an `ERROR` and keeps only step 1 (fails closed). The manager log shows the result: `docker logs <instance>-core-wazuh-manager-1 | grep "syslog 514"`.
+
+**Adding a device** (e.g. pfSense at `192.168.1.1`) on the machine that receives its logs:
+
+```bash
+echo 'SYSLOG_ALLOWED_IPS=192.168.1.1' >> topology.env     # or edit the existing line; several: a,b
+./scripts/render-env.sh
+./scripts/soc.sh up core                                    # recreates the manager with the new list
+```
+
+Wazuh agents don't need this: they enroll with the password and send over 1514 with their own key. In `distributed` mode, whether LAN senders keep their real address through the published port is still to be confirmed (W4.5).
+
 ## Lab agent (`nodes/lab/`)
 
 A containerized Wazuh agent (`lab-agent`), enrolled exactly like a real endpoint: the package's default configuration plus the manager address and the enrollment password (see `nodes/lab/entrypoint.sh`). It also produces realistic alerts (SCA, rootcheck, FIM) for Grafana.
@@ -169,6 +188,7 @@ Everything here works around upstream behaviour or depends on details of the pin
 | `config/entrypoint-scripts/05-restart-fixes.sh` | Upstream `wazuh-docker` 4.14 bugs: on `docker restart` the image's init exits early (`0-wazuh-init: exited 1`) and skips the config copy; a stale `start-script-lock` blocks the next start (docs/decisions.md A26) | `docker restart` the manager: if the init no longer exits 1 and edited rules apply without the script, delete it |
 | `config/entrypoint-scripts/10-enrollment-password.sh` | Writes `authd.pass` from `WAZUH_ENROLLMENT_PASSWORD` at every start (D33, A25) | Enrollment without / with a wrong / with the right password (only the last works) |
 | `config/entrypoint-scripts/20-n8n-integration.sh` | Writes the `custom-n8n` `<integration>` block (URL, token, level) into `ossec.conf` at every start (A41) | C1 passes (`scripts/contracts-check.sh --only C1`) |
+| `config/entrypoint-scripts/30-syslog-allowed-ips.sh` | Writes the syslog `<allowed-ips>` from the container's own subnets plus `WAZUH_SYSLOG_ALLOWED_IPS` at every start (W1.1, A81); needs the marker comment `ASOX-SYSLOG-ALLOWED-IPS` in `ossec.conf` | `docker logs` shows `syslog 514/udp allowed sources: ...`, and `ossec.log` shows `Remote syslog allowed from` for each entry |
 | `integrations/custom-n8n` | Copy of the shell wrapper Wazuh ships for its integrations (A48) | Diff against the new image's wrappers in `/var/ossec/integrations/`; `custom-n8n.py` runs on Wazuh's bundled Python, so check it still imports `requests` |
 | Manager healthcheck (`compose.yml`) | Names the daemons that must run (`wazuh-analysisd`, `-remoted`, `-authd`, `-db`, `-modulesd`, `-apid`; A27) | Daemon names still exist (`/var/ossec/bin/wazuh-control status`) |
 | Indexer addressed as `wazuh.indexer` | The certificate tool only accepts dotted DNS names (D32, A15) | Tool version in `config/certs.yml` / `WAZUH_CERTS_GENERATOR_IMAGE`; `gen-certs.sh` on a clean `nodes/core/certs/` |
@@ -180,7 +200,7 @@ Everything here works around upstream behaviour or depends on details of the pin
 
 Pick from this list; Phase 1 only built the baseline. The owner's plan, split into milestones with a "done when" check per task, is in [BACKLOG.md](BACKLOG.md). Requests from other owners and the replies are kept in [docs/](docs/).
 
-- **Restrict syslog sources** (`<allowed-ips>` of the 514/udp listener in `config/ossec.conf`, currently any source) to the real devices before `core` is exposed on a LAN.
+- ~~Restrict syslog sources~~ Done (W1.1): see "Syslog sources (514/udp)".
 - Detection rules and decoders for the environment; false-positive tuning; the alert level threshold (`WAZUH_ALERT_MIN_LEVEL`, default 7).
 - Agent groups and policies; an enrollment guide for real endpoints (the lab agent is the reference).
 - Decoders for pfSense and router logs; MITRE ATT&CK mapping.
