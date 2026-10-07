@@ -252,6 +252,12 @@ render_node() {
   local note=""
   (( generated > 0 )) && note=", $generated new secret(s)"
   pass "rendered nodes/$node/.env ($TOPO_DEPLOY_MODE, $TOPO_MEM_PROFILE$note)"
+  # A key left over from an earlier cases init keeps TheHive enabled on a
+  # machine that now runs core only (A83). It must be cleared in both files:
+  # render copies it from cases, and keeps core's value when cases' is empty.
+  if [[ ${rendered[THEHIVE_ENABLED]:-} == true ]]; then
+    info "$node: THEHIVE_ENABLED=true, set because THEHIVE_N8N_API_KEY is non-empty; if this machine no longer runs cases, clear that key in nodes/core/.env and nodes/cases/.env, re-render and run scripts/bootstrap.sh core"
+  fi
 }
 
 for node in "${ALL_NODES[@]}"; do

@@ -98,6 +98,7 @@ git add -A && git commit -m "<what changed>" && git push
 
 ### Troubleshooting
 
+- **You ran `cases` once and now run only `core`, and n8n parks alerts as `thehive_unreachable`** instead of recording `skipped: TheHive not configured`: `nodes/core/.env` still holds the `THEHIVE_N8N_API_KEY` of that earlier `init`, so `render-env.sh` renders `THEHIVE_ENABLED=true` (it prints an INFO line saying so). Empty `THEHIVE_N8N_API_KEY=` in **both** `nodes/core/.env` and `nodes/cases/.env` (render copies it from cases, and keeps core's value while cases' is empty), then `./scripts/render-env.sh` and `./scripts/bootstrap.sh core` (recreates n8n with `THEHIVE_ENABLED=false`). If you run `cases` again later, `bootstrap.sh cases` creates a new key. (`docs/decisions.md` A83)
 - **`healthcheck.sh` fails right after `soc.sh up`** on a `low` machine: services can be slow for their first minute. Run it again after a minute before investigating; the Grafana login check already retries once.
 
 ## When everyone meets
