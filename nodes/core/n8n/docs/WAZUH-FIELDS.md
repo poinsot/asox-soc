@@ -45,7 +45,7 @@ Fixtures used (short names in the tables):
 | `rule.mitre_techniques` | array of strings (`["T1003","T1003.008","T1222","T1222.002"]`) | sca-check | test, sca-sum, agent | optional | How **SCA** alerts carry MITRE: a different path from `rule.mitre.id`. Together with `rule.mitre_tactics` (`["TA0005"]`) and `rule.mitre_mitigations`. |
 | `data.sca.check.compliance.mitre_techniques` | string, comma-separated (`"T1003,T1003.008,…"`) | sca-check | others | optional | Same list as a comma string; don't use it when `rule.mitre_techniques` is present. |
 
-For the normalizer: MITRE techniques = `rule.mitre.id` if present, else `rule.mitre_techniques`, else none. Both are arrays.
+**Normalizer (implemented 2026-10-06, agreed in ALERT-FORMAT §3/§4):** MITRE techniques = `rule.mitre.id` if it has at least one technique, else `rule.mitre_techniques`, else none; one canonical list (`mitre_ids`, plus `mitre_source` naming the field it came from). A single string is accepted as a one-element list. Used for the `attack.*` tags, the `mitre-technique` custom field (first technique) and routing (prefix match, `T1110` matches `T1110.001`).
 
 ## Network and user fields (observables, C13 field map)
 
