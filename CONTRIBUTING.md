@@ -96,6 +96,10 @@ git add -A && git commit -m "<what changed>" && git push
 
 `soc.sh init|up|down|status|info|reset`, `healthcheck.sh [--cross-node]`, `contracts-check.sh [--only C3,C4]`, `backup.sh <node> [--with-secrets]` / `restore.sh <node> <dir>`, `wazuh-query.sh`, `n8n-export.sh` / `n8n-import.sh`, `grafana-export.sh`, `ci-checks.sh all` (the CI checks, locally). Each prints its usage with `--help`.
 
+### Troubleshooting
+
+- **`healthcheck.sh` fails right after `soc.sh up`** on a `low` machine: services can be slow for their first minute. Run it again after a minute before investigating; the Grafana login check already retries once.
+
 ## When everyone meets
 
 - **Checkpoints:** each owner opens a pull request; the integrator merges and runs `contracts-check.sh` in `full` mode on the result.
