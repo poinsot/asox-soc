@@ -24,6 +24,38 @@ usage() { print_usage "$0"; }
 
 load_topology
 
+# SYSLOG_ALLOWED_IPS (R-06): extra syslog sources for the Wazuh manager,
+# rendered into core's WAZUH_SYSLOG_ALLOWED_IPS. Empty is valid (the manager
+# then allows only its own Docker networks). Checked before any file is
+# written, so an invalid value changes nothing.
+check_syslog_allowed_ips() {
+  local list=$1 entry o
+  local -a entries
+  [[ -n $list ]] || return 0
+  local hint="comma-separated IPv4 addresses or CIDRs without spaces, e.g. 192.168.1.1,10.0.5.0/24"
+  [[ $list != *[[:space:]]* ]] \
+    || die "topology.env: SYSLOG_ALLOWED_IPS contains a space ('$list'); use $hint"
+  [[ $list != ,* && $list != *, && $list != *,,* ]] \
+    || die "topology.env: SYSLOG_ALLOWED_IPS has an empty entry ('$list'); use $hint"
+  IFS=, read -ra entries <<< "$list"
+  for entry in "${entries[@]}"; do
+    [[ $entry =~ ^([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})(/([0-9]{1,2}))?$ ]] \
+      || die "topology.env: SYSLOG_ALLOWED_IPS entry '$entry' is not a.b.c.d or a.b.c.d/n; use $hint"
+    for o in 1 2 3 4; do
+      (( 10#${BASH_REMATCH[o]} <= 255 )) \
+        || die "topology.env: SYSLOG_ALLOWED_IPS entry '$entry': octet ${BASH_REMATCH[o]} is above 255"
+    done
+    if [[ -n ${BASH_REMATCH[6]} ]]; then
+      (( 10#${BASH_REMATCH[6]} <= 32 )) \
+        || die "topology.env: SYSLOG_ALLOWED_IPS entry '$entry': prefix /${BASH_REMATCH[6]} is above /32"
+      # 0.0.0.0/0, or any /0, matches every address.
+      (( 10#${BASH_REMATCH[6]} > 0 )) \
+        || die "topology.env: SYSLOG_ALLOWED_IPS entry '$entry' accepts every source, which disables the syslog restriction; list the senders' addresses instead"
+    fi
+  done
+}
+check_syslog_allowed_ips "$TOPO_SYSLOG_ALLOWED_IPS"
+
 # Memory profiles (PROJECT.md section 8): heaps and container mem_limit.
 # Limits are sized from measured need (D40): anonymous memory peak x 1.15
 # + 64 MiB for page cache, rounded up to 50 MiB. Swap is capped at the
@@ -111,6 +143,8 @@ derive() {
     # already rendered in this run (render_node's "rendered"), so the key
     # must come before THEHIVE_ENABLED in .env.example.
     THEHIVE_ENABLED)    [[ -n ${rendered[THEHIVE_N8N_API_KEY]:-} ]] && printf 'true' || printf 'false' ;;
+    # R-06: checked by check_syslog_allowed_ips; empty unless topology.env sets it.
+    WAZUH_SYSLOG_ALLOWED_IPS) printf '%s' "$TOPO_SYSLOG_ALLOWED_IPS" ;;
     *)
       local v
       if [[ $TOPO_MEM_PROFILE == standard ]]; then v=${PROFILE_STANDARD[$key]:-}; else v=${PROFILE_LOW[$key]:-}; fi

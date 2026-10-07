@@ -131,9 +131,12 @@ SOC_INSTANCE=asox             # prefix for compose project names (section 12)
 CORE_HOST=192.168.1.10
 CASES_HOST=192.168.1.11
 INTEL_HOST=192.168.1.12
+
+# Optional: extra syslog sources for the Wazuh manager (R-06; empty = its own Docker networks)
+# SYSLOG_ALLOWED_IPS=192.168.1.1,10.0.5.0/24
 ```
 
-From these, `render-env.sh` derives every URL, `WAZUH_MANAGER_ADDR`, `BIND_ADDR`, heap sizes and `CORTEX_JOBS_HOST_DIR`, and writes them into `nodes/<node>/.env`.
+From these, `render-env.sh` derives every URL, `WAZUH_MANAGER_ADDR`, `BIND_ADDR`, heap sizes, `CORTEX_JOBS_HOST_DIR` and `WAZUH_SYSLOG_ALLOWED_IPS` (validated; docs/decisions.md A81), and writes them into `nodes/<node>/.env`.
 
 **Values copied between nodes (`__from:<node>__`).** A few secrets are created on one node and used by another. In the consuming node's `.env.example` their value is the marker `__from:<source node>__`, and `render-env.sh` copies the same key from `nodes/<source node>/.env`:
 
