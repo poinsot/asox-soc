@@ -65,6 +65,13 @@ check_containers() {
 
 # ---------------------------------------------------------------- core ---
 
+# Login of Grafana's admin (/api/user) within <max-time> seconds; prints it,
+# or nothing on failure.
+grafana_admin_user() {
+  curl -s --max-time "$1" -u "$(core_env GRAFANA_ADMIN_USER):$(core_env GRAFANA_ADMIN_PASSWORD)" \
+    http://127.0.0.1:3000/api/user | jq -r '.login // empty' 2>/dev/null || true
+}
+
 check_core() {
   local s
   s=$(indexer_api GET /_cluster/health | jq -r '.status // empty' 2>/dev/null || true)
@@ -78,10 +85,15 @@ check_core() {
   if [[ $s == 200 ]] && n8n_api_ok; then pass "core: n8n ready ($N8N_URL), scripts' API key works"
   else fail "core: n8n readiness HTTP $s or N8N_API_KEY refused (scripts/bootstrap.sh core)"; fi
 
-  s=$(curl -s --max-time 10 -u "$(core_env GRAFANA_ADMIN_USER):$(core_env GRAFANA_ADMIN_PASSWORD)" \
-    http://127.0.0.1:3000/api/user | jq -r '.login // empty' 2>/dev/null || true)
-  if [[ -n $s ]]; then pass "core: Grafana UI answers, admin $s logs in"
-  else fail "core: Grafana login as $(core_env GRAFANA_ADMIN_USER) failed on http://127.0.0.1:3000"; fi
+  # Right after `soc.sh up` on `low`, Grafana's first /api/user took 11 s
+  # (Wazuh owner, 2026-10-01): one try with 20 s, then one retry after 5 s
+  # with 30 s. A Grafana that is down refuses at once, so only a slow one
+  # costs the extra time.
+  local note=""
+  s=$(grafana_admin_user 20)
+  if [[ -z $s ]]; then sleep 5; s=$(grafana_admin_user 30); note=" (on the second try)"; fi
+  if [[ -n $s ]]; then pass "core: Grafana UI answers, admin $s logs in$note"
+  else fail "core: Grafana login as $(core_env GRAFANA_ADMIN_USER) failed on http://127.0.0.1:3000 (2 tries)"; fi
 }
 
 # ---------------------------------------------------------------- cases ---

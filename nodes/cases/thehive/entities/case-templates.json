@@ -1,9 +1,101 @@
 [
   {
+    "name": "account-change",
+    "displayName": "New user or group",
+    "titlePrefix": "[ACCOUNT]",
+    "description": "A user or group was created or added to a privileged group (Wazuh W2.2, rule groups `adduser` / `addgroup`). Possible persistence. Triage procedure: nodes/cases/thehive/docs/TRIAGE.md.",
+    "severity": 2,
+    "tlp": 2,
+    "pap": 2,
+    "flag": false,
+    "tags": [
+      "account",
+      "attack.t1136",
+      "wazuh"
+    ],
+    "tasks": [
+      {
+        "title": "Identify the change",
+        "group": "Triage",
+        "description": "From the alert: new account or group, who created it, host, time.",
+        "order": 0,
+        "mandatory": false
+      },
+      {
+        "title": "Is there a change request?",
+        "group": "Triage",
+        "description": "Check with the host owner whether the change was planned. Planned: false positive, note the reference.",
+        "order": 1,
+        "mandatory": false
+      },
+      {
+        "title": "Check the new account's activity",
+        "group": "Investigation",
+        "description": "Logins, sudo use and files owned by the new account since its creation (Grafana / Wazuh).",
+        "order": 2,
+        "mandatory": false
+      },
+      {
+        "title": "Contain if needed",
+        "group": "Response",
+        "description": "Unplanned: request the account disable through the n8n playbook (approval) and set containment-action to user-disabled; treat the host as possibly compromised.",
+        "order": 3,
+        "mandatory": false
+      },
+      {
+        "title": "Document and close",
+        "group": "Closure",
+        "description": "Write the summary, set the resolution status and close.",
+        "order": 4,
+        "mandatory": false
+      }
+    ],
+    "customFields": [
+      {
+        "name": "wazuh-alert-id",
+        "order": 0
+      },
+      {
+        "name": "wazuh-rule-id",
+        "order": 1
+      },
+      {
+        "name": "wazuh-rule-level",
+        "order": 2
+      },
+      {
+        "name": "wazuh-agent-name",
+        "order": 3
+      },
+      {
+        "name": "mitre-technique",
+        "value": "T1136",
+        "order": 4
+      },
+      {
+        "name": "asset-criticality",
+        "order": 5
+      },
+      {
+        "name": "containment-action",
+        "value": "none",
+        "order": 6
+      },
+      {
+        "name": "playbook",
+        "order": 7
+      },
+      {
+        "name": "n8n-execution-id",
+        "order": 8
+      }
+    ]
+  },
+  {
     "name": "ids-network-alert",
     "displayName": "IDS network alert",
     "titlePrefix": "[IDS]",
-    "description": "Network intrusion detection alert (Snort / pfSense, Phase 2), received through Wazuh syslog. Triage procedure: nodes/cases/thehive/docs/TRIAGE.md.",
+    "description": "Network intrusion detection alert from the Suricata sensor (D49), read by a Wazuh agent from Suricata's EVE JSON: built-in rule 86601 \"Suricata: Alert - <signature>\", rule groups `suricata` / `ids`. Suricata severity 1 → Wazuh level 12, 2 → 10 (Wazuh W3.5). Triage procedure: nodes/cases/thehive/docs/TRIAGE.md.",
     "severity": 2,
     "tlp": 2,
     "pap": 2,
@@ -17,28 +109,28 @@
       {
         "title": "Review the signature",
         "group": "Triage",
-        "description": "Read the IDS signature, its category and priority, the source and destination IP and port, and the protocol. Is the traffic expected for this host?",
+        "description": "Read `data.alert.signature`, its category and `data.alert.severity`, the source and destination (`data.src_ip`, `data.dest_ip`, `data.dest_port`) and the protocol. Is this traffic expected for this host?",
         "order": 0,
         "mandatory": false
       },
       {
         "title": "Check IP reputation",
         "group": "Investigation",
-        "description": "Run the Cortex analyzers (MISP) on the source and destination IP observables. Note whether the external side is known malicious.",
+        "description": "n8n has already run the automatic analyzers at intake; re-run the Cortex analyzers (MISP) on the source and destination IP observables if needed. Note whether the external side is known malicious.",
         "order": 1,
         "mandatory": false
       },
       {
         "title": "Check the internal host",
         "group": "Investigation",
-        "description": "Look in Grafana / scripts/wazuh-query.sh for other Wazuh alerts on the internal host around the same time (new processes, logins, file changes).",
+        "description": "Look for other Wazuh alerts on the internal host around the same time (Grafana, or the \"seen before in Wazuh?\" analyzer once C13 exists): new processes, logins, file changes.",
         "order": 2,
         "mandatory": false
       },
       {
         "title": "Decide and respond",
         "group": "Response",
-        "description": "True positive: request the containment through the n8n playbook (block IP / isolate host, with approval) and set containment-action. False positive: note the reason for IDS / Wazuh tuning.",
+        "description": "True positive: request the IP block through the n8n playbook (with approval) and set containment-action to ip-blocked. False positive: note the signature and the reason for Suricata / Wazuh tuning.",
         "order": 3,
         "mandatory": false
       },
@@ -46,6 +138,97 @@
         "title": "Document and close",
         "group": "Closure",
         "description": "Write the summary (what, impact, action taken), set the resolution status and close the case.",
+        "order": 4,
+        "mandatory": false
+      }
+    ],
+    "customFields": [
+      {
+        "name": "wazuh-alert-id",
+        "order": 0
+      },
+      {
+        "name": "wazuh-rule-id",
+        "order": 1
+      },
+      {
+        "name": "wazuh-rule-level",
+        "order": 2
+      },
+      {
+        "name": "wazuh-agent-name",
+        "order": 3
+      },
+      {
+        "name": "mitre-technique",
+        "order": 4
+      },
+      {
+        "name": "asset-criticality",
+        "order": 5
+      },
+      {
+        "name": "containment-action",
+        "value": "none",
+        "order": 6
+      },
+      {
+        "name": "playbook",
+        "order": 7
+      },
+      {
+        "name": "n8n-execution-id",
+        "order": 8
+      }
+    ]
+  },
+  {
+    "name": "ioc-match",
+    "displayName": "Match with a MISP indicator",
+    "titlePrefix": "[IOC]",
+    "description": "A Wazuh event matched an IOC exported from MISP into a CDB list (Wazuh W6.4, contract C14): IP, domain or hash known as malicious. Level 12 → Critical. Triage procedure: nodes/cases/thehive/docs/TRIAGE.md.",
+    "severity": 4,
+    "tlp": 2,
+    "pap": 2,
+    "flag": false,
+    "tags": [
+      "ioc",
+      "misp",
+      "wazuh"
+    ],
+    "tasks": [
+      {
+        "title": "Identify the indicator",
+        "group": "Triage",
+        "description": "Which value matched (IP, domain, hash), which host and event. Open the MISP event behind it (the MISP analyzer on the observable shows it).",
+        "order": 0,
+        "mandatory": false
+      },
+      {
+        "title": "Confirm the hit",
+        "group": "Investigation",
+        "description": "Is the indicator still valid (MISP event date, tags, warninglists)? An old or common value can be a false positive.",
+        "order": 1,
+        "mandatory": false
+      },
+      {
+        "title": "Scope: other hosts",
+        "group": "Investigation",
+        "description": "Search Wazuh for the same value on other agents (Grafana, or the \"seen before in Wazuh?\" analyzer once C13 exists).",
+        "order": 2,
+        "mandatory": false
+      },
+      {
+        "title": "Contain",
+        "group": "Response",
+        "description": "Request the IP block through the n8n playbook (approval) and set containment-action; for a hash, follow the malware-detection tasks.",
+        "order": 3,
+        "mandatory": false
+      },
+      {
+        "title": "Document and close",
+        "group": "Closure",
+        "description": "Write the summary, keep the confirmed indicator marked as IOC, set the resolution status and close.",
         "order": 4,
         "mandatory": false
       }
@@ -188,6 +371,191 @@
     ]
   },
   {
+    "name": "network-scan",
+    "displayName": "Port scan / blocked connections",
+    "titlePrefix": "[SCAN]",
+    "description": "Many blocked ports or connections from one source seen by the pfSense firewall (Wazuh W4.3, rule group `pfsense`). Usually reconnaissance. Triage procedure: nodes/cases/thehive/docs/TRIAGE.md.",
+    "severity": 2,
+    "tlp": 2,
+    "pap": 2,
+    "flag": false,
+    "tags": [
+      "attack.t1046",
+      "firewall",
+      "pfsense",
+      "wazuh"
+    ],
+    "tasks": [
+      {
+        "title": "Identify the source",
+        "group": "Triage",
+        "description": "From the alert: source IP, targeted hosts and ports, time window, internal or external source.",
+        "order": 0,
+        "mandatory": false
+      },
+      {
+        "title": "Check reputation",
+        "group": "Investigation",
+        "description": "Cortex analyzers (MISP) on the source IP. Known scanners (warninglists) are usually noise.",
+        "order": 1,
+        "mandatory": false
+      },
+      {
+        "title": "Any follow-up?",
+        "group": "Investigation",
+        "description": "Did any connection from that source get through (allowed traffic, Suricata alerts, logins)?",
+        "order": 2,
+        "mandatory": false
+      },
+      {
+        "title": "Respond",
+        "group": "Response",
+        "description": "Internal source: treat the host as possibly compromised. External and persistent: request the IP block through the n8n playbook (approval) and set containment-action to ip-blocked.",
+        "order": 3,
+        "mandatory": false
+      },
+      {
+        "title": "Document and close",
+        "group": "Closure",
+        "description": "Write the summary, set the resolution status and close.",
+        "order": 4,
+        "mandatory": false
+      }
+    ],
+    "customFields": [
+      {
+        "name": "wazuh-alert-id",
+        "order": 0
+      },
+      {
+        "name": "wazuh-rule-id",
+        "order": 1
+      },
+      {
+        "name": "wazuh-rule-level",
+        "order": 2
+      },
+      {
+        "name": "wazuh-agent-name",
+        "order": 3
+      },
+      {
+        "name": "mitre-technique",
+        "value": "T1046",
+        "order": 4
+      },
+      {
+        "name": "asset-criticality",
+        "order": 5
+      },
+      {
+        "name": "containment-action",
+        "value": "none",
+        "order": 6
+      },
+      {
+        "name": "playbook",
+        "order": 7
+      },
+      {
+        "name": "n8n-execution-id",
+        "order": 8
+      }
+    ]
+  },
+  {
+    "name": "privilege-escalation",
+    "displayName": "Privilege escalation attempt",
+    "titlePrefix": "[PRIV]",
+    "description": "sudo failures or other attempts to gain root privileges (Wazuh W2.2, rule group `sudo`). Triage procedure: nodes/cases/thehive/docs/TRIAGE.md.",
+    "severity": 2,
+    "tlp": 2,
+    "pap": 2,
+    "flag": false,
+    "tags": [
+      "attack.t1548",
+      "sudo",
+      "wazuh"
+    ],
+    "tasks": [
+      {
+        "title": "Identify the user and command",
+        "group": "Triage",
+        "description": "From the alert: user, command attempted, host, number of failures.",
+        "order": 0,
+        "mandatory": false
+      },
+      {
+        "title": "Expected or not?",
+        "group": "Triage",
+        "description": "Is this user supposed to use sudo on this host? A typo by an admin is a false positive; an unknown user or command is not.",
+        "order": 1,
+        "mandatory": false
+      },
+      {
+        "title": "Look for follow-up activity",
+        "group": "Investigation",
+        "description": "Search for a later successful sudo / root session, new users or changes to /etc (Grafana / Wazuh).",
+        "order": 2,
+        "mandatory": false
+      },
+      {
+        "title": "Contain if needed",
+        "group": "Response",
+        "description": "If malicious: request the account disable through the n8n playbook (approval) and set containment-action to user-disabled.",
+        "order": 3,
+        "mandatory": false
+      },
+      {
+        "title": "Document and close",
+        "group": "Closure",
+        "description": "Write the summary, set the resolution status and close.",
+        "order": 4,
+        "mandatory": false
+      }
+    ],
+    "customFields": [
+      {
+        "name": "wazuh-alert-id",
+        "order": 0
+      },
+      {
+        "name": "wazuh-rule-id",
+        "order": 1
+      },
+      {
+        "name": "wazuh-rule-level",
+        "order": 2
+      },
+      {
+        "name": "wazuh-agent-name",
+        "order": 3
+      },
+      {
+        "name": "mitre-technique",
+        "value": "T1548",
+        "order": 4
+      },
+      {
+        "name": "asset-criticality",
+        "order": 5
+      },
+      {
+        "name": "containment-action",
+        "value": "none",
+        "order": 6
+      },
+      {
+        "name": "playbook",
+        "order": 7
+      },
+      {
+        "name": "n8n-execution-id",
+        "order": 8
+      }
+    ]
+  },
+  {
     "name": "ssh-bruteforce",
     "displayName": "SSH brute force",
     "titlePrefix": "[SSH]",
@@ -280,6 +648,98 @@
       {
         "name": "playbook",
         "value": "pb-ssh-bruteforce",
+        "order": 7
+      },
+      {
+        "name": "n8n-execution-id",
+        "order": 8
+      }
+    ]
+  },
+  {
+    "name": "suspicious-login",
+    "displayName": "Successful login after failures",
+    "titlePrefix": "[LOGIN]",
+    "description": "A successful login following repeated failures from the same source (Wazuh W2.2, e.g. built-in rule 40112 or a correlation rule). Possible account compromise. Triage procedure: nodes/cases/thehive/docs/TRIAGE.md.",
+    "severity": 3,
+    "tlp": 2,
+    "pap": 2,
+    "flag": false,
+    "tags": [
+      "attack.t1078",
+      "authentication",
+      "wazuh"
+    ],
+    "tasks": [
+      {
+        "title": "Confirm the sequence",
+        "group": "Triage",
+        "description": "From the alert: source IP, account, number of failures, time of the success, service (SSH, console, web).",
+        "order": 0,
+        "mandatory": false
+      },
+      {
+        "title": "Was it the real user?",
+        "group": "Triage",
+        "description": "Check with the account owner or known locations / schedules. If not confirmed: raise the severity to Critical.",
+        "order": 1,
+        "mandatory": false
+      },
+      {
+        "title": "Review the session",
+        "group": "Investigation",
+        "description": "Look for what the account did after logging in (sudo, new users, file changes, outbound connections) in Grafana / Wazuh.",
+        "order": 2,
+        "mandatory": false
+      },
+      {
+        "title": "Contain the account",
+        "group": "Response",
+        "description": "If compromised: request the account disable through the n8n playbook (approval) and set containment-action to user-disabled; block the source IP if external.",
+        "order": 3,
+        "mandatory": false
+      },
+      {
+        "title": "Document and close",
+        "group": "Closure",
+        "description": "Write the summary, set the resolution status and close; ask for a password reset.",
+        "order": 4,
+        "mandatory": false
+      }
+    ],
+    "customFields": [
+      {
+        "name": "wazuh-alert-id",
+        "order": 0
+      },
+      {
+        "name": "wazuh-rule-id",
+        "order": 1
+      },
+      {
+        "name": "wazuh-rule-level",
+        "order": 2
+      },
+      {
+        "name": "wazuh-agent-name",
+        "order": 3
+      },
+      {
+        "name": "mitre-technique",
+        "value": "T1078",
+        "order": 4
+      },
+      {
+        "name": "asset-criticality",
+        "order": 5
+      },
+      {
+        "name": "containment-action",
+        "value": "none",
+        "order": 6
+      },
+      {
+        "name": "playbook",
         "order": 7
       },
       {
