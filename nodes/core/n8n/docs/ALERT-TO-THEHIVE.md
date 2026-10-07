@@ -157,7 +157,7 @@ Verdicts: **agree** = n8n already sends this; **n8n changes** = changed by n8n i
 | §5 | `data.srcip` / `data.dstip`, Suricata `data.src_ip` / `data.dest_ip` | `ip`, tags `src` / `dst` | same | agree |
 | §5 | `agent.ip` | `ip`, tag `agent` | same, plus `range:internal` in the lab | agree |
 | §5 | `agent.name` | `hostname`, tag `agent` | same | agree |
-| §5 | `data.srcuser` / `data.dstuser` | `user-account`, tags `src` / `target` | extracted, but the type is **disabled** in `lib-config` (`skipped`, listed in the writeback) | differs, temporary: unblocked by T1.3 on 2026-10-06 (`user-account` accepted by the probe); re-enabled in a later session |
+| §5 | `data.srcuser` / `data.dstuser` | `user-account`, tags `src` / `target` | extracted, but the type is **disabled** in `lib-config` (`skipped`, listed in the writeback) | differs, temporary: unblocked by T1.3 on 2026-10-06 (`user-account` accepted by the probe); **re-enabled 2026-10-06** (N8N-2.3; `fixtures/synthetic/100100-user-account.json` → `user-account` observables tagged `src` / `target`) |
 | §5 | `syscheck.sha256_after` (else `data.virustotal.source.sha256`) | `hash`, tag `sha256` | same | agree |
 | §5 | `syscheck.path` | `filename`, tag `path` | same | agree |
 | §5 | `data.url` | `url`, no tag | same | agree |

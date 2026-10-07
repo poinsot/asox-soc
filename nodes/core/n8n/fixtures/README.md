@@ -1,6 +1,6 @@
 # n8n payload fixtures (N8N-0.2)
 
-Real payloads as n8n receives them, for building and testing the normalizer, the routers and the playbooks without waiting for live alerts. Nothing here is invented: every file is a Wazuh alert from the lab's indexer or a TheHive webhook payload recorded by `recv-thehive-event`. Captured on 2026-09-30 from the build instance (Wazuh 4.14.8, TheHive 5.7.6 with a Community license).
+Real payloads as n8n receives them, for building and testing the normalizer, the routers and the playbooks without waiting for live alerts. Nothing in `wazuh/` and `thehive/` is invented: every file there is a Wazuh alert from the lab's indexer or a TheHive webhook payload recorded by `recv-thehive-event`. `invalid/` and `synthetic/` hold the only constructed files, each derived from a real one and listed below. Captured on 2026-09-30 from the build instance (Wazuh 4.14.8, TheHive 5.7.6 with a Community license).
 
 - **Wazuh files** (`wazuh/<rule-id>-<short-name>.json`) are the alert JSON, the same object `custom-n8n` POSTs to `/webhook/wazuh-alert` (C1). Files read from the indexer carry two extra fields the indexer adds (`@timestamp`, `input.type`); `100100-asox-test-c1.json` is the exact C1 body of the same alert, for comparison.
 - **TheHive files** (`thehive/NN-<object>-<action>-<detail>.json`) are the request body TheHive POSTs to `/webhook/thehive-event` (C4, webhook version 1). They are numbered in the order they happened, as one flow on one alert and its case.
@@ -40,6 +40,14 @@ The only files here that are **not** real payloads: test inputs for the malforme
 | File | Built from | Defect | Expected |
 |---|---|---|---|
 | `invalid/100100-no-id.json` | `wazuh/100100-asox-test-c1.json` without `id` | required `id` missing | passes the level filter, `lib-normalize-wazuh-alert` hands it to `lib-error`, parked as `malformed_input`; nothing in TheHive |
+
+### Synthetic payloads (`synthetic/`)
+
+**Synthetic, not captured:** copies of `wazuh/100100-asox-test-c1.json` (the real C1 body) with only the `data` field added, to exercise observable paths the lab doesn't produce yet (X-05). Everything else, `id` included, is the real alert, so replay them with `--fresh-id`. `replay.sh --all` doesn't pick them up.
+
+| File | Changed from `wazuh/100100-asox-test-c1.json` | Exercises | Expected |
+|---|---|---|---|
+| `synthetic/100100-user-account.json` | `data.srcuser = "asox-test-src"`, `data.dstuser = "asox-test-target"` | `user-account` observables (N8N-2.3; needs TheHive's `entities/` loaded, T1.3) | `asox-test` alert with `user-account` observables `asox-test-src` (tag `src`) and `asox-test-target` (tag `target`), besides the agent's `ip` and `hostname` |
 
 ## TheHive events
 
