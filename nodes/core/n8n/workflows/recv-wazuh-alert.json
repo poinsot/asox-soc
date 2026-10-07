@@ -5,8 +5,8 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## recv-wazuh-alert (contract C1, N8N-1.1)\n**Trigger:** POST /webhook/wazuh-alert from the Wazuh `custom-n8n` integration, header `X-ASOX-Token` required (403 without it, N8N-1.6). Answers 200 on receipt (C1 has a 10 s timeout and no retries).\n**Inputs:** raw Wazuh alert JSON (body). The full alert stays in this execution (the C1 check looks for it here).\n**Actions taken:** reads lib-config; drops alerts below WAZUH_ALERT_MIN_LEVEL (\"filtered: level ...\"); skips intake exclusions (TEMPORARY: rule group sca, \"skipped: sca (X-09)\"); hands every other alert to pb-generic without waiting. That single call site is where the Router de Playbooks (N8N-1.3) goes.\n**Systems changed:** none here (pb-generic changes TheHive).\n**Approval:** not applicable.\n**Owner:** n8n.\nError workflow: recv-n8n-error.",
-        "height": 340,
+        "content": "## recv-wazuh-alert (contract C1, N8N-1.1)\n**Trigger:** POST /webhook/wazuh-alert from the Wazuh `custom-n8n` integration, header `X-ASOX-Token` required (403 without it, N8N-1.6). Answers 200 on receipt (C1 has a 10 s timeout and no retries).\n**Inputs:** raw Wazuh alert JSON (body). The full alert stays in this execution (the C1 check looks for it here).\n**Actions taken:** reads lib-config; drops alerts below WAZUH_ALERT_MIN_LEVEL (\"filtered: level ...\"); skips intake exclusions (TEMPORARY: rule group sca, \"skipped: sca (X-09)\"); routes every other alert with lib-route-alert (Router de Playbooks, N8N-1.3: playbook and case template from lib-config `routing`; the route is recorded in \"Playbook input\") and calls the chosen playbook by ID without waiting, passing the route. A routing failure (broken table) parks the alert with its id through lib-error.\n**Systems changed:** none here (the playbooks change TheHive).\n**Approval:** not applicable.\n**Owner:** n8n.\nError workflow: recv-n8n-error.",
+        "height": 380,
         "width": 520
       },
       "id": "abac45f7-10ec-54cb-be5b-6506602eaa25",
@@ -78,7 +78,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Level filter, then intake exclusions (lib-config). An alert whose level is\n// missing or not numeric is not filtered here: pb-generic's normalizer parks it.\nconst alert = $('Intake input').first().json.alert;\nconst cfg = $input.first().json;\nconst rule = alert !== null && typeof alert === 'object' ? alert.rule : undefined;\nconst raw = rule !== null && typeof rule === 'object' ? rule.level : undefined;\nconst level = typeof raw === 'number' && Number.isInteger(raw) ? raw\n  : typeof raw === 'string' && /^\\d+$/.test(raw.trim()) ? Number(raw.trim()) : null;\nconst groups = rule !== null && typeof rule === 'object' && Array.isArray(rule.groups) ? rule.groups : [];\nlet decision = 'handoff';\nlet status = 'handed off to pb-generic';\nif (level !== null && level < cfg.min_level) {\n  decision = 'filtered';\n  status = `filtered: level ${level} < ${cfg.min_level}`;\n} else {\n  const ex = cfg.intake_exclusions.find((e) => groups.includes(e.rule_group));\n  if (ex) { decision = 'skipped'; status = `skipped: ${ex.label}`; }\n}\nreturn [{ json: {\n  decision, status,\n  wazuh_alert_id: typeof alert?.id === 'string' ? alert.id : null,\n  rule_id: rule?.id ?? null, rule_level: level,\n  alert, config: cfg, recv_execution_id: $execution.id,\n} }];\n"
+        "jsCode": "// Level filter, then intake exclusions (lib-config). An alert whose level is\n// missing or not numeric is not filtered here: pb-generic's normalizer parks it.\nconst alert = $('Intake input').first().json.alert;\nconst cfg = $input.first().json;\nconst rule = alert !== null && typeof alert === 'object' ? alert.rule : undefined;\nconst raw = rule !== null && typeof rule === 'object' ? rule.level : undefined;\nconst level = typeof raw === 'number' && Number.isInteger(raw) ? raw\n  : typeof raw === 'string' && /^\\d+$/.test(raw.trim()) ? Number(raw.trim()) : null;\nconst groups = rule !== null && typeof rule === 'object' && Array.isArray(rule.groups) ? rule.groups : [];\nlet decision = 'handoff';\nlet status = 'handed off to the router';\nif (level !== null && level < cfg.min_level) {\n  decision = 'filtered';\n  status = `filtered: level ${level} < ${cfg.min_level}`;\n} else {\n  const ex = cfg.intake_exclusions.find((e) => groups.includes(e.rule_group));\n  if (ex) { decision = 'skipped'; status = `skipped: ${ex.label}`; }\n}\nreturn [{ json: {\n  decision, status,\n  wazuh_alert_id: typeof alert?.id === 'string' ? alert.id : null,\n  rule_id: rule?.id ?? null, rule_level: level,\n  alert, config: cfg, recv_execution_id: $execution.id,\n} }];\n"
       },
       "id": "e87c7def-1f8e-5ea2-a5c2-4e02fac06898",
       "name": "Intake decision",
@@ -128,19 +128,18 @@
         "workflowId": {
           "__rl": true,
           "mode": "id",
-          "value": "asoxPbGeneric001",
-          "cachedResultName": "pb-generic"
+          "value": "={{ $json.route.playbook_id }}"
         },
         "options": {
           "waitForSubWorkflow": false
         }
       },
       "id": "90b551e0-7e53-59a2-a239-2e86976b4bb4",
-      "name": "Playbook: pb-generic (router call site, N8N-1.3)",
+      "name": "Playbook (by route)",
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.2,
       "position": [
-        1300,
+        1820,
         -100
       ]
     },
@@ -152,6 +151,75 @@
       "typeVersion": 1,
       "position": [
         1300,
+        260
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "asoxLibRouteAlrt",
+          "cachedResultName": "lib-route-alert"
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "c7c4ad8e-3026-5cca-92af-b4c80d271bc5",
+      "name": "Route (lib-route-alert)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1300,
+        -100
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// The route is recorded here (this execution is saved) and passed to the\n// playbook, which puts it in TheHive (caseTemplate, writeback).\nconst d = $('Intake decision').first().json;\nconst route = $input.first().json.route;\nreturn [{ json: {\n  status: `routed: ${route.route_id} -> ${route.playbook}` + (route.fallback ? ` (fallback from ${route.fallback.wanted})` : ''),\n  route,\n  wazuh_alert_id: d.wazuh_alert_id,\n  alert: d.alert, config: d.config, recv_execution_id: d.recv_execution_id,\n} }];\n"
+      },
+      "id": "2de3de05-6f49-5717-b6f1-d4b2be76f7a3",
+      "name": "Playbook input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1560,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// lib-route-alert failed (a broken routing table in lib-config): park the\n// alert with its id and payload, so it can be replayed once fixed.\nconst d = $('Intake decision').first().json;\nconst err = $input.first().json.error;\nreturn [{ json: {\n  error_class: 'unknown',\n  stage: 'route',\n  workflow: $workflow.name,\n  execution_id: $execution.id,\n  node: 'Route (lib-route-alert)',\n  wazuh_alert_id: d.wazuh_alert_id,\n  thehive_alert_id: null,\n  message: 'routing failed: ' + (typeof err === 'string' ? err : err?.message ?? JSON.stringify($input.first().json).slice(0, 500)),\n  payload: d.alert,\n} }];\n"
+      },
+      "id": "09c499c7-540d-5043-b810-de3994f6782f",
+      "name": "Route error input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1560,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "asoxLibError0001",
+          "cachedResultName": "lib-error"
+        },
+        "options": {
+          "waitForSubWorkflow": false
+        }
+      },
+      "id": "ebe21c9b-857d-552b-b703-623be387452a",
+      "name": "Park (lib-error)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1820,
         120
       ]
     }
@@ -205,7 +273,7 @@
       "main": [
         [
           {
-            "node": "Playbook: pb-generic (router call site, N8N-1.3)",
+            "node": "Route (lib-route-alert)",
             "type": "main",
             "index": 0
           }
@@ -213,6 +281,46 @@
         [
           {
             "node": "Not handed off (see Intake decision)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route (lib-route-alert)": {
+      "main": [
+        [
+          {
+            "node": "Playbook input",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Route error input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Playbook input": {
+      "main": [
+        [
+          {
+            "node": "Playbook (by route)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route error input": {
+      "main": [
+        [
+          {
+            "node": "Park (lib-error)",
             "type": "main",
             "index": 0
           }

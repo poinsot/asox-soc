@@ -1,0 +1,73 @@
+{
+  "id": "asoxLibRouteAlrt",
+  "name": "lib-route-alert",
+  "active": true,
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## lib-route-alert (N8N-1.3, D-N2)\n**Trigger:** called by recv-wazuh-alert through Execute Workflow, waiting for the result.\n**Inputs:** `{alert: <raw Wazuh alert>, config: <lib-config>}` (other keys are ignored).\n**Actions taken:** none outside n8n: pure routing. Walks lib-config `routing.rows` in order on rule.groups, rule.id, MITRE techniques (rule.mitre.id, else rule.mitre_techniques; prefix match) and rule.level; the first ACTIVE match wins, proposed matches are recorded and evaluation goes on, the last row (wazuh-generic) is the default. A playbook not in `playbooks` falls back to `fallback_playbook` (pb-generic), recorded in `fallback`. Reads the raw alert defensively: missing fields only mean no match; the playbook's normalizer parks malformed alerts. Throws only on a broken routing table (recv-wazuh-alert then parks the alert with its id).\n**Returns:** `{route: {route_id, playbook, playbook_id, case_template, matched_by, fallback, proposed_match, routing_version}}`.\n**Systems changed:** none.\n**Approval:** not applicable.\n**Owner:** n8n.\nSuccessful executions are not saved (N8N-6.5): recv-wazuh-alert records the route; failed ones are kept.",
+        "height": 380,
+        "width": 560
+      },
+      "id": "ecd6be8f-4a22-5301-a583-0652543ab4e2",
+      "name": "About this workflow",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -40,
+        -420
+      ]
+    },
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "id": "2bb7ff39-7184-565b-8e9b-a16c0ad17117",
+      "name": "Called by a workflow",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// lib-route-alert (N8N-1.3, D-N2): picks the playbook and case template for a\n// raw Wazuh alert from lib-config's routing table. Pure: no calls, no state.\n// Reads the raw alert defensively: missing or mistyped fields only mean \"no\n// match\" (a missing rule.groups is not an error). A malformed alert gets the\n// default route, and the playbook's normalizer parks it (N8N-1.2).\nconst { alert, config: cfg } = $input.first().json;\nconst routing = cfg?.routing;\nif (!routing || !Array.isArray(routing.rows) || !cfg.playbooks) throw new Error('lib-route-alert needs the lib-config output as `config`');\nconst rows = routing.rows;\nconst def = rows[rows.length - 1];\nif (!def || def.default !== true || rows.filter((r) => r.default).length !== 1) throw new Error('lib-config routing: exactly one default row, and it must be the last');\n\nconst isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);\nconst rule = isObj(alert) && isObj(alert.rule) ? alert.rule : {};\nconst groups = Array.isArray(rule.groups) ? rule.groups.filter((g) => typeof g === 'string') : [];\nconst ruleId = typeof rule.id === 'string' && rule.id.trim() !== '' ? rule.id.trim() : Number.isInteger(rule.id) ? String(rule.id) : null;\nconst level = Number.isInteger(rule.level) ? rule.level\n  : typeof rule.level === 'string' && /^\\d+$/.test(rule.level.trim()) ? Number(rule.level.trim()) : null;\n// Same technique list as lib-normalize-wazuh-alert: rule.mitre.id, else rule.mitre_techniques.\nconst techniques = (v) => (Array.isArray(v) ? v.filter((t) => typeof t === 'string' && t.trim() !== '').map((t) => t.trim())\n  : typeof v === 'string' && v.trim() !== '' ? [v.trim()] : []);\nconst fromMitreId = techniques(isObj(rule.mitre) ? rule.mitre.id : undefined);\nconst mitre = fromMitreId.length > 0 ? fromMitreId : techniques(rule.mitre_techniques);\n\n// A clause matches when every key it has matches; it returns why, or null.\n// mitre_prefix: T1110 matches T1110 and its sub-techniques (T1110.001).\nconst clauseMatch = (m) => {\n  const why = [];\n  if (m.groups_all) {\n    if (!m.groups_all.every((g) => groups.includes(g))) return null;\n    why.push(`groups ${m.groups_all.join('+')}`);\n  }\n  if (m.groups_any) {\n    const hit = m.groups_any.filter((g) => groups.includes(g));\n    if (hit.length === 0) return null;\n    why.push(`group ${hit.join('+')}`);\n  }\n  if (m.rule_ids) {\n    if (ruleId === null || !m.rule_ids.includes(ruleId)) return null;\n    why.push(`rule ${ruleId}`);\n  }\n  if (m.mitre_prefix) {\n    const hit = mitre.find((t) => m.mitre_prefix.some((p) => t === p || t.startsWith(`${p}.`)));\n    if (!hit) return null;\n    why.push(`mitre ${hit}`);\n  }\n  if (m.min_level !== undefined) {\n    if (level === null || level < m.min_level) return null;\n    why.push(`level ${level} >= ${m.min_level}`);\n  }\n  return why.length > 0 ? why.join(', ') : null; // an empty clause never matches\n};\n\n// Ordered, first ACTIVE match wins. A proposed row that matches is recorded\n// and evaluation goes on; nothing matched -> the default row (last).\nconst proposed = [];\nlet chosen = null;\nlet matchedBy = null;\nfor (const row of rows) {\n  if (row.default) break;\n  const hit = (row.match ?? []).map(clauseMatch).find((w) => w !== null);\n  if (!hit) continue;\n  if (row.status === 'active') { chosen = row; matchedBy = hit; break; }\n  proposed.push({ id: row.id, case_template: row.case_template, matched_by: hit });\n}\nif (!chosen) {\n  chosen = def;\n  matchedBy = proposed.length > 0 ? 'default (only proposed rows matched)' : 'default (no row matched)';\n}\n\n// The row's playbook, or the fallback playbook when it isn't built yet.\nlet playbook = chosen.playbook;\nlet fallback = null;\nif (!cfg.playbooks[playbook]) {\n  fallback = { wanted: playbook, reason: `playbook ${playbook} is not in lib-config playbooks (not built yet)` };\n  playbook = routing.fallback_playbook;\n}\nconst playbookId = cfg.playbooks[playbook];\nif (!playbookId) throw new Error(`lib-config routing: fallback playbook ${playbook} has no workflow ID`);\n\nreturn [{ json: { route: {\n  route_id: chosen.id,\n  playbook,\n  playbook_id: playbookId,\n  case_template: chosen.case_template,\n  matched_by: matchedBy,\n  fallback,\n  proposed_match: proposed,\n  routing_version: routing.version,\n} } }];\n"
+      },
+      "id": "a958ea9c-9b91-50da-b8c8-31c6a165813c",
+      "name": "Route",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        260,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Called by a workflow": {
+      "main": [
+        [
+          {
+            "node": "Route",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataSuccessExecution": "none",
+    "saveDataErrorExecution": "all",
+    "saveManualExecutions": true
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "nodeGroups": [],
+  "tags": [],
+  "pinData": {}
+}

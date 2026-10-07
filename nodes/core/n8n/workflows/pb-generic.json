@@ -5,7 +5,7 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## pb-generic (N8N-4.1)\n**Trigger:** called by recv-wazuh-alert through Execute Workflow, not waited for (the single call site the router replaces in N8N-1.3).\n**Inputs:** `{alert: <raw Wazuh alert>, config: <lib-config>, recv_execution_id}`.\n**Actions taken:** lib-normalize-wazuh-alert -> lib-extract-observables (refanged, validated, merged; internal and documentation IPs tagged range:* and flagged, never dropped) -> lib-thehive-upsert-alert (one TheHive alert per Wazuh alert, dedup by sourceRef) -> ENRICHMENT STUB (no-op until lib-enrich-observable, N8N-2.4, which reads the range flag) -> lib-thehive-writeback (comment with this execution id). Malformed input and TheHive failures are parked by lib-error.\n**Systems changed:** TheHive only (alert and comment).\n**Approval:** not needed (no system changes).\n**Owner:** n8n.\nResult of the execution: `outcome` = created / duplicate / parked / skipped (`skipped: TheHive not configured` when lib-config says TheHive isn't deployed here: no park, no writeback). Error workflow: recv-n8n-error.",
+        "content": "## pb-generic (N8N-4.1)\n**Trigger:** called by recv-wazuh-alert through Execute Workflow, not waited for, when lib-route-alert chooses it (every route today: the routing fallback, N8N-1.3).\n**Inputs:** `{alert: <raw Wazuh alert>, config: <lib-config>, recv_execution_id, route: <lib-route-alert route>}`; without `route`, the default case template.\n**Actions taken:** lib-normalize-wazuh-alert -> lib-extract-observables (refanged, validated, merged; internal and documentation IPs tagged range:* and flagged, never dropped) -> lib-thehive-upsert-alert (one TheHive alert per Wazuh alert, dedup by sourceRef) -> ENRICHMENT STUB (no-op until lib-enrich-observable, N8N-2.4, which reads the range flag) -> lib-thehive-writeback (comment with this execution id and the route: id, matched by, playbook, case template, fallback, proposed matches). Malformed input and TheHive failures are parked by lib-error.\n**Systems changed:** TheHive only (alert and comment).\n**Approval:** not needed (no system changes).\n**Owner:** n8n.\nResult of the execution: `outcome` = created / duplicate / parked / skipped (`skipped: TheHive not configured` when lib-config says TheHive isn't deployed here: no park, no writeback). Error workflow: recv-n8n-error.",
         "height": 340,
         "width": 520
       },
@@ -33,7 +33,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Everything this execution needs: the pb's own execution id goes to the\n// TheHive custom field and the writeback (sub-workflows have their own ids).\nconst input = $input.first().json;\nif (!input.config || !input.config.writeback) throw new Error('pb-generic needs the lib-config output as `config`');\nreturn [{ json: {\n  alert: input.alert,\n  config: input.config,\n  context: { playbook: $workflow.name, n8n_execution_id: $execution.id, recv_execution_id: input.recv_execution_id ?? null },\n} }];\n"
+        "jsCode": "// Everything this execution needs: the pb's own execution id goes to the\n// TheHive custom field and the writeback (sub-workflows have their own ids).\nconst input = $input.first().json;\nif (!input.config || !input.config.writeback) throw new Error('pb-generic needs the lib-config output as `config`');\nreturn [{ json: {\n  alert: input.alert,\n  config: input.config,\n  context: { playbook: $workflow.name, n8n_execution_id: $execution.id, recv_execution_id: input.recv_execution_id ?? null },\n  // From lib-route-alert (N8N-1.3); null when called without a route.\n  route: input.route ?? null,\n} }];\n"
       },
       "id": "088c48d3-0b88-528d-ade3-820e5d4f485b",
       "name": "Context",
@@ -114,7 +114,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const c = $('Context').first().json;\nreturn [{ json: {\n  canonical: $('Normalize (lib-normalize-wazuh-alert)').first().json.canonical,\n  extraction: $input.first().json,\n  config: c.config, context: c.context,\n} }];\n"
+        "jsCode": "const c = $('Context').first().json;\nreturn [{ json: {\n  canonical: $('Normalize (lib-normalize-wazuh-alert)').first().json.canonical,\n  extraction: $input.first().json,\n  config: c.config, context: c.context, route: c.route,\n} }];\n"
       },
       "id": "59200f8b-1d76-58ee-985c-025b897d7a7b",
       "name": "Upsert input",
@@ -193,7 +193,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Actions taken, as written to TheHive (lib-thehive-writeback).\nconst c = $('Context').first().json;\nconst u = $('Upsert (lib-thehive-upsert-alert)').first().json;\nconst actions = [];\nif (u.duplicate) {\n  actions.push(`TheHive alert already existed for Wazuh alert ${u.wazuh_alert_id} (duplicate sourceRef): nothing created.`);\n  if (u.after_retry) actions.push('The create call was retried (timeout or TheHive error): the alert may have been created by the first call.');\n} else {\n  actions.push(`TheHive alert created: source ${u.source}, severity ${u.severity}, case template requested ${u.case_template}, observables: ${u.observables.join(', ') || 'none'}.`);\n  for (const s of u.skipped_observables) actions.push(`Observable not sent: ${s.dataType} ${s.data} (${s.reason}).`);\n  for (const wmsg of u.warnings) actions.push(`Warning: ${wmsg}.`);\n}\nactions.push('Enrichment: not run (stub until lib-enrich-observable, N8N-2.4).');\nactions.push('Systems changed: TheHive only.');\nreturn [{ json: {\n  thehive_alert_id: u.thehive_alert_id, wazuh_alert_id: u.wazuh_alert_id,\n  config: c.config, context: c.context, actions,\n} }];\n"
+        "jsCode": "// Actions taken, as written to TheHive (lib-thehive-writeback).\nconst c = $('Context').first().json;\nconst u = $('Upsert (lib-thehive-upsert-alert)').first().json;\nconst actions = [];\nconst r = c.route;\nif (r) {\n  actions.push(`Route: ${r.route_id} (${r.matched_by}): playbook ${r.playbook}, case template ${r.case_template}.`);\n  if (r.fallback) actions.push(`Playbook fallback: the route names ${r.fallback.wanted}, not built yet; ${r.playbook} ran.`);\n  for (const pm of r.proposed_match) actions.push(`Proposed route matched, not active yet (X-04, W1.3): ${pm.id} (${pm.matched_by}).`);\n} else {\n  actions.push('Route: none (playbook called without lib-route-alert): default case template.');\n}\nif (u.duplicate) {\n  actions.push(`TheHive alert already existed for Wazuh alert ${u.wazuh_alert_id} (duplicate sourceRef): nothing created.`);\n  if (u.after_retry) actions.push('The create call was retried (timeout or TheHive error): the alert may have been created by the first call.');\n} else {\n  actions.push(`TheHive alert created: source ${u.source}, severity ${u.severity}, case template requested ${u.case_template}, observables: ${u.observables.join(', ') || 'none'}.`);\n  for (const s of u.skipped_observables) actions.push(`Observable not sent: ${s.dataType} ${s.data} (${s.reason}).`);\n  for (const wmsg of u.warnings) actions.push(`Warning: ${wmsg}.`);\n}\nactions.push('Enrichment: not run (stub until lib-enrich-observable, N8N-2.4).');\nactions.push('Systems changed: TheHive only.');\nreturn [{ json: {\n  thehive_alert_id: u.thehive_alert_id, wazuh_alert_id: u.wazuh_alert_id,\n  config: c.config, context: c.context, actions,\n} }];\n"
       },
       "id": "0e05478d-120e-5f63-8599-859a1e0a622d",
       "name": "Writeback input",
@@ -227,7 +227,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const u = $('Upsert (lib-thehive-upsert-alert)').first().json;\nconst r = $input.first().json;\nreturn [{ json: {\n  outcome: u.duplicate ? 'duplicate' : 'created',\n  after_retry: u.after_retry === true, // duplicate found by a retried create (N8N-6.2)\n  wazuh_alert_id: u.wazuh_alert_id,\n  thehive_alert_id: u.thehive_alert_id,\n  writeback: r.ok ? (r.written ? 'written' : 'already written') : 'failed (parked by lib-error)',\n  playbook: $workflow.name,\n} }];\n"
+        "jsCode": "const u = $('Upsert (lib-thehive-upsert-alert)').first().json;\nconst r = $input.first().json;\nreturn [{ json: {\n  outcome: u.duplicate ? 'duplicate' : 'created',\n  after_retry: u.after_retry === true, // duplicate found by a retried create (N8N-6.2)\n  wazuh_alert_id: u.wazuh_alert_id,\n  thehive_alert_id: u.thehive_alert_id,\n  writeback: r.ok ? (r.written ? 'written' : 'already written') : 'failed (parked by lib-error)',\n  playbook: $workflow.name,\n  route_id: $('Context').first().json.route?.route_id ?? null,\n} }];\n"
       },
       "id": "85eac449-e6c7-577b-b84b-f2186266ab2d",
       "name": "Outcome",
@@ -240,7 +240,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Normalize or upsert handed the alert to lib-error, which parked it.\nconst r = $input.first().json;\nconst alert = $('Context').first().json.alert;\nreturn [{ json: {\n  outcome: 'parked',\n  wazuh_alert_id: r.wazuh_alert_id ?? (typeof alert?.id === 'string' ? alert.id : null),\n  error: r.error_class ?? r.stage ?? null,\n  message: r.message ?? null,\n  playbook: $workflow.name,\n} }];\n"
+        "jsCode": "// Normalize or upsert handed the alert to lib-error, which parked it.\nconst r = $input.first().json;\nconst alert = $('Context').first().json.alert;\nreturn [{ json: {\n  outcome: 'parked',\n  wazuh_alert_id: r.wazuh_alert_id ?? (typeof alert?.id === 'string' ? alert.id : null),\n  error: r.error_class ?? r.stage ?? null,\n  message: r.message ?? null,\n  playbook: $workflow.name,\n  route_id: $('Context').first().json.route?.route_id ?? null,\n} }];\n"
       },
       "id": "ec0eca37-d89e-5864-bb80-62ccf5f35215",
       "name": "Parked outcome",
@@ -287,7 +287,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// lib-config: THEHIVE_ENABLED=false (no cases node on this machine). Recorded,\n// not parked: there is nothing to retry.\nconst u = $input.first().json;\nreturn [{ json: {\n  outcome: 'skipped',\n  status: 'skipped: TheHive not configured',\n  wazuh_alert_id: u.wazuh_alert_id,\n  playbook: $workflow.name,\n} }];\n"
+        "jsCode": "// lib-config: THEHIVE_ENABLED=false (no cases node on this machine). Recorded,\n// not parked: there is nothing to retry.\nconst u = $input.first().json;\nreturn [{ json: {\n  outcome: 'skipped',\n  status: 'skipped: TheHive not configured',\n  wazuh_alert_id: u.wazuh_alert_id,\n  playbook: $workflow.name,\n  route_id: $('Context').first().json.route?.route_id ?? null,\n} }];\n"
       },
       "id": "ece553f8-e26f-5613-b59d-f9c1cd8ccfcb",
       "name": "Skipped outcome",
