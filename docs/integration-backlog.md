@@ -128,6 +128,7 @@ Owners add rows here for anything in shared files (rule 3 of the light rules).
 | R-22 | `bootstrap.sh intel` runs `nodes/intel/misp/misp-config.sh apply` (warninglist cap R-14, C10 user) | CX | C10-handoff-n8n.md step 6, A86 | open; needed before C10 (R-13) |
 | R-23 | Warninglist state differs per instance: build instance 0 of 225 lists enabled, Diego's 215 of 225 (2026-10-06); a fresh `intel` keeps MISP's default | CX | A86 | open; closed by R-22. Until then, run `misp-config.sh apply` by hand on each `intel` |
 | R-24 | CHECKLIST.md WSL memory table: a 12 GB row (Daniel's machine: 12 GB, Windows 11 Home 25H2; he runs `memory=8GB`, `swap=8GB`, `MEM_PROFILE=low`) | W | `request-integrator-w08-machine-info.md`, PROJECT.md 16 Q1/Q3 | open |
+| R-25 | `n8n-import.sh` activates workflows in file order after deactivating the existing ones, so a workflow whose sub-workflow sorts later fails to activate (seen 2026-10-06 importing the `n8n` branch over `main`'s: `lib-enrich-observable` before `lib-thehive-tag-observable`, then `pb-generic`; a plain retry activated both). Fix: activate sub-workflows first, or retry the failed ones once at the end | Integrator | `scripts/lib/n8n.sh` `n8n_import_workflows`, A44 | open; matters once N8N-2.4 is merged into `main` |
 
 ## F. Dependency order and delivery alignment
 

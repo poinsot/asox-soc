@@ -151,3 +151,15 @@ None of the planned contracts C9–C14 is built, and `contracts-check.sh` still 
 5. **Start R-16 (`n8n-indexer`, the `asox-metrics` template, the CA in n8n), then R-10.** R-16 is the shared first piece of C11 and C13; C13's analyzer (11-17) also needs R-10. Both gate work by three other owners.
 
 **n8n owner (on the `n8n` branch):** review and confirm TheHive's ALERT-FORMAT §1–§5 (T2.4–T2.6, due 10-20); build N8N-1.3 (router) and N8N-2.4 (enrichment) for checkpoint 1.
+
+## Update 2026-10-06 (after the audit)
+
+Integrator session on `main`, the same day. The audit above is unchanged; this section lists what changed since.
+
+- **HEAD verified on the build machine (audit action 2).** `full` in `single` / `standard`, with `main`'s 13 n8n workflows imported for the test (`main` at `6a7e5b8`; the commits after the audit change only `render-env.sh`, `healthcheck.sh`, env templates and docs): `healthcheck.sh` all green on core, cases, intel and lab; `contracts-check.sh` **C1–C8 all pass** (27 s); license line `Community Regular, valid until 2027-09-28`. The running n8n was checked first: its 17 workflows were identical to the `n8n` branch's files, so nothing was lost. Afterwards the `n8n` branch's workflows were imported again and C1 re-run (pass).
+- **R-06 done** (A81): optional `SYSLOG_ALLOWED_IPS` in `topology.env` → core's `WAZUH_SYSLOG_ALLOWED_IPS`, empty by default, validated by `render-env.sh` before any file is written. Daniel's W1.1 is unblocked.
+- **Daniel's core-only findings:** Grafana login in `healthcheck.sh` retries once (R-20, A82); `render-env.sh` prints an INFO line for `THEHIVE_ENABLED=true` and CONTRIBUTING.md has a Troubleshooting note (R-19, A83). Correction found while testing: a stale key must be emptied in both `nodes/core/.env` and `nodes/cases/.env`, not only in core.
+- **Register, handoff, decisions, PROJECT.md 16/17 updated** (status date 2026-10-06): R-06, R-09, R-14 statuses fixed; new rows R-19–R-25; A84 (n8n router), A85 (n8n enrichment defaults), A86 (R-14 cap); §17 line about the TheHive trial corrected; Q1/Q3 partial answers recorded.
+- **n8n (branch `n8n`, not merged into `main`):** router N8N-1.3 built, enrichment N8N-2.4 partial (`MISP_2_1` only), ALERT-FORMAT §1–§5 reviewed with questions A–E to TheHive, T1.3 loaded on the build instance (9 fields, 9 templates, `user-account`; verified live 2026-10-06). The audit's "router and enrichment open" is therefore true for `main` only.
+- **Found today:** the build instance's MISP has **0 of 225** warninglists enabled (`misp-config.sh` never run here; Diego's: 215), R-22/R-23. `n8n-import.sh` can fail to activate a workflow whose sub-workflow comes later alphabetically when the sub-workflows were deactivated first (`lib-enrich-observable` → `lib-thehive-tag-observable`, then `pb-generic`); a plain retry activated both (R-25).
+- **Still as in the audit:** Grafana stalled, C14 design due 10-16, C9–C14 not built, Cortex memory (R-21).
