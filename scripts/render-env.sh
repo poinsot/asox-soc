@@ -42,6 +42,8 @@ check_syslog_allowed_ips() {
     [[ $entry =~ ^([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})(/([0-9]{1,2}))?$ ]] \
       || die "topology.env: SYSLOG_ALLOWED_IPS entry '$entry' is not a.b.c.d or a.b.c.d/n; use $hint"
     for o in 1 2 3 4; do
+      [[ ${BASH_REMATCH[o]} != 0?* ]] \
+        || die "topology.env: SYSLOG_ALLOWED_IPS entry '$entry': octet ${BASH_REMATCH[o]}: leading zeros are ambiguous (octal)"
       (( 10#${BASH_REMATCH[o]} <= 255 )) \
         || die "topology.env: SYSLOG_ALLOWED_IPS entry '$entry': octet ${BASH_REMATCH[o]} is above 255"
     done
@@ -52,6 +54,9 @@ check_syslog_allowed_ips() {
       (( 10#${BASH_REMATCH[6]} > 0 )) \
         || die "topology.env: SYSLOG_ALLOWED_IPS entry '$entry' accepts every source, which disables the syslog restriction; list the senders' addresses instead"
     fi
+    # 0.0.0.0 means "this host" / unspecified, never a sender.
+    [[ ${entry%/32} != 0.0.0.0 ]] \
+      || die "topology.env: SYSLOG_ALLOWED_IPS entry '$entry': 0.0.0.0 is not a source address"
   done
 }
 check_syslog_allowed_ips "$TOPO_SYSLOG_ALLOWED_IPS"
