@@ -163,7 +163,7 @@ Verdicts: **agree** = n8n already sends this; **n8n changes** = changed by n8n i
 | §5 | `data.url` | `url`, no tag | same | agree |
 | §5 | `data.hostname` | `fqdn` with a dot, `ip` if an IP, else `hostname` | same | agree (§7 Q6 answered) |
 | §5 | Ranges | `range:internal` / `range:documentation` tags, nothing dropped | same | agree (§7 Q6 second part answered) |
-| §5 | `ioc` | `true` only when known bad | always `false` at creation (enrichment decides later, N8N-2.4) | agree |
+| §5 | `ioc` | `true` only when known bad | always `false` at creation; since N8N-2.4 (2026-10-06) set to `true` by enrichment only for a `malicious` verdict | **conflict, open:** AF's example "an IP found in MISP" is an IOC, but `MISP_2_1` reports a hit as taxonomy level `suspicious`, so n8n leaves `ioc: false` on a MISP hit (`asox:verdict=suspicious`). Question E below |
 
 ### Questions for Park (from this review)
 
@@ -171,6 +171,8 @@ Verdicts: **agree** = n8n already sends this; **n8n changes** = changed by n8n i
 - **B. Proposed rows:** n8n evaluates them, and when one matches first it sends `wazuh-generic` and records the row that would have matched (`proposed_match`), until the row is confirmed with the Wazuh owner (W1.3) and switched to `active` in `lib-config`. Now that the templates are loaded on the build instance, do you prefer n8n to send the proposed templates right away?
 - **C. `playbook` field:** n8n fills it with the playbook that **ran**. While only `pb-generic` exists, a route that names a future playbook (e.g. `pb-ssh-bruteforce`) still runs `pb-generic`, so the field says `pb-generic` and the writeback says which playbook the route wanted. OK?
 - **D. `network-scan`:** "`rule.mitre.id` has `T1046` and the agent is the firewall": n8n has no notion of "the firewall agent". Proposal: the rule group `pfsense` stands for it (pfSense logs arrive through syslog with that group, W4.x). OK, or which field identifies the firewall?
+
+- **E. MISP hit and `ioc` (also to Diego):** `MISP_2_1` reports a hit as taxonomy level `suspicious`. ALERT-FORMAT §5 says an IP found in MISP should be marked `ioc: true`. Should a MISP hit be malicious (`ioc: true`) for all MISP sources, only for our own events (not feeds like Botvrij), or stay suspicious? n8n uses suspicious / `ioc: false` until you agree; switching is a one-line override in `lib-config`.
 
 ### §7 questions now answered
 
