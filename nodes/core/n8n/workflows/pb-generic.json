@@ -5,8 +5,8 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## pb-generic (N8N-4.1)\n**Trigger:** called by recv-wazuh-alert through Execute Workflow, not waited for, when lib-route-alert chooses it (every route today: the routing fallback, N8N-1.3).\n**Inputs:** `{alert: <raw Wazuh alert>, config: <lib-config>, recv_execution_id, route: <lib-route-alert route>}`; without `route`, the default case template.\n**Actions taken:** lib-normalize-wazuh-alert -> lib-extract-observables (refanged, validated, merged; internal and documentation IPs tagged range:* and flagged, never dropped) -> lib-thehive-upsert-alert (one TheHive alert per Wazuh alert, dedup by sourceRef) -> ENRICHMENT STUB (no-op until lib-enrich-observable, N8N-2.4, which reads the range flag) -> lib-thehive-writeback (comment with this execution id and the route: id, matched by, playbook, case template, fallback, proposed matches). Malformed input and TheHive failures are parked by lib-error.\n**Systems changed:** TheHive only (alert and comment).\n**Approval:** not needed (no system changes).\n**Owner:** n8n.\nResult of the execution: `outcome` = created / duplicate / parked / skipped (`skipped: TheHive not configured` when lib-config says TheHive isn't deployed here: no park, no writeback). Error workflow: recv-n8n-error.",
-        "height": 340,
+        "content": "## pb-generic (N8N-4.1)\n**Trigger:** called by recv-wazuh-alert through Execute Workflow, not waited for, when lib-route-alert chooses it (every route today: the routing fallback, N8N-1.3).\n**Inputs:** `{alert: <raw Wazuh alert>, config: <lib-config>, recv_execution_id, route: <lib-route-alert route>}`; without `route`, the default case template.\n**Actions taken:** lib-normalize-wazuh-alert -> lib-extract-observables (refanged, validated, merged; internal and documentation IPs tagged range:* and flagged, never dropped) -> lib-thehive-upsert-alert (one TheHive alert per Wazuh alert, dedup by sourceRef) -> only when the alert was **created** (not a duplicate): lib-enrich-observable (Cortex through C6, policy in lib-config `enrichment`; tags verdicts on the observables; On Error = continue, so enrichment never parks or blocks the writeback) -> lib-thehive-writeback (comment with this execution id and the route: id, matched by, playbook, case template, fallback, proposed matches; enrichment counts and a line per observable: enriched with verdict, skipped with reasons, failed with class). Malformed input and TheHive failures are parked by lib-error.\n**Systems changed:** TheHive only (alert, comment, observable tags and IOC flag); Cortex runs read-only lookups.\n**Approval:** not needed (no system changes).\n**Owner:** n8n.\nResult of the execution: `outcome` = created / duplicate / parked / skipped (`skipped: TheHive not configured` when lib-config says TheHive isn't deployed here: no park, no writeback). Error workflow: recv-n8n-error.",
+        "height": 360,
         "width": 520
       },
       "id": "302f28f9-1a63-5ec9-a8e4-208637d0b839",
@@ -181,26 +181,15 @@
       ]
     },
     {
-      "parameters": {},
-      "id": "5c8f2b43-0a07-56d4-9331-04effe9bc35a",
-      "name": "ENRICHMENT STUB: no-op (lib-enrich-observable, N8N-2.4)",
-      "type": "n8n-nodes-base.noOp",
-      "typeVersion": 1,
-      "position": [
-        2860,
-        -200
-      ]
-    },
-    {
       "parameters": {
-        "jsCode": "// Actions taken, as written to TheHive (lib-thehive-writeback).\nconst c = $('Context').first().json;\nconst u = $('Upsert (lib-thehive-upsert-alert)').first().json;\nconst actions = [];\nconst r = c.route;\nif (r) {\n  actions.push(`Route: ${r.route_id} (${r.matched_by}): playbook ${r.playbook}, case template ${r.case_template}.`);\n  if (r.fallback) actions.push(`Playbook fallback: the route names ${r.fallback.wanted}, not built yet; ${r.playbook} ran.`);\n  for (const pm of r.proposed_match) actions.push(`Proposed route matched, not active yet (X-04, W1.3): ${pm.id} (${pm.matched_by}).`);\n} else {\n  actions.push('Route: none (playbook called without lib-route-alert): default case template.');\n}\nif (u.duplicate) {\n  actions.push(`TheHive alert already existed for Wazuh alert ${u.wazuh_alert_id} (duplicate sourceRef): nothing created.`);\n  if (u.after_retry) actions.push('The create call was retried (timeout or TheHive error): the alert may have been created by the first call.');\n} else {\n  actions.push(`TheHive alert created: source ${u.source}, severity ${u.severity}, case template requested ${u.case_template}, observables: ${u.observables.join(', ') || 'none'}.`);\n  for (const s of u.skipped_observables) actions.push(`Observable not sent: ${s.dataType} ${s.data} (${s.reason}).`);\n  for (const wmsg of u.warnings) actions.push(`Warning: ${wmsg}.`);\n}\nactions.push('Enrichment: not run (stub until lib-enrich-observable, N8N-2.4).');\nactions.push('Systems changed: TheHive only.');\nreturn [{ json: {\n  thehive_alert_id: u.thehive_alert_id, wazuh_alert_id: u.wazuh_alert_id,\n  config: c.config, context: c.context, actions,\n} }];\n"
+        "jsCode": "// Actions taken, as written to TheHive (lib-thehive-writeback).\n// Enrichment section (N8N-2.4): counts, then one line per observable.\nfunction enrichmentLines(u) {\n  if (u.duplicate) return ['Enrichment: not run (duplicate: enriched when the alert was created).'];\n  if (!$('Enrich (lib-enrich-observable)').isExecuted) return ['Enrichment: not run.'];\n  const e = $('Enrich (lib-enrich-observable)').first().json;\n  // On Error = continue: an unexpected failure inside the lib arrives as {error}.\n  if (e.ok !== true) return [`Enrichment: failed (unexpected error in lib-enrich-observable: ${e.error ?? 'no result'}); alert and writeback unaffected.`];\n  const k = e.counts;\n  const lines = [k.jobs === 0 && k.enriched === 0 && k.failed === 0\n    ? `Enrichment (Cortex, C6): nothing eligible (${k.skipped} observable(s) skipped), no Cortex job.`\n    : `Enrichment (Cortex, C6): ${k.enriched} enriched, ${k.skipped} skipped, ${k.failed} failed of ${k.observables} observable(s); ${k.jobs} analyzer run(s) planned${k.jobs_from_cache ? ` (${k.jobs_from_cache} answered from Cortex's cache)` : ''}.`];\n  const fails = (fs) => fs.map((f) => `${f.analyzer}: ${f.class}${f.attempts ? ` after ${f.attempts} call(s)` : ''}${f.job_id ? `, job ${f.job_id}` : ''}`).join('; ');\n  for (const o of e.observables) {\n    const name = `${o.dataType} ${o.data}`;\n    if (o.status === 'enriched') {\n      const runs = o.results.map((r) => `${r.analyzer}: ${r.verdict}, ${r.taxonomies.join('; ') || 'no taxonomy'}, job ${r.job_id}${r.from_cache ? ' (cached)' : ''}`).join(' | ');\n      const te = o.tag_error;\n      lines.push(`Enriched: ${name}: verdict ${o.verdict} (${runs}); ` + (o.tagged\n        ? `tagged ${o.add_tags.join(', ')}${o.ioc ? ', marked IOC' : ''}.`\n        : `verdict NOT written to TheHive (${te.class}${te.attempts ? ` after ${te.attempts} call(s)` : ''}).`));\n      if (o.failed.length > 0) lines.push(`  Also failed for ${name}: ${fails(o.failed)}.`);\n    } else if (o.status === 'failed') {\n      lines.push(`Enrichment failed: ${name}: ${fails(o.failed)}.`);\n    } else {\n      lines.push(`Not enriched: ${name}: ${o.reasons.join('; ')}.`);\n    }\n  }\n  for (const wmsg of e.warnings ?? []) lines.push(`Enrichment warning: ${wmsg}.`);\n  return lines;\n}\nconst c = $('Context').first().json;\nconst u = $('Upsert (lib-thehive-upsert-alert)').first().json;\nconst actions = [];\nconst r = c.route;\nif (r) {\n  actions.push(`Route: ${r.route_id} (${r.matched_by}): playbook ${r.playbook}, case template ${r.case_template}.`);\n  if (r.fallback) actions.push(`Playbook fallback: the route names ${r.fallback.wanted}, not built yet; ${r.playbook} ran.`);\n  for (const pm of r.proposed_match) actions.push(`Proposed route matched, not active yet (X-04, W1.3): ${pm.id} (${pm.matched_by}).`);\n} else {\n  actions.push('Route: none (playbook called without lib-route-alert): default case template.');\n}\nif (u.duplicate) {\n  actions.push(`TheHive alert already existed for Wazuh alert ${u.wazuh_alert_id} (duplicate sourceRef): nothing created.`);\n  if (u.after_retry) actions.push('The create call was retried (timeout or TheHive error): the alert may have been created by the first call.');\n} else {\n  actions.push(`TheHive alert created: source ${u.source}, severity ${u.severity}, case template requested ${u.case_template}, observables: ${u.observables.join(', ') || 'none'}.`);\n  for (const s of u.skipped_observables) actions.push(`Observable not sent: ${s.dataType} ${s.data} (${s.reason}).`);\n  for (const wmsg of u.warnings) actions.push(`Warning: ${wmsg}.`);\n}\nactions.push(...enrichmentLines(u));\nactions.push('Systems changed: TheHive only.');\nreturn [{ json: {\n  thehive_alert_id: u.thehive_alert_id, wazuh_alert_id: u.wazuh_alert_id,\n  config: c.config, context: c.context, actions,\n} }];\n"
       },
       "id": "0e05478d-120e-5f63-8599-859a1e0a622d",
       "name": "Writeback input",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        3120,
+        3900,
         -200
       ]
     },
@@ -221,20 +210,20 @@
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.2,
       "position": [
-        3380,
+        4160,
         -200
       ]
     },
     {
       "parameters": {
-        "jsCode": "const u = $('Upsert (lib-thehive-upsert-alert)').first().json;\nconst r = $input.first().json;\nreturn [{ json: {\n  outcome: u.duplicate ? 'duplicate' : 'created',\n  after_retry: u.after_retry === true, // duplicate found by a retried create (N8N-6.2)\n  wazuh_alert_id: u.wazuh_alert_id,\n  thehive_alert_id: u.thehive_alert_id,\n  writeback: r.ok ? (r.written ? 'written' : 'already written') : 'failed (parked by lib-error)',\n  playbook: $workflow.name,\n  route_id: $('Context').first().json.route?.route_id ?? null,\n} }];\n"
+        "jsCode": "const u = $('Upsert (lib-thehive-upsert-alert)').first().json;\nconst r = $input.first().json;\nreturn [{ json: {\n  outcome: u.duplicate ? 'duplicate' : 'created',\n  after_retry: u.after_retry === true, // duplicate found by a retried create (N8N-6.2)\n  wazuh_alert_id: u.wazuh_alert_id,\n  thehive_alert_id: u.thehive_alert_id,\n  // N8N-2.4: counts, `not run (duplicate)` or `failed` (unexpected; never parks).\n  enrichment: u.duplicate ? 'not run (duplicate)'\n    : ($('Enrich (lib-enrich-observable)').first().json.ok === true ? $('Enrich (lib-enrich-observable)').first().json.counts : 'failed'),\n  writeback: r.ok ? (r.written ? 'written' : 'already written') : 'failed (parked by lib-error)',\n  playbook: $workflow.name,\n  route_id: $('Context').first().json.route?.route_id ?? null,\n} }];\n"
       },
       "id": "85eac449-e6c7-577b-b84b-f2186266ab2d",
       "name": "Outcome",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        3640,
+        4420,
         -200
       ]
     },
@@ -329,6 +318,75 @@
         1560,
         -100
       ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "6d3b05af-d786-5174-8ecd-3afd32e927a6",
+              "leftValue": "={{ $json.duplicate !== true }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "ee7c4b44-6ea9-5899-88a4-e75bd3632e36",
+      "name": "Created?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2860,
+        -200
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Only a newly created alert is enriched (a duplicate was enriched when it was\n// created). TLP / PAP are the alert's (lib-config), checked against each\n// analyzer's max by lib-enrich-observable.\nconst c = $('Context').first().json;\nconst u = $input.first().json;\nconst ex = $('Extract observables (lib-extract-observables)').first().json;\nreturn [{ json: {\n  thehive_alert_id: u.thehive_alert_id, wazuh_alert_id: u.wazuh_alert_id,\n  observables: ex.observables, tlp: c.config.tlp, pap: c.config.pap,\n  config: c.config, context: c.context,\n} }];\n"
+      },
+      "id": "ae0be072-de85-56da-8b17-497774883e67",
+      "name": "Enrich input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3120,
+        -340
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "asoxLibEnrichObs",
+          "cachedResultName": "lib-enrich-observable"
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "e9d818eb-d21c-53ea-a742-221d8257b7c2",
+      "name": "Enrich (lib-enrich-observable)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        3380,
+        -340
+      ],
+      "onError": "continueRegularOutput"
     }
   ],
   "connections": {
@@ -409,7 +467,7 @@
       "main": [
         [
           {
-            "node": "ENRICHMENT STUB: no-op (lib-enrich-observable, N8N-2.4)",
+            "node": "Created?",
             "type": "main",
             "index": 0
           }
@@ -496,7 +554,36 @@
         ]
       ]
     },
-    "ENRICHMENT STUB: no-op (lib-enrich-observable, N8N-2.4)": {
+    "Created?": {
+      "main": [
+        [
+          {
+            "node": "Enrich input",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Writeback input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enrich input": {
+      "main": [
+        [
+          {
+            "node": "Enrich (lib-enrich-observable)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enrich (lib-enrich-observable)": {
       "main": [
         [
           {
