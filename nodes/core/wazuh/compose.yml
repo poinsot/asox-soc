@@ -77,6 +77,9 @@ services:
       N8N_WEBHOOK_URL: ${N8N_WEBHOOK_URL}
       N8N_WEBHOOK_TOKEN: ${N8N_WEBHOOK_TOKEN:?missing in .env, run scripts/render-env.sh}
       WAZUH_ALERT_MIN_LEVEL: ${WAZUH_ALERT_MIN_LEVEL}
+      # Extra syslog sources (R-06, from SYSLOG_ALLOWED_IPS in topology.env),
+      # written into ossec.conf by config/entrypoint-scripts (W1.1).
+      WAZUH_SYSLOG_ALLOWED_IPS: ${WAZUH_SYSLOG_ALLOWED_IPS:-}
     volumes:
       - wazuh_api_configuration:/var/ossec/api/configuration
       - wazuh_etc:/var/ossec/etc

@@ -9,13 +9,13 @@ Received by the Wazuh owner on 2026-10-01. The original message is kept below as
 | 1 | Agree the field list; keep types stable (`id`, `rule.id` strings; `rule.level` number; `rule.groups` array; same `timestamp`) | 2026-10-20 | W2.5 | open | |
 | 2 | Custom ATT&CK rules use `<mitre>` (`rule.mitre.id`) | 2026-10-20 | W2.3 | open | |
 | 3 | Standard field names: `srcip`, `dstip`, `srcuser`, `dstuser`; Suricata `data.src_ip`, `data.dest_ip`, `data.dest_port` | 2026-10-20 | W2.2, W3.3, W4.2 | open | |
-| 4 | `trigger.sh --scenario` for fixtures | 2026-10-09 | W1.5 | open | |
-| 5 | Attack-start marker and its low-noise rule | before 2026-10-20 | W1.6 | open | |
+| 4 | `trigger.sh --scenario` for fixtures | 2026-10-09 | W1.5 | answered | Done 2026-10-05: `ssh-bruteforce`, `ssh-success-after-fail`, `sudo-fail`, `new-user`, `ioc-ip` (`--list`, `--print`). All 7 alerts at level ≥ 7 reached `recv-wazuh-alert`; see "Scenarios for fixtures" below |
+| 5 | Attack-start marker and its low-noise rule | before 2026-10-20 | W1.6 | answered | Rule 100101, level 3 (proposed): indexed, never sent through C1. Fields `data.scenario`, `data.run_id`; every event of the run ends with `asox_run=<run id>`. Level to confirm with you and Jesus |
 | 6 | Should SCA alerts reach n8n? | 2026-10-20 | W2.7 | open | |
-| 7 | `ioc-ip` and the other scenarios use documentation-range attacker IPs (`203.0.113.66` for `ioc-ip`) | 2026-10-09 | W1.5 | open | |
-| 8 | C1 retries: n8n accepts send-once; tell n8n before adding any | before any change | W1.8 | open | |
+| 7 | `ioc-ip` and the other scenarios use documentation-range attacker IPs (`203.0.113.66` for `ioc-ip`) | 2026-10-09 | W1.5 | answered | `ioc-ip` brute-forces from `203.0.113.66` (rule 5712, `data.srcip`); the others use `198.51.100.23` / `.24` |
+| 8 | C1 retries: n8n accepts send-once; tell n8n before adding any | before any change | W1.8 | done | Recorded in the README's contracts section 2026-10-07: no retries without your agreement; valid JSON only |
 | 9 | C14: n8n prefers a Wazuh-side sync script with its own MISP key (R-08) | 2026-10-16 | W6.1 | open | |
-| 10 | R-06: format, default, and a test of which source IP the manager sees through the published UDP port | **2026-10-07** | W1.9 | answered | Test below. Spec in [request-integrator-r06-syslog-allowed-ips.md](request-integrator-r06-syslog-allowed-ips.md): comma-separated IPv4/CIDR, empty by default; the entrypoint always adds the manager's own Docker subnets; not `172.16.0.0/12` |
+| 10 | R-06: format, default, and a test of which source IP the manager sees through the published UDP port | **2026-10-07** | W1.9 | done | Test below. Spec in [request-integrator-r06-syslog-allowed-ips.md](request-integrator-r06-syslog-allowed-ips.md): comma-separated IPv4/CIDR, empty by default; the entrypoint always adds the manager's own Docker subnets; not `172.16.0.0/12` |
 
 Status values: `open`, `answered`, `done`, `declined` (with the reason in Reply).
 
@@ -32,6 +32,23 @@ Run on 2026-10-01 (W1.9). Setup: `DEPLOY_MODE=single`, so 514/udp is published o
 | another machine | host LAN IP `:514/udp` (distributed mode) | not tested: no second computer, and in single mode the port is bound to `127.0.0.1` |
 
 **Result:** through the published port every sender looks the same: the gateway of core's own network, chosen by Docker. Over `soc-net` the manager sees each container's real address. Docker picks the subnets per machine (`soc-net` is created without a fixed subnet), so no fixed narrow range is portable.
+
+### Scenarios for fixtures (items 4, 5, 7)
+
+Run on 2026-10-05 against the live lab agent (`core`, `low`). `id=$(nodes/lab/trigger.sh --scenario <name>)`, then `scripts/wazuh-query.sh --match "$id"` finds the run. Each run starts with the marker (rule 100101, level 3, not sent through C1).
+
+| Scenario | Alerts at level ≥ 7 (sent through C1) | `data.srcip` | Reached `recv-wazuh-alert` |
+|---|---|---|---|
+| `ssh-bruteforce` | 5763 (10) | 198.51.100.23 | yes |
+| `ssh-success-after-fail` | 5763 (10), 40112 (12, Critical, MITRE T1078/T1110) | 198.51.100.24 | yes |
+| `sudo-fail` | 5404 (10) | — (`data.srcuser` labuser, `data.dstuser` root) | yes |
+| `new-user` | 5901 (8), 5902 (8) | — (`data.dstuser` svc-backup) | yes |
+| `ioc-ip` | 5712 (10) | **203.0.113.66** | yes |
+
+Notes for you:
+- **5763 and 5712 stay quiet for 60 s after firing, for every source address.** Running `ssh-success-after-fail` right after `ssh-bruteforce` gives no 5763 and therefore no 40112. Wait a minute between SSH scenarios (in `trigger.sh --help`).
+- **40112 is level 12**, so D-N4's auto-promotion applies if a playbook names it. It has no `sshd` group, but its MITRE T1110 matches AF §3's `ssh-bruteforce` template.
+- **One C1 delivery logged a timeout but did arrive.** The first alert after a quiet period (5763 at 02:57:48 UTC) got no answer within `custom-n8n`'s 10 s, so `integrations.log` shows "Read timed out". Yet execution 47 of `recv-wazuh-alert` has it, started 8 s later. So the webhook doesn't always answer within 10 s on `low` after idle. No retry was sent (send-once), so no duplicate. Worth a look on your side.
 
 ---
 

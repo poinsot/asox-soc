@@ -4,7 +4,7 @@
 **From:** Daniel (@dmelgar1110), Wazuh owner
 **Date:** 2026-10-01
 **Refs:** W0.8, W0.2, PROJECT.md 16 (questions 1 and 3), CHECKLIST.md sections 1–3
-**Status:** draft
+**Status:** sent; answers recorded by the integrator 2026-10-06 (12 GB row for CHECKLIST.md is R-24, open)
 
 ## Answers
 
