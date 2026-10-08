@@ -6,9 +6,9 @@ Received by the Wazuh owner on 2026-10-01. The original message is kept below as
 
 | # | Ask (short) | Due | Wazuh task | Status | Reply |
 |---|---|---|---|---|---|
-| 1 | Agree the field list; keep types stable (`id`, `rule.id` strings; `rule.level` number; `rule.groups` array; same `timestamp`) | 2026-10-20 | W2.5 | open | |
-| 2 | Custom ATT&CK rules use `<mitre>` (`rule.mitre.id`) | 2026-10-20 | W2.3 | open | |
-| 3 | Standard field names: `srcip`, `dstip`, `srcuser`, `dstuser`; Suricata `data.src_ip`, `data.dest_ip`, `data.dest_port` | 2026-10-20 | W2.2, W3.3, W4.2 | open | |
+| 1 | Agree the field list; keep types stable (`id`, `rule.id` strings; `rule.level` number; `rule.groups` array; same `timestamp`) | 2026-10-20 | W2.5 | answered | Agreed, checked on real alerts; corrections (srcport string, sshd user fields, syslog alerts have agent 000) in [request-n8n-wazuh-fields-review.md](request-n8n-wazuh-fields-review.md) |
+| 2 | Custom ATT&CK rules use `<mitre>` (`rule.mitre.id`) | 2026-10-20 | W2.3 | answered | Agreed; `rule.mitre.id` is an array (seen on 5712, 5763, 40112, 5404, 5902). See the review file |
+| 3 | Standard field names: `srcip`, `dstip`, `srcuser`, `dstuser`; Suricata `data.src_ip`, `data.dest_ip`, `data.dest_port` | 2026-10-20 | W2.2, W3.3, W4.2 | answered | Agreed. Note: built-in sshd uses `dstuser` for existing accounts and `srcuser` for invalid ones (review file item 3) |
 | 4 | `trigger.sh --scenario` for fixtures | 2026-10-09 | W1.5 | answered | Done 2026-10-05: `ssh-bruteforce`, `ssh-success-after-fail`, `sudo-fail`, `new-user`, `ioc-ip` (`--list`, `--print`). All 7 alerts at level ≥ 7 reached `recv-wazuh-alert`; see "Scenarios for fixtures" below |
 | 5 | Attack-start marker and its low-noise rule | before 2026-10-20 | W1.6 | answered | Rule 100101, level 3 (proposed): indexed, never sent through C1. Fields `data.scenario`, `data.run_id`; every event of the run ends with `asox_run=<run id>`. Level to confirm with you and Jesus |
 | 6 | Should SCA alerts reach n8n? | 2026-10-20 | W2.7 | answered | **Only regressions.** `rules/1090-tuning.xml` lowers 19007 (check failed) and 19004 (score < 50%) to level 5; 19011 / 19014 (check got worse, 9) and 19005 (score < 30%, 9) still reach n8n. Live 2026-10-07: a re-enrolled lab agent's full scan gave 85 × 19007 at level 5 and **0** SCA executions in `recv-wazuh-alert`. You can drop the temporary `sca` exclusion in `lib-config` once this is on `main`. For TheHive (ALERT-TO-THEHIVE question 4): no compliance template needed, regressions go to `wazuh-generic` |
