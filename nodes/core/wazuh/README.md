@@ -105,6 +105,25 @@ Example:
 
 Routing (D-N2): n8n routes on these groups first, and on a short map of specific rule IDs where a group is too broad. The catalog of every custom rule (ID, groups, level, MITRE, lab scenario) is added here in W2.5.
 
+## Alert levels (W2.1)
+
+What a Wazuh `rule.level` means in ASOX. Every component uses the same cut-offs: TheHive's severity (ALERT-FORMAT.md §2), Grafana's buckets (D-G4) and n8n's routing.
+
+| Level | Meaning in ASOX | Sent to n8n (C1) | TheHive severity | Grafana bucket | Examples (verified on 4.14.8) |
+|---|---|---|---|---|---|
+| 0 | Silenced: a tuning child that drops noise (`1090-tuning.xml`) | no | — | — | — |
+| 1–6 | Context: indexed for dashboards and investigation, never forwarded | no | (1 Low, manual only) | low | 100101 attack-start marker (3), 5715 SSH login (3), 5403 sudo to root (4), 5760 / 5710 single SSH failure (5) |
+| 7–9 | **Medium:** worth an analyst's look | yes | 2 Medium | medium | 5901 new group, 5902 new user (8) |
+| 10–11 | **High:** a likely attack or a policy break | yes | 3 High | high | 5763 / 5712 SSH brute force, 5404 three wrong sudo passwords, 100100 test rule (10) |
+| 12–15 | **Critical:** an attack that deserves a case without waiting for triage | yes | 4 Critical | critical | 40112 login after brute force (12); planned: MISP IOC match (1080xx, 12), Suricata severity 1 (101xxx, 12) |
+
+**Forwarding threshold:** `WAZUH_ALERT_MIN_LEVEL=7` (`nodes/core/.env`). `custom-n8n` sends alerts at this level or above, and n8n filters on the same value as a second guard. Changing it changes C1's volume, so it needs the n8n owner's agreement first.
+
+**Rules for custom rules:**
+- **Pick the level by what the analyst should do,** not by how bad the event type sounds. If nobody should look at it, it goes below 7. If someone should, it goes 7 or above.
+- **12 or above only for precise detections.** n8n may promote Critical alerts of named playbooks straight to TheHive cases (D-N4), so a false positive at 12+ costs an analyst a case. A custom rule at 12+ gives its reason in the catalog (W2.5): correlation, an IOC match, or an IDS signature of severity 1.
+- **Retuning a built-in:** an `overwrite="yes"` copy in `1090-tuning.xml` with the reason. SCA's 19007 and 19004 (level 7, about 130 alerts per agent start) are the first candidates (W2.7).
+
 ## Indexer admin password
 
 `INDEXER_ADMIN_PASSWORD` (in `nodes/core/.env`, generated per machine) is written into the indexer's security index **only on the indexer's first start** (from `nodes/core/certs/internal_users.yml`, created by `gen-certs.sh`). Changing the value in `.env` afterwards does nothing by itself, and the manager's Filebeat would then fail to log in.

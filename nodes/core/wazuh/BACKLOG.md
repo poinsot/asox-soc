@@ -101,7 +101,7 @@ Close the known gaps before core is exposed on a LAN, and build the tools the la
 
 The first real detections, tuned and mapped, merged at checkpoint 1 (milestone tag `v1.1-detections`).
 
-- [ ] **W2.1** Write the alert level policy and agree the forwarding threshold · P1, C1
+- [x] **W2.1** Write the alert level policy and agree the forwarding threshold · P1, C1
   - Done when: README table: what levels 0–15 mean in ASOX, with the shared cut-offs (0–6 low, 7–9 medium, 10–11 high, 12–15 critical) that TheHive's severity mapping (ALERT-FORMAT.md §2) and Grafana's buckets (D-G4) already use; which levels reach n8n. `WAZUH_ALERT_MIN_LEVEL` agreed with the n8n owner (default 7). Level 12+ is Critical, and D-N4 lets n8n auto-promote Critical alerts of named playbooks straight to TheHive cases: reserve 12+ for detections that deserve a case without an analyst looking first.
   - Files: `nodes/core/wazuh/README.md`
   - With: Inigo (n8n), Park (ALERT-FORMAT.md §2), Jesus (D-G4)
