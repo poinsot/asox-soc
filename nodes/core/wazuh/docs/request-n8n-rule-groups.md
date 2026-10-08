@@ -4,7 +4,7 @@
 **From:** Daniel (@dmelgar1110), Wazuh owner
 **Date:** 2026-10-05
 **Refs:** W1.3, X-04, D-N2 (n8n routing key), N8N-1.3 (router), ALERT-FORMAT.md §3 and T2.6 (case templates), ALERT-TO-THEHIVE.md §3
-**Status:** draft
+**Status:** sent (2026-10-07, with the checkpoint PR)
 
 ## What I need
 
