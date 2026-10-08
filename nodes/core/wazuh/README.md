@@ -122,7 +122,8 @@ What a Wazuh `rule.level` means in ASOX. Every component uses the same cut-offs:
 **Rules for custom rules:**
 - **Pick the level by what the analyst should do,** not by how bad the event type sounds. If nobody should look at it, it goes below 7. If someone should, it goes 7 or above.
 - **12 or above only for precise detections.** n8n may promote Critical alerts of named playbooks straight to TheHive cases (D-N4), so a false positive at 12+ costs an analyst a case. A custom rule at 12+ gives its reason in the catalog (W2.5): correlation, an IOC match, or an IDS signature of severity 1.
-- **Retuning a built-in:** an `overwrite="yes"` copy in `1090-tuning.xml` with the reason. SCA's 19007 and 19004 (level 7, about 130 alerts per agent start) are the first candidates (W2.7).
+- **Retuning a built-in:** an `overwrite="yes"` copy in `1090-tuning.xml` with the reason.
+- **SCA (W2.7, X-09):** an agent's first scan reports every failed CIS check (about 85–130 alerts). 19007 (check failed) and 19004 (score < 50%) are lowered to 5 in `1090-tuning.xml`: indexed for compliance panels, not sent to n8n. Only a check that gets worse (19011, 19014, level 9) or a score below 30% (19005, level 9) reaches n8n. `wazuh-logtest` can't decode SCA events, so this is checked live: `soc.sh reset lab --yes && soc.sh init lab`, then count `rule.groups: sca` by level.
 
 ## Indexer admin password
 
