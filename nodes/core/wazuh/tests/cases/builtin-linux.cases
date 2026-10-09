@@ -1,0 +1,36 @@
+# Built-in Wazuh rules the lab scenarios (W1.5) and n8n's playbooks rely on.
+# Not our rules: these cases catch a Wazuh upgrade that changes an ID, a level
+# or a group n8n and TheHive route on. Levels and groups as of 4.14.8.
+# Attacker addresses are documentation ranges (203.0.113.0/24, memo item 7).
+
+case sshd single failed password
+expect rule=5760 level=5 groups=sshd,authentication_failed decoder=sshd
+log Oct  5 10:00:01 lab-agent sshd[1234]: Failed password for root from 203.0.113.10 port 4242 ssh2
+
+case sshd brute force (8 failures, valid user)
+expect rule=5763 level=10 groups=sshd,authentication_failures
+repeat 8 Oct  5 10:00:01 lab-agent sshd[1234]: Failed password for root from 203.0.113.10 port 4242 ssh2
+
+case sshd brute force (8 failures, invalid user)
+expect rule=5712 level=10 groups=sshd,authentication_failures
+repeat 8 Oct  5 10:00:01 lab-agent sshd[1234]: Failed password for invalid user admin from 203.0.113.11 port 4242 ssh2
+
+case sshd accepted password
+expect rule=5715 level=3 groups=sshd,authentication_success
+log Oct  5 10:00:02 lab-agent sshd[1234]: Accepted password for labuser from 203.0.113.10 port 4242 ssh2
+
+case sudo three wrong passwords
+expect rule=5404 level=10 groups=sudo decoder=sudo
+log Oct  5 10:00:03 lab-agent sudo: labuser : 3 incorrect password attempts ; TTY=pts/0 ; PWD=/home/labuser ; USER=root ; COMMAND=/bin/bash
+
+case sudo to root
+expect rule=5403 level=4 groups=sudo
+log Oct  5 10:00:03 lab-agent sudo: labuser : TTY=pts/0 ; PWD=/home/labuser ; USER=root ; COMMAND=/bin/bash
+
+case new user
+expect rule=5902 level=8 groups=adduser decoder=useradd
+log Oct  5 10:00:04 lab-agent useradd[2001]: new user: name=backdoor, UID=1001, GID=1001, home=/home/backdoor, shell=/bin/bash, from=/dev/pts/0
+
+case new group
+expect rule=5901 level=8 groups=adduser decoder=groupadd
+log Oct  5 10:00:04 lab-agent groupadd[2000]: new group: name=backdoor, GID=1001

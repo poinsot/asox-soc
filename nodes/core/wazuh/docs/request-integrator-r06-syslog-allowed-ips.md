@@ -4,7 +4,7 @@
 **From:** Daniel (@dmelgar1110), Wazuh owner
 **Date:** 2026-10-01
 **Refs:** R-06, W1.9 (test), W1.1 (entrypoint), memo item 10 in [n8n-requests-2026-09-30.md](n8n-requests-2026-09-30.md)
-**Status:** draft
+**Status:** done (2026-10-06, A81: R-06 on `main` as specified)
 
 ## The test (10c)
 

@@ -16,4 +16,20 @@
     <description>ASOX test rule: synthetic test event received</description>
   </rule>
 
+  <!--
+    Attack-start marker (W1.6, X-32): nodes/lab/trigger.sh (option scenario) writes it
+    before the scenario's events, which end with the same "asox_run=<id>".
+    Decoder asox-lab-attack-start (decoders/1001-lab.xml) gives data.scenario
+    and data.run_id. Level 3: indexed for Grafana's annotation and C11's
+    t_attack_start, but below WAZUH_ALERT_MIN_LEVEL, so it never reaches n8n
+    through C1 or TheHive (proposed; to agree with Grafana and n8n, X-32).
+    Example event: "asox-lab: ASOX_ATTACK_START scenario=ssh-bruteforce id=<uuid>"
+  -->
+  <rule id="100101" level="3">
+    <decoded_as>asox-lab</decoded_as>
+    <match>^ASOX_ATTACK_START </match>
+    <description>ASOX lab: attack scenario $(scenario) started (run $(run_id))</description>
+    <group>attack_start,</group>
+  </rule>
+
 </group>

@@ -4,7 +4,7 @@
 **From:** Daniel (@dmelgar1110), Wazuh owner
 **Date:** 2026-10-01
 **Refs:** W0.9, R-18 / A79 (`THEHIVE_ENABLED`), `scripts/healthcheck.sh`
-**Status:** draft
+**Status:** done (2026-10-06: item 1 as R-19/A83, an INFO line and CONTRIBUTING.md note; item 2 as R-20/A82, healthcheck retry)
 
 ## Context
 
