@@ -163,28 +163,28 @@ A Suricata sensor watches the lab traffic and its alerts arrive in Wazuh through
   - With: Inigo (n8n), Park (TheHive), Jesus (Grafana)
   - Refs: X-23, X-34
 
-## M4 · Network sources: pfSense and routers (target: 2026-11-10)
+## M4 · Network sources: OPNsense and routers (target: 2026-11-10)
 
 Syslog from network devices is decoded and classified, ready for the real devices of Phase 2.
 
-- [ ] **W4.1** Collect sample logs · P1
-  - Done when: Sanitized samples in `tests/samples/`: pfSense `filterlog`, pfSense web GUI and SSH logins, configuration changes, and the router's logs. Router vendor and model confirmed with the team.
+- [ ] **W4.1** Collect sample logs *(in progress)* · P1
+  - Done when: Sanitized samples in `tests/samples/`: OPNsense `filterlog`, OPNsense web GUI and SSH logins, configuration changes, and the router's logs. Router vendor and model confirmed with the team.
   - Files: `nodes/core/wazuh/tests/samples/`
   - With: Team: which router and pfSense version
-- [ ] **W4.2** Check built-in coverage, then write decoders for the gaps · P1
+- [x] **W4.2** Check built-in coverage, then write decoders for the gaps · P1
   - Done when: Every sample run through logtest; the result of the built-in ruleset noted; custom decoders only where fields are missing (`srcip`, `dstip`, `dstport`, `action`, `protocol`). Decoders use Wazuh's standard field names (`srcip`, `dstip`, `srcuser`, `dstuser`), which n8n, C13 and TheHive rely on (memo item 3).
   - Files: `nodes/core/wazuh/decoders/`
-- [ ] **W4.3** pfSense rules · P1
+- [x] **W4.3** OPNsense rules · P1
   - Done when: Port scan (many blocked ports from one source, frequency rule), bursts of blocked connections, failed GUI logins, configuration changes. Test cases and MITRE IDs.
   - Files: `nodes/core/wazuh/rules/`
 - [ ] **W4.4** Router rules · P3
   - Done when: Login failures, interface or configuration changes, and whatever the samples show matters. Test cases and MITRE IDs.
   - Files: `nodes/core/wazuh/rules/`, `nodes/core/wazuh/decoders/`
-- [ ] **W4.5** End-to-end syslog test · P1, C1
-  - Done when: A sample sent over UDP to the manager's 514 (e.g. a `--scenario pfsense-scan` in trigger.sh that sends from the lab container) is decoded, indexed, and above the threshold forwarded to n8n. The lab network is in the allowed sources from W1.1.
+- [x] **W4.5** End-to-end syslog test · P1, C1
+  - Done when: A sample sent over UDP to the manager's 514 (e.g. a `--scenario opnsense-scan` in trigger.sh that sends from the lab container) is decoded, indexed, and above the threshold forwarded to n8n. The lab network is in the allowed sources from W1.1.
   - Files: `nodes/lab/trigger.sh`
-- [ ] **W4.6** Hand the pfSense fields to n8n, TheHive and Grafana (by 2026-11-10) · P2, C1, C8
-  - Done when: The pfSense rule IDs, groups and fields are in the W2.5 catalog, and Inigo (`pb-ids-alert`'s pfSense branch), Park (a template for the port scan, T3.5) and Jesus (network panels) know.
+- [ ] **W4.6** Hand the OPNsense fields to n8n, TheHive and Grafana (by 2026-11-10) *(in progress)* · P2, C1, C8
+  - Done when: The OPNsense rule IDs, groups and fields are in the W2.5 catalog, and Inigo (`pb-ids-alert`'s OPNsense branch), Park (a template for the port scan, T3.5) and Jesus (network panels) know.
   - With: Inigo, Park, Jesus
   - Refs: X-23
 

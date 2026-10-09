@@ -1,0 +1,58 @@
+# Cases for rules/1030-opnsense.xml and decoders/1030-opnsense.xml.
+# Lines follow OPNsense's documented syslog formats (BSD/RFC 3164); replace
+# them with captures from the real firewall when it exists (W4.1).
+
+case filterlog block is decoded by the built-in pf decoder
+expect rule=87701 level=5 groups=pfsense,firewall_block decoder=pf
+log Oct  8 20:00:01 opnsense.home.arpa filterlog[51327]: 84,,,02f4bab031b57d1e30553ce08e0ec131,vtnet0,match,block,in,4,0x0,,64,13567,0,DF,6,tcp,60,203.0.113.5,192.168.1.1,44322,22,0,S,1406233372,,64240,,mss
+
+case filterlog pass is grouped, no alert
+expect rule=none
+log Oct  8 20:00:01 opnsense.home.arpa filterlog[51327]: 84,,,02f4bab031b57d1e30553ce08e0ec131,vtnet0,match,pass,in,4,0x0,,64,13567,0,DF,17,udp,60,192.168.1.10,9.9.9.9,44322,53,56
+
+case port scan: 10 different blocked ports from one source
+expect rule=103000 level=10 groups=asox,opnsense,pfsense,firewall_block,recon
+log Oct  8 20:00:01 opnsense.home.arpa filterlog[51327]: 84,,,02f4bab031b57d1e30553ce08e0ec131,vtnet0,match,block,in,4,0x0,,64,13567,0,DF,6,tcp,60,203.0.113.77,192.168.1.1,44322,21,0,S,1406233372,,64240,,mss
+log Oct  8 20:00:01 opnsense.home.arpa filterlog[51327]: 84,,,02f4bab031b57d1e30553ce08e0ec131,vtnet0,match,block,in,4,0x0,,64,13567,0,DF,6,tcp,60,203.0.113.77,192.168.1.1,44322,22,0,S,1406233372,,64240,,mss
+log Oct  8 20:00:01 opnsense.home.arpa filterlog[51327]: 84,,,02f4bab031b57d1e30553ce08e0ec131,vtnet0,match,block,in,4,0x0,,64,13567,0,DF,6,tcp,60,203.0.113.77,192.168.1.1,44322,23,0,S,1406233372,,64240,,mss
+log Oct  8 20:00:01 opnsense.home.arpa filterlog[51327]: 84,,,02f4bab031b57d1e30553ce08e0ec131,vtnet0,match,block,in,4,0x0,,64,13567,0,DF,6,tcp,60,203.0.113.77,192.168.1.1,44322,25,0,S,1406233372,,64240,,mss
+log Oct  8 20:00:01 opnsense.home.arpa filterlog[51327]: 84,,,02f4bab031b57d1e30553ce08e0ec131,vtnet0,match,block,in,4,0x0,,64,13567,0,DF,6,tcp,60,203.0.113.77,192.168.1.1,44322,80,0,S,1406233372,,64240,,mss
+log Oct  8 20:00:01 opnsense.home.arpa filterlog[51327]: 84,,,02f4bab031b57d1e30553ce08e0ec131,vtnet0,match,block,in,4,0x0,,64,13567,0,DF,6,tcp,60,203.0.113.77,192.168.1.1,44322,110,0,S,1406233372,,64240,,mss
+log Oct  8 20:00:01 opnsense.home.arpa filterlog[51327]: 84,,,02f4bab031b57d1e30553ce08e0ec131,vtnet0,match,block,in,4,0x0,,64,13567,0,DF,6,tcp,60,203.0.113.77,192.168.1.1,44322,139,0,S,1406233372,,64240,,mss
+log Oct  8 20:00:01 opnsense.home.arpa filterlog[51327]: 84,,,02f4bab031b57d1e30553ce08e0ec131,vtnet0,match,block,in,4,0x0,,64,13567,0,DF,6,tcp,60,203.0.113.77,192.168.1.1,44322,443,0,S,1406233372,,64240,,mss
+log Oct  8 20:00:01 opnsense.home.arpa filterlog[51327]: 84,,,02f4bab031b57d1e30553ce08e0ec131,vtnet0,match,block,in,4,0x0,,64,13567,0,DF,6,tcp,60,203.0.113.77,192.168.1.1,44322,445,0,S,1406233372,,64240,,mss
+log Oct  8 20:00:01 opnsense.home.arpa filterlog[51327]: 84,,,02f4bab031b57d1e30553ce08e0ec131,vtnet0,match,block,in,4,0x0,,64,13567,0,DF,6,tcp,60,203.0.113.77,192.168.1.1,44322,3389,0,S,1406233372,,64240,,mss
+
+case same port blocked 10 times is not a scan
+expect rule=87701 level=5
+expect not=103000
+log Oct  8 20:00:01 opnsense.home.arpa filterlog[51327]: 84,,,02f4bab031b57d1e30553ce08e0ec131,vtnet0,match,block,in,4,0x0,,64,13567,0,DF,6,tcp,60,203.0.113.78,192.168.1.1,44322,22,0,S,1406233372,,64240,,mss
+log Oct  8 20:00:01 opnsense.home.arpa filterlog[51327]: 84,,,02f4bab031b57d1e30553ce08e0ec131,vtnet0,match,block,in,4,0x0,,64,13567,0,DF,6,tcp,60,203.0.113.78,192.168.1.1,44322,22,0,S,1406233372,,64240,,mss
+log Oct  8 20:00:01 opnsense.home.arpa filterlog[51327]: 84,,,02f4bab031b57d1e30553ce08e0ec131,vtnet0,match,block,in,4,0x0,,64,13567,0,DF,6,tcp,60,203.0.113.78,192.168.1.1,44322,22,0,S,1406233372,,64240,,mss
+log Oct  8 20:00:01 opnsense.home.arpa filterlog[51327]: 84,,,02f4bab031b57d1e30553ce08e0ec131,vtnet0,match,block,in,4,0x0,,64,13567,0,DF,6,tcp,60,203.0.113.78,192.168.1.1,44322,22,0,S,1406233372,,64240,,mss
+log Oct  8 20:00:01 opnsense.home.arpa filterlog[51327]: 84,,,02f4bab031b57d1e30553ce08e0ec131,vtnet0,match,block,in,4,0x0,,64,13567,0,DF,6,tcp,60,203.0.113.78,192.168.1.1,44322,22,0,S,1406233372,,64240,,mss
+log Oct  8 20:00:01 opnsense.home.arpa filterlog[51327]: 84,,,02f4bab031b57d1e30553ce08e0ec131,vtnet0,match,block,in,4,0x0,,64,13567,0,DF,6,tcp,60,203.0.113.78,192.168.1.1,44322,22,0,S,1406233372,,64240,,mss
+log Oct  8 20:00:01 opnsense.home.arpa filterlog[51327]: 84,,,02f4bab031b57d1e30553ce08e0ec131,vtnet0,match,block,in,4,0x0,,64,13567,0,DF,6,tcp,60,203.0.113.78,192.168.1.1,44322,22,0,S,1406233372,,64240,,mss
+log Oct  8 20:00:01 opnsense.home.arpa filterlog[51327]: 84,,,02f4bab031b57d1e30553ce08e0ec131,vtnet0,match,block,in,4,0x0,,64,13567,0,DF,6,tcp,60,203.0.113.78,192.168.1.1,44322,22,0,S,1406233372,,64240,,mss
+log Oct  8 20:00:01 opnsense.home.arpa filterlog[51327]: 84,,,02f4bab031b57d1e30553ce08e0ec131,vtnet0,match,block,in,4,0x0,,64,13567,0,DF,6,tcp,60,203.0.113.78,192.168.1.1,44322,22,0,S,1406233372,,64240,,mss
+log Oct  8 20:00:01 opnsense.home.arpa filterlog[51327]: 84,,,02f4bab031b57d1e30553ce08e0ec131,vtnet0,match,block,in,4,0x0,,64,13567,0,DF,6,tcp,60,203.0.113.78,192.168.1.1,44322,22,0,S,1406233372,,64240,,mss
+
+case web GUI login failure
+expect rule=103010 level=5 groups=asox,opnsense,authentication_failed
+log Oct  8 20:00:01 opnsense.home.arpa audit[23456]: /index.php: Web GUI authentication error for 'root' from 203.0.113.50
+
+case web GUI brute force (5 failures)
+expect rule=103011 level=10 groups=asox,opnsense,authentication_failures
+log Oct  8 20:00:01 opnsense.home.arpa audit[23456]: /index.php: Web GUI authentication error for 'root' from 203.0.113.51
+log Oct  8 20:00:01 opnsense.home.arpa audit[23456]: /index.php: Web GUI authentication error for 'root' from 203.0.113.51
+log Oct  8 20:00:01 opnsense.home.arpa audit[23456]: /index.php: Web GUI authentication error for 'root' from 203.0.113.51
+log Oct  8 20:00:01 opnsense.home.arpa audit[23456]: /index.php: Web GUI authentication error for 'root' from 203.0.113.51
+log Oct  8 20:00:01 opnsense.home.arpa audit[23456]: /index.php: Web GUI authentication error for 'root' from 203.0.113.51
+
+case web GUI login
+expect rule=103012 level=3 groups=authentication_success
+log Oct  8 20:00:01 opnsense.home.arpa audit[23456]: /index.php: Successful login for user 'root' from: 192.168.1.10 (Local Database)
+
+case 18 blocks from one source: built-in 87702 without T1110 (1090-tuning)
+expect rule=87702 level=10 groups=pfsense,multiple_blocks
+repeat 18 Oct  8 20:00:01 opnsense.home.arpa filterlog[51327]: 84,,,02f4bab031b57d1e30553ce08e0ec131,vtnet0,match,block,in,4,0x0,,64,13567,0,DF,6,tcp,60,203.0.113.79,192.168.1.1,44322,22,0,S,1406233372,,64240,,mss

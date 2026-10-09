@@ -85,17 +85,26 @@ parse() {
 }
 
 check() {  # file, name, one expect line, logtest results
-  local file=$1 name=$2 expect=$3 results=$4 want_rule="" want_level="" want_groups="" want_dec="" kv
+  local file=$1 name=$2 expect=$3 results=$4 want_rule="" want_level="" want_groups="" want_dec="" not_rule="" kv
   for kv in $expect; do
     case $kv in
       rule=*) want_rule=${kv#rule=} ;;
+      not=*) not_rule=${kv#not=} ;;
       level=*) want_level=${kv#level=} ;;
       groups=*) want_groups=${kv#groups=} ;;
       decoder=*) want_dec=${kv#decoder=} ;;
       *) fail "$file: $name: unknown expect key '$kv'"; return ;;
     esac
   done
-  [[ -n $want_rule ]] || { fail "$file: $name: expect needs rule=<id> or rule=none"; return; }
+  if [[ -n $not_rule ]]; then
+    if cut -d'|' -f1 <<<"$results" | grep -qx "$not_rule"; then
+      fail "$file: $name: rule $not_rule must not fire, but it did"
+    else
+      pass "$file: $name (rule $not_rule did not fire)"
+    fi
+    [[ -n $want_rule ]] || return 0
+  fi
+  [[ -n $want_rule ]] || { fail "$file: $name: expect needs rule=<id>, rule=none or not=<id>"; return; }
 
   if [[ $want_rule == none ]]; then
     if grep -q '|yes$' <<<"$results"; then

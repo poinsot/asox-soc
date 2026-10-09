@@ -1,0 +1,62 @@
+<!--
+  ASOX OPNsense rules (owner: Wazuh, W4.3). Range 103000-103999.
+  The firewall sends syslog to the manager's 514/udp (sources: W1.1). Its
+  packet filter is decoded by Wazuh's pfSense ruleset (0540-pfsense_rules.xml):
+  87700 every filterlog line (level 0), 87701 a block (level 5, no_log: not
+  indexed, so single blocks never fill the indexer), 87702 18 blocks in 45 s
+  from one source (level 10; retuned in 1090-tuning.xml).
+  Every rule here also carries `pfsense`, the group of those built-ins, so
+  routes on `pfsense` (n8n network-scan, TheHive AF section 3) cover OPNsense.
+  Samples follow OPNsense's documented formats; replace them with captures
+  from the real firewall when it exists (W4.1). Tests: 1030-opnsense.cases.
+-->
+<group name="asox,opnsense,pfsense,">
+
+  <!--
+    Port scan: one source blocked on 10 different destination ports within
+    60 s. Fires before the built-in 87702 (18 blocks in 45 s) on a scan.
+  -->
+  <rule id="103000" level="10" frequency="10" timeframe="60" ignore="120">
+    <if_matched_sid>87701</if_matched_sid>
+    <same_srcip />
+    <different_dstport />
+    <description>ASOX firewall: port scan from $(srcip) (10 blocked ports in 60 s)</description>
+    <mitre>
+      <id>T1046</id>
+    </mitre>
+    <group>firewall_block,recon,</group>
+  </rule>
+
+  <!-- Web GUI login failure (decoder asox-opnsense-gui-fail). -->
+  <rule id="103010" level="5">
+    <if_sid>6100</if_sid>
+    <match>Web GUI authentication error for </match>
+    <description>ASOX firewall: web GUI login failed for $(dstuser) from $(srcip)</description>
+    <mitre>
+      <id>T1110.001</id>
+    </mitre>
+    <group>authentication_failed,</group>
+  </rule>
+
+  <rule id="103011" level="10" frequency="5" timeframe="120" ignore="120">
+    <if_matched_sid>103010</if_matched_sid>
+    <same_srcip />
+    <description>ASOX firewall: web GUI brute force from $(srcip) (5 failures in 2 min)</description>
+    <mitre>
+      <id>T1110</id>
+    </mitre>
+    <group>authentication_failures,</group>
+  </rule>
+
+  <!-- Web GUI login: context, like an SSH login (5715). -->
+  <rule id="103012" level="3">
+    <if_sid>6100</if_sid>
+    <match>Successful login for user </match>
+    <description>ASOX firewall: web GUI login by $(dstuser) from $(srcip)</description>
+    <mitre>
+      <id>T1078</id>
+    </mitre>
+    <group>authentication_success,</group>
+  </rule>
+
+</group>

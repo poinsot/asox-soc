@@ -35,3 +35,11 @@ case root-login
 scenario root-login
 expect rule=100101 level=3 groups=attack_start
 expect rule=100200 level=10 groups=asox,linux,sshd,authentication_success
+
+case opnsense-scan (as received over syslog: the scenario's lines)
+scenario opnsense-scan
+expect rule=103000 level=10 groups=asox,opnsense,pfsense,recon
+
+case opnsense-gui-bruteforce
+scenario opnsense-gui-bruteforce
+expect rule=103011 level=10 groups=asox,opnsense,authentication_failures
