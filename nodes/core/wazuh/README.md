@@ -103,7 +103,23 @@ Example:
 </group>
 ```
 
-Routing (D-N2): n8n routes on these groups first, and on a short map of specific rule IDs where a group is too broad. The catalog of every custom rule (ID, groups, level, MITRE, lab scenario) is added here in W2.5.
+Routing (D-N2): n8n routes on these groups first, and on a short map of specific rule IDs where a group is too broad.
+
+### Detection catalog (W2.5)
+
+Every custom rule, the alert it produces and how to fire it. Built-in rules the scenarios rely on are pinned in `tests/cases/builtin-linux.cases`; their levels are in "Alert levels".
+
+| Rule | File | Level | Groups (besides `asox` + source) | MITRE | What it means | Lab scenario | Case template |
+|---|---|---|---|---|---|---|---|
+| 100100 | `local_rules.xml` | 10 | `test` | — | Synthetic test event (C1, C8) | `trigger.sh` (no option) | `wazuh-generic` |
+| 100101 | `local_rules.xml` | 3 | `test`, `attack_start` | — | A lab scenario started (`data.scenario`, `data.run_id`; C11's `t_attack_start`) | every `--scenario` | — (not forwarded) |
+| 100200 | `1002-linux-auth.xml` | 10 | `sshd`, `authentication_success` | T1078.003 | SSH login as root (built-in 5715 rates it 3) | `root-login` | `wazuh-generic` (proposed: `suspicious-login`) |
+| 100210 | `1002-linux-auth.xml` | 3 | `adduser`, `account_changed` | T1098 | `usermod` added a user to a group (Wazuh doesn't decode usermod) | — | — (not forwarded) |
+| 100211 | `1002-linux-auth.xml` | 10 | `adduser`, `account_changed` | T1098 | …to a privileged group: sudo, wheel, admin, root, docker, lxd | `new-user` | `account-change` |
+| 100212 | `1002-linux-auth.xml` | 10 | `adduser`, `account_changed` | T1098 | `gpasswd` added a user to a privileged group (built-in 2960/2961 rate it 2/5) | — | `account-change` |
+| 19004, 19007 | `1090-tuning.xml` | 5 | `sca` | (SCA's own) | Built-in SCA, lowered (W2.7) | re-enrolling an agent | — (not forwarded) |
+
+Decoder `asox-usermod` (`decoders/1002-linux-auth.xml`) gives `data.dstuser` (the account) and `data.group`, the same names as the built-in gpasswd decoder.
 
 ## Alert levels (W2.1)
 
@@ -184,7 +200,7 @@ Wazuh agents don't need this: they enroll with the password and send over 1514 w
 A containerized Wazuh agent (`lab-agent`), enrolled exactly like a real endpoint: the package's default configuration plus the manager address and the enrollment password (see `nodes/lab/entrypoint.sh`). It also produces realistic alerts (SCA, rootcheck, FIM) for Grafana.
 
 - **Test alert:** `id=$(nodes/lab/trigger.sh) && scripts/wazuh-query.sh --rule 100100 --match "$id"` (the alert takes a few seconds to be indexed).
-- **Attack scenarios** (W1.5): `id=$(nodes/lab/trigger.sh --scenario ssh-bruteforce) && scripts/wazuh-query.sh --match "$id"`. `--list` shows the scenarios (`ssh-bruteforce`, `ssh-success-after-fail`, `sudo-fail`, `new-user`, `ioc-ip`); `--help` shows the alerts each one produces; `--print` shows the lines without sending them. Each run starts with the attack-start marker (rule 100101, level 3, fields `data.scenario` and `data.run_id`; W1.6), and every event of the run ends with `asox_run=<run id>`. Wait a minute between SSH scenarios: the brute-force rules stay quiet for 60 s after firing.
+- **Attack scenarios** (W1.5): `id=$(nodes/lab/trigger.sh --scenario ssh-bruteforce) && scripts/wazuh-query.sh --match "$id"`. `--list` shows the scenarios (`ssh-bruteforce`, `ssh-success-after-fail`, `sudo-fail`, `new-user`, `ioc-ip`, `root-login`); `--help` shows the alerts each one produces; `--print` shows the lines without sending them. Each run starts with the attack-start marker (rule 100101, level 3, fields `data.scenario` and `data.run_id`; W1.6), and every event of the run ends with `asox_run=<run id>`. Wait a minute between SSH scenarios: the brute-force rules stay quiet for 60 s after firing.
 - **Enrollment** happens once; the agent's keys are kept in a volume. A fresh agent with the same name is refused while the manager still knows the old one, so `scripts/soc.sh reset lab` first removes that registration (when core runs on the same machine). For a real endpoint that is reinstalled, remove its old registration the same way: `docker exec <instance>-core-wazuh-manager-1 /var/ossec/bin/manage_agents -r <agent-id>`.
 - **Healthy** means connected *and* ready to collect: right after enrolling, the agent reloads once when it receives the manager's shared configuration, and events written before that are lost.
 

@@ -106,11 +106,11 @@ The first real detections, tuned and mapped, merged at checkpoint 1 (milestone t
   - Files: `nodes/core/wazuh/README.md`
   - With: Inigo (n8n), Park (ALERT-FORMAT.md §2), Jesus (D-G4)
   - Refs: X-09, D-N4, D-G4
-- [ ] **W2.2** Linux authentication detections · P1
+- [x] **W2.2** Linux authentication detections · P1
   - Done when: Rules (or checks that built-ins already fire) for SSH brute force, a successful login after failures (correlation), sudo failures, new user or group, direct root login. Each has test cases in the runner and a lab scenario. Decoders use Wazuh's standard field names (`srcip`, `dstip`, `srcuser`, `dstuser`), which n8n, C13 and TheHive rely on (memo item 3).
   - Files: `nodes/core/wazuh/rules/`, `nodes/core/wazuh/tests/`
   - With: Inigo (`pb-ssh-bruteforce` needs the success-after-failures rule, N8N-4.2), Park (a template per detection, T3.5)
-- [ ] **W2.3** Map every custom rule to MITRE ATT&CK · P1
+- [x] **W2.3** Map every custom rule to MITRE ATT&CK · P1
   - Done when: Each custom rule has `<mitre><id>T…</id></mitre>`; `wazuh-query.sh -j` shows `rule.mitre.id` on the alerts. Tell n8n the convention (its WAZUH-FIELDS.md question 2): custom rules carry `rule.mitre.id`; built-in SCA rules only have `rule.mitre_techniques`, so n8n reads `rule.mitre.id` first and falls back to the other.
   - Files: `nodes/core/wazuh/rules/`
   - With: Inigo (n8n)

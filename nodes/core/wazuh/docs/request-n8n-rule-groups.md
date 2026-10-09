@@ -42,6 +42,18 @@ Inigo's questions of 2026-10-06 (routing rows) are answered in [integrator-reque
 4. **ioc-match:** group **`misp_ioc`**, range **108xxx**. Put it above `ssh-bruteforce` and `ids-network-alert`, so an IOC match wins.
 5. **network-scan:** pfSense is range **103xxx** (routers 102xxx). Scan rules carry `pfsense`, `recon` and T1046.
 
+## Update 2026-10-08: first custom detection rules (W2.2)
+
+Now in `rules/1002-linux-auth.xml` (catalog: README "Detection catalog"):
+
+| Rule | Level | Groups | MITRE | Route it to |
+|---|---|---|---|---|
+| 100200 SSH login as root | 10 | `asox,linux,sshd,authentication_success` | T1078.003 | **`suspicious-login`**: please add it to that row's `rule_ids` with 40112 (`T1078.003` would also match a `T1078` prefix, so if you keep the prefix clause this already works) |
+| 100211 usermod: user added to a privileged group | 10 | `asox,linux,adduser,account_changed` | T1098 | `account-change` (group `adduser` already matches) |
+| 100212 gpasswd: user added to a privileged group | 10 | same | T1098 | `account-change` |
+
+`new-user` now ends with 100211 (the new account goes into `sudo`), and there's a new scenario, `root-login` (100200), for fixtures. Privileged groups: sudo, wheel, admin, root, docker, lxd.
+
 ## Why
 
 n8n's router (N8N-1.3) and TheHive's template choice (T2.6) both key on `rule.groups`. If I invented my own group names, both would miss my alerts silently: `pb-generic` and `wazuh-generic` would take everything.

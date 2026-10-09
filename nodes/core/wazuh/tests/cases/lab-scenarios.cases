@@ -24,8 +24,14 @@ scenario new-user
 expect rule=100101 level=3 groups=attack_start
 expect rule=5901 level=8 groups=adduser
 expect rule=5902 level=8 groups=adduser
+expect rule=100211 level=10 groups=asox,linux,adduser
 
 case ioc-ip (MISP seed IOC 203.0.113.66)
 scenario ioc-ip
 expect rule=100101 level=3 groups=attack_start
 expect rule=5712 level=10 groups=sshd,authentication_failures
+
+case root-login
+scenario root-login
+expect rule=100101 level=3 groups=attack_start
+expect rule=100200 level=10 groups=asox,linux,sshd,authentication_success
