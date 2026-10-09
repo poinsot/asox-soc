@@ -157,7 +157,7 @@ Verdicts: **agree** = n8n already sends this; **n8n changes** = changed by n8n i
 | §5 | `data.srcip` / `data.dstip`, Suricata `data.src_ip` / `data.dest_ip` | `ip`, tags `src` / `dst` | same | agree |
 | §5 | `agent.ip` | `ip`, tag `agent` | same, plus `range:internal` in the lab | agree |
 | §5 | `agent.name` | `hostname`, tag `agent` | same | agree |
-| §5 | `data.srcuser` / `data.dstuser` | `user-account`, tags `src` / `target` | extracted, but the type is **disabled** in `lib-config` (`skipped`, listed in the writeback) | differs, temporary: unblocked by T1.3 on 2026-10-06 (`user-account` accepted by the probe); **re-enabled 2026-10-06** (N8N-2.3; `fixtures/synthetic/100100-user-account.json` → `user-account` observables tagged `src` / `target`) |
+| §5 | `data.srcuser` / `data.dstuser` | `user-account`, tags `src` / `target` | extracted, but the type is **disabled** in `lib-config` (`skipped`, listed in the writeback) | differs, temporary: unblocked by T1.3 on 2026-10-06 (`user-account` accepted by the probe); **re-enabled 2026-10-06** (N8N-2.3; `fixtures/synthetic/100100-user-account.json` → `user-account` observables tagged `src` / `target`). **2026-10-09, after the Wazuh field review:** on sshd alerts both fields are the targeted account (Wazuh's decoder puts an invalid user in `srcuser`), so both are tagged `target`; groupadd's `dstuser` is a group name and is skipped (`WAZUH-FIELDS.md`): question F |
 | §5 | `syscheck.sha256_after` (else `data.virustotal.source.sha256`) | `hash`, tag `sha256` | same | agree |
 | §5 | `syscheck.path` | `filename`, tag `path` | same | agree |
 | §5 | `data.url` | `url`, no tag | same | agree |
@@ -173,6 +173,10 @@ Verdicts: **agree** = n8n already sends this; **n8n changes** = changed by n8n i
 - **D. `network-scan`:** "`rule.mitre.id` has `T1046` and the agent is the firewall": n8n has no notion of "the firewall agent". Proposal: the rule group `pfsense` stands for it (pfSense logs arrive through syslog with that group, W4.x). OK, or which field identifies the firewall? *(2026-10-09: the Wazuh owner confirms it (A5): pfSense scan and repeated-block rules carry `asox,pfsense,recon` and T1046; n8n matches `pfsense` + `recon`, or `pfsense` + T1046. Please mirror it in AF §3.)*
 
 - **E. MISP hit and `ioc` (also to Diego):** `MISP_2_1` reports a hit as taxonomy level `suspicious`. ALERT-FORMAT §5 says an IP found in MISP should be marked `ioc: true`. Should a MISP hit be malicious (`ioc: true`) for all MISP sources, only for our own events (not feeds like Botvrij), or stay suspicious? n8n uses suspicious / `ioc: false` until you agree; switching is a one-line override in `lib-config`.
+
+- **F. Wazuh field review (2026-10-09; `WAZUH-FIELDS.md`), two points for AF §1/§5:**
+  1. **Syslog alerts** (pfSense, routers from M4; anything on 514/udp) have no agent: `agent.id` is `000` and `agent.name` is `wazuh-manager`; the device is `predecoder.hostname` (when the line has one) at the address in `location`. n8n now builds the `agent`-tagged `ip` / `hostname` observables from the device. AF §1 builds the **title** (`<rule.description> (<agent.name>)`), the `agent:` tag and `wazuh-agent-name` from `agent.name`, which would all say `wazuh-manager`. Proposal: for `agent.id` `000`, use `predecoder.hostname`, else `location`, in all three. OK? n8n keeps AF §1 as written until you answer.
+  2. **`user-account` tags:** AF §5 says `srcuser` → `src`, `dstuser` → `target`. On sshd alerts Wazuh's decoder puts the targeted account in either field, so n8n tags both `target` there; on groupadd (5901) `dstuser` is a group and n8n makes no `user-account` from it. OK to write this in AF §5?
 
 ### Routing after the Wazuh owner's answers (2026-10-09)
 
