@@ -5,8 +5,8 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## sched-alert-queue (alert queue scheduler, N8N-1.4)\n**Trigger:** every 5 s.\n**Inputs:** the Data Tables `asox_alert_queue` and `asox_queue_slots`; lib-config `alert_queue` (only read when the queue has rows).\n**Actions taken:** with nothing pending or running, stops at once (and the run is not saved). Otherwise: requeues `running` rows older than `running_timeout_s` (or fails and parks them after `max_attempts`), deletes `done` rows older than `keep_done_h`, takes a free slot (compare-and-set on the slot's `claim`, read back), claims the oldest pending row (FIFO by row id; compare-and-set `pending` -> `running` with a new token, read back), runs **lib-alert-queue-drain** for that row and waits, then frees the slot. Losing either compare-and-set ends the run: the next tick tries again. At most `alert_queue.slots` rows run at once, because each run holds one slot; with every slot held a tick does nothing.\n**Systems changed:** n8n's own Data Tables (the playbook changes TheHive).\n**Approval:** not applicable.\n**Owner:** n8n.\nSaved: failed runs only. The work is recorded in lib-alert-queue-drain's executions (saved), so the 17,000 idle ticks a day keep nothing.",
-        "height": 640,
+        "content": "## sched-alert-queue (alert queue scheduler, N8N-1.4, N8N-1.7)\n**Trigger:** every 5 s.\n**Inputs:** the Data Tables `asox_alert_queue` and `asox_queue_slots`; lib-config `alert_queue` (only read when the queue has rows).\n**Actions taken:** with nothing pending or running, stops at once (and the run is not saved). Otherwise: requeues `running` rows older than `running_timeout_s` (or fails and parks them after `max_attempts`), deletes `done` rows older than `keep_done_h`, takes a free slot (compare-and-set on the slot's `claim`, read back), then **loops**: claims the oldest pending row (FIFO by row id; compare-and-set `pending` -> `running` with a new token, read back), runs **lib-alert-queue-drain** for it and waits, and goes on with the next row until no pending row is left, `max_rows_per_run` rows were drained or `max_run_s` has passed (checked before each claim). Before each claim the slot's `held_ms` is refreshed (compare-and-set on our token, read back), so a held slot is never older than its current row; a lost slot ends the run. A row this run couldn't finish (claim lost, given back, failed attempt) is skipped until the next run. Then the slot is freed. At most `alert_queue.slots` rows run at once, because each run holds one slot; with every slot held a tick does nothing, and a freed slot is taken by the next tick.\n**Systems changed:** n8n's own Data Tables (the playbook changes TheHive).\n**Approval:** not applicable.\n**Owner:** n8n.\nSaved: failed runs only. The work is recorded in lib-alert-queue-drain's executions (saved, one per row), so the 17,000 idle ticks a day keep nothing. The loop keeps only row ids, outcomes and durations (`Record row`).",
+        "height": 760,
         "width": 560
       },
       "id": "f0a75332-5bb6-5e45-99f4-b98ee99b6e73",
@@ -624,19 +624,6 @@
     },
     {
       "parameters": {
-        "jsCode": "const p = $('Plan').first().json;\nconst rand = () => Math.random().toString(36).slice(2, 10);\nreturn [{ json: { ...p.next, token: `row:${$execution.id}:${rand()}` } }];\n"
-      },
-      "id": "2f052571-a8ff-5d8d-85c8-a5f2a0de10af",
-      "name": "Claim input",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        5040,
-        0
-      ]
-    },
-    {
-      "parameters": {
         "resource": "row",
         "operation": "update",
         "dataTableId": {
@@ -650,7 +637,7 @@
             {
               "keyName": "id",
               "condition": "eq",
-              "keyValue": "={{ $json.id }}"
+              "keyValue": "={{ $('Pick next row').first().json.next.id }}"
             },
             {
               "keyName": "status",
@@ -660,7 +647,7 @@
             {
               "keyName": "claim",
               "condition": "eq",
-              "keyValue": "={{ $json.claim }}"
+              "keyValue": "={{ $('Pick next row').first().json.next.claim }}"
             }
           ]
         },
@@ -668,10 +655,10 @@
           "mappingMode": "defineBelow",
           "value": {
             "status": "running",
-            "claim": "={{ $json.token }}",
-            "attempts": "={{ $json.attempts + 1 }}",
+            "claim": "={{ $('Pick next row').first().json.token }}",
+            "attempts": "={{ $('Pick next row').first().json.next.attempts + 1 }}",
             "started_ms": "={{ Date.now() }}",
-            "note": "={{ \"attempt \" + ($json.attempts + 1) }}"
+            "note": "={{ \"attempt \" + ($('Pick next row').first().json.next.attempts + 1) }}"
           },
           "matchingColumns": [],
           "schema": [],
@@ -685,7 +672,7 @@
       "type": "n8n-nodes-base.dataTable",
       "typeVersion": 1.1,
       "position": [
-        5280,
+        6480,
         0
       ],
       "alwaysOutputData": true
@@ -705,7 +692,7 @@
             {
               "keyName": "id",
               "condition": "eq",
-              "keyValue": "={{ $('Claim input').first().json.id }}"
+              "keyValue": "={{ $('Pick next row').first().json.next.id }}"
             }
           ]
         },
@@ -716,7 +703,7 @@
       "type": "n8n-nodes-base.dataTable",
       "typeVersion": 1.1,
       "position": [
-        5520,
+        6720,
         0
       ],
       "alwaysOutputData": true,
@@ -734,7 +721,7 @@
           "conditions": [
             {
               "id": "6522ed88-688d-5a2b-bf95-32e53a37b0c3",
-              "leftValue": "={{ $json.status === 'running' && $json.claim === $('Claim input').first().json.token }}",
+              "leftValue": "={{ $json.status === 'running' && $json.claim === $('Pick next row').first().json.token }}",
               "rightValue": "",
               "operator": {
                 "type": "boolean",
@@ -752,20 +739,20 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        5760,
+        6960,
         0
       ]
     },
     {
       "parameters": {
-        "jsCode": "return [{ json: {\n  slot: $('Pick a slot').first().json.slot,\n  row: $input.first().json,\n  depth: $('Plan').first().json.depth,\n  config: $('Config (lib-config)').first().json,\n} }];\n"
+        "jsCode": "const p = $('Plan').first().json;\nconst st = $('Pick next row').first().json.state;\nreturn [{ json: {\n  slot: $('Pick a slot').first().json.slot,\n  row: $input.first().json,\n  // Queue depth when this scheduler run started, and this row's place in the run.\n  depth: { ...p.depth, run_row: st.drained.length + 1 },\n  config: $('Config (lib-config)').first().json,\n} }];"
       },
       "id": "2dec0ec6-c630-5c33-9eca-5dfc90f94ab4",
       "name": "Drain input",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        6000,
+        7200,
         0
       ]
     },
@@ -786,7 +773,7 @@
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.2,
       "position": [
-        6240,
+        7440,
         0
       ],
       "onError": "continueRegularOutput"
@@ -834,10 +821,264 @@
       "type": "n8n-nodes-base.dataTable",
       "typeVersion": 1.1,
       "position": [
-        6480,
+        8640,
+        260
+      ],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "resource": "row",
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "asox_alert_queue"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "status",
+              "condition": "eq",
+              "keyValue": "pending"
+            }
+          ]
+        },
+        "limit": "={{ $('Record row').isExecuted ? $('Record row').first().json.state.skip.length + 1 : 1 }}",
+        "orderBy": true,
+        "orderByColumn": "id",
+        "orderByDirection": "ASC"
+      },
+      "id": "2cf3cc10-50da-510e-a08e-382c81137e7b",
+      "name": "Next pending row",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        5040,
+        0
+      ],
+      "alwaysOutputData": true,
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Loop step (N8N-1.7): the oldest pending row this run hasn't skipped, until\n// the run reaches max_rows_per_run rows or max_run_s (checked before each claim:\n// a row in progress is never cut short). The next tick picks up a freed slot.\n// Without these settings: one row per run, as before N8N-1.7.\nconst p = $('Plan').first().json;\nconst q = p.q;\nconst st = $('Record row').isExecuted\n  ? $('Record row').first().json.state\n  : { started_ms: p.now, iterations: 0, drained: [], skip: [] };\nconst maxRows = Number(q.max_rows_per_run ?? 1);\nconst maxRunS = Number(q.max_run_s ?? 240);\nconst maxRunMs = maxRunS * 1000;\nconst now = Date.now();\nconst skip = new Set(st.skip);\nconst n = $('Next pending row').all().map((i) => i.json)\n  .find((r) => r.id !== undefined && !skip.has(r.id));\nlet stop = null;\nif (st.drained.length >= maxRows) stop = `row limit reached (${maxRows})`;\nelse if (st.iterations >= maxRows + 5) stop = `iteration limit reached (${maxRows + 5})`;\nelse if (now - st.started_ms >= maxRunMs) stop = `time limit reached (${maxRunS} s)`;\nelse if (!n) stop = 'no pending row left';\nconst rand = () => Math.random().toString(36).slice(2, 10);\nreturn [{ json: {\n  state: st, stop, picked_ms: now,\n  next: stop === null ? { id: n.id, claim: n.claim, attempts: Number(n.attempts), alert_id: n.alert_id } : null,\n  token: `row:${$execution.id}:${rand()}`,\n} }];"
+      },
+      "id": "126cf47b-eaa5-5cbe-aedb-083304d76be4",
+      "name": "Pick next row",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5280,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "8d39a6b0-cda6-5c65-9e5f-95e8f08edabb",
+              "leftValue": "={{ $json.stop === null }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "87434ec5-c1b4-5a32-9396-7117e9499bb6",
+      "name": "Another row?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        5520,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "row",
+        "operation": "update",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "asox_queue_slots"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "id",
+              "condition": "eq",
+              "keyValue": "={{ $('Pick a slot').first().json.slot.id }}"
+            },
+            {
+              "keyName": "claim",
+              "condition": "eq",
+              "keyValue": "={{ $('Pick a slot').first().json.slot.token }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "held_ms": "={{ Date.now() }}"
+          },
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "42fff244-8c1e-52f1-95bc-089d2c402590",
+      "name": "Refresh slot (compare-and-set)",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        5760,
         0
       ],
       "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "resource": "row",
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "asox_queue_slots"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "id",
+              "condition": "eq",
+              "keyValue": "={{ $('Pick a slot').first().json.slot.id }}"
+            }
+          ]
+        },
+        "limit": 1
+      },
+      "id": "ce77aeb9-7187-5151-8c31-366ff3c5489c",
+      "name": "Slot still ours: read back",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        6000,
+        0
+      ],
+      "alwaysOutputData": true,
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "6aec2480-4d3c-5d27-b66c-4426e850f9a4",
+              "leftValue": "={{ $json.claim === $('Pick a slot').first().json.slot.token }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "0aa90e65-66b4-52c2-b9ab-e456a396a977",
+      "name": "Slot still ours?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        6240,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Another run claimed this row first: try the next one.\nreturn [{ json: { via: 'claim lost' } }];"
+      },
+      "id": "14c95c27-a6c6-5c65-9230-00e8ea94245c",
+      "name": "Row lost",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        7680,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// After each row (N8N-1.7): what happened to it, and whether the run goes on.\n// Only ids, outcomes and durations are kept here (the run's data stays small).\n// A row that is still pending (claim lost, given back, failed attempt) is\n// skipped for the rest of this run, so it is never retried at once.\nconst pick = $('Pick next row').first().json;\nconst st = pick.state;\nconst row = pick.next;\nconst r = $input.first().json;\nconst ms = Date.now() - pick.picked_ms;\nlet entry;\nlet stop = null;\nif (r.via === 'claim lost') {\n  entry = { id: row.id, result: 'claim lost' };\n} else if (r.row_id === row.id && r.outcome !== undefined) {\n  entry = { id: row.id, alert_id: row.alert_id, result: r.row_status, outcome: r.outcome, ms };\n} else {\n  // lib-alert-queue-drain itself failed: the row keeps our claim and is requeued\n  // after running_timeout_s. Stop instead of failing the next rows the same way.\n  const e = r.error;\n  entry = { id: row.id, alert_id: row.alert_id, result: 'drain failed', ms };\n  stop = `drain failed on row ${row.id}: ${typeof e === 'string' ? e : (e?.message ?? 'no result')}`.slice(0, 300);\n}\nconst drained = entry.result === 'claim lost' ? st.drained : [...st.drained, entry];\nconst skip = entry.result === 'done' || entry.result === 'failed' ? st.skip : [...st.skip, row.id];\nconst state = { ...st, iterations: st.iterations + 1, drained, skip };\nreturn [{ json: { state, stop, go: stop === null, last: entry } }];"
+      },
+      "id": "c2c4b759-0939-51b8-828b-e74c9c12ecac",
+      "name": "Record row",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        8160,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "a075ea00-3d8e-5c68-8c9e-726d391e3370",
+              "leftValue": "={{ $json.go }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "acf493ca-2254-53dc-820a-13590defa3bd",
+      "name": "Go on?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        8400,
+        0
+      ]
     }
   ],
   "connections": {
@@ -1079,18 +1320,7 @@
       "main": [
         [
           {
-            "node": "Claim input",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Claim input": {
-      "main": [
-        [
-          {
-            "node": "Claim row (compare-and-set)",
+            "node": "Next pending row",
             "type": "main",
             "index": 0
           }
@@ -1130,7 +1360,7 @@
         ],
         [
           {
-            "node": "Free slot (compare-and-set)",
+            "node": "Row lost",
             "type": "main",
             "index": 0
           }
@@ -1150,6 +1380,126 @@
     },
     "Drain one row (lib-alert-queue-drain)": {
       "main": [
+        [
+          {
+            "node": "Record row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Next pending row": {
+      "main": [
+        [
+          {
+            "node": "Pick next row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pick next row": {
+      "main": [
+        [
+          {
+            "node": "Another row?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Another row?": {
+      "main": [
+        [
+          {
+            "node": "Refresh slot (compare-and-set)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Free slot (compare-and-set)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Refresh slot (compare-and-set)": {
+      "main": [
+        [
+          {
+            "node": "Slot still ours: read back",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slot still ours: read back": {
+      "main": [
+        [
+          {
+            "node": "Slot still ours?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slot still ours?": {
+      "main": [
+        [
+          {
+            "node": "Claim row (compare-and-set)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Free slot (compare-and-set)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Row lost": {
+      "main": [
+        [
+          {
+            "node": "Record row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Record row": {
+      "main": [
+        [
+          {
+            "node": "Go on?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Go on?": {
+      "main": [
+        [
+          {
+            "node": "Next pending row",
+            "type": "main",
+            "index": 0
+          }
+        ],
         [
           {
             "node": "Free slot (compare-and-set)",
