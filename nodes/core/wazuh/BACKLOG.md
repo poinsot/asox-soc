@@ -114,7 +114,7 @@ The first real detections, tuned and mapped, merged at checkpoint 1 (milestone t
   - Done when: Each custom rule has `<mitre><id>T…</id></mitre>`; `wazuh-query.sh -j` shows `rule.mitre.id` on the alerts. Tell n8n the convention (its WAZUH-FIELDS.md question 2): custom rules carry `rule.mitre.id`; built-in SCA rules only have `rule.mitre_techniques`, so n8n reads `rule.mitre.id` first and falls back to the other.
   - Files: `nodes/core/wazuh/rules/`
   - With: Inigo (n8n)
-- [ ] **W2.4** Tune false positives from the lab · P2, C1
+- [x] **W2.4** Tune false positives from the lab · P2, C1
   - Done when: After 24–48 h of lab data, the noisiest rules at level 7+ are listed (aggregate by `rule.id`), and overrides with a reason per rule live in the tuning file. Alerts forwarded to n8n per hour drop; before/after numbers in the pull request. A second pass follows in W5.7 with TheHive's false-positive report.
   - Files: `nodes/core/wazuh/rules/`
   - Refs: X-11
