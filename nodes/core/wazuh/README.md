@@ -14,6 +14,7 @@ Collects events from agents and syslog, decodes them, classifies them with rules
 | `config/certs.yml` | Nodes for the certificate generator (`scripts/gen-certs.sh`) |
 | `config/entrypoint-scripts/` | Scripts the manager image runs before Wazuh starts: restart fixes, enrollment password, n8n integration (C1), syslog sources |
 | `rules/`, `decoders/` | Custom rules and decoders (`local_rules.xml` holds the Phase 1 test rule `100100`) |
+| `groups/` | Agent groups as code (W5.1): `linux-servers`, `windows-desktops`, `network-sensors`, each an `agent.conf` the manager pushes to its agents. [ENROLLMENT.md](ENROLLMENT.md) says how to enroll into them |
 | `tests/` | Rule test runner: `tests/run.sh` checks the ruleset against sample log lines through `wazuh-logtest` ([tests/README.md](tests/README.md)) |
 
 No Wazuh web UI (the Wazuh dashboard isn't deployed): alerts are in Grafana (`http://localhost:3000`) and `scripts/wazuh-query.sh`; the Wazuh API is `https://localhost:55000` (self-signed certificate), login from `scripts/soc.sh info`. Agents connect on 1514/tcp and enroll on 1515/tcp; syslog on 514/udp.
@@ -122,6 +123,10 @@ Every custom rule, the alert it produces and how to fire it. Built-in rules the 
 | 101002 | `1010-suricata.xml` | 6 | `suricata`, `ids` | — | Suricata alert of severity 3 (context) | — | — (not forwarded) |
 | 101010 | `1010-suricata.xml` | 10 | `suricata`, `ids`, `recon` | T1046 | `ET SCAN` signature (severity 1 or 2) | `ids-scan` | `ids-network-alert` (or `network-scan`) |
 | 109010 | `1090-tuning.xml` | 0 | `suricata`, `ids`, `tuning` | — | Suricata engine events (`SURICATA STREAM`, invalid checksums) silenced | — | — |
+| 100300 | `1003-linux-system.xml` | 10 | `syscheck` | T1548.003 | sudoers file added or changed (FIM) | `persistence` | `privilege-escalation` |
+| 100301 | `1003-linux-system.xml` | 10 | `syscheck` | T1098.004 | SSH `authorized_keys` added or changed (FIM) | `persistence` | `wazuh-generic` |
+| 100302 | `1003-linux-system.xml` | 10 | `syscheck` | T1053.003 | System cron job added or changed (FIM) | `persistence` | `wazuh-generic` |
+| 100303 | `1003-linux-system.xml` | 10 | `syscheck` | T1543.002 | New systemd service (FIM) | — | `wazuh-generic` |
 | 103000 | `1030-opnsense.xml` | 10 | `opnsense`, `pfsense`, `firewall_block`, `recon` | T1046 | Port scan: one source blocked on 10 different ports in 60 s | `opnsense-scan` | `network-scan` |
 | 103010 | `1030-opnsense.xml` | 5 | `opnsense`, `pfsense`, `authentication_failed` | T1110.001 | Web GUI login failure (context) | — | — (not forwarded) |
 | 103011 | `1030-opnsense.xml` | 10 | `opnsense`, `pfsense`, `authentication_failures` | T1110 | Web GUI brute force: 5 failures in 2 min from one source | `opnsense-gui-bruteforce` | `ssh-bruteforce` (through T1110) |
@@ -244,8 +249,9 @@ OPNsense sends its logs as syslog to the manager's 514/udp; the sender must be i
 A containerized Wazuh agent (`lab-agent`), enrolled exactly like a real endpoint: the package's default configuration plus the manager address and the enrollment password (see `nodes/lab/entrypoint.sh`). It also produces realistic alerts (SCA, rootcheck, FIM) for Grafana.
 
 - **Test alert:** `id=$(nodes/lab/trigger.sh) && scripts/wazuh-query.sh --rule 100100 --match "$id"` (the alert takes a few seconds to be indexed).
-- **Attack scenarios** (W1.5): `id=$(nodes/lab/trigger.sh --scenario ssh-bruteforce) && scripts/wazuh-query.sh --match "$id"`. `--list` shows the scenarios (`ssh-bruteforce`, `ssh-success-after-fail`, `sudo-fail`, `new-user`, `ioc-ip`, `root-login`; the IDS ones `ids-test`, `ids-scan`; the firewall ones `opnsense-scan`, `opnsense-gui-bruteforce`, sent as syslog); `--help` shows the alerts each one produces; `--print` shows the lines without sending them. Each run starts with the attack-start marker (rule 100101, level 3, fields `data.scenario` and `data.run_id`; W1.6), and every event of the run ends with `asox_run=<run id>`. Wait a minute between SSH scenarios: the brute-force rules stay quiet for 60 s after firing.
+- **Attack scenarios** (W1.5): `id=$(nodes/lab/trigger.sh --scenario ssh-bruteforce) && scripts/wazuh-query.sh --match "$id"`. `--list` shows the scenarios (`ssh-bruteforce`, `ssh-success-after-fail`, `sudo-fail`, `new-user`, `ioc-ip`, `root-login`, `persistence` (real file changes, FIM); the IDS ones `ids-test`, `ids-scan`; the firewall ones `opnsense-scan`, `opnsense-gui-bruteforce`, sent as syslog); `--help` shows the alerts each one produces; `--print` shows the lines without sending them. Each run starts with the attack-start marker (rule 100101, level 3, fields `data.scenario` and `data.run_id`; W1.6), and every event of the run ends with `asox_run=<run id>`. Wait a minute between SSH scenarios: the brute-force rules stay quiet for 60 s after firing.
 - **Enrollment** happens once; the agent's keys are kept in a volume. A fresh agent with the same name is refused while the manager still knows the old one, so `scripts/soc.sh reset lab` first removes that registration (when core runs on the same machine). For a real endpoint that is reinstalled, remove its old registration the same way: `docker exec <instance>-core-wazuh-manager-1 /var/ossec/bin/manage_agents -r <agent-id>`.
+- **Group:** the lab agent enrolls into `linux-servers` (W5.3) and gets its real-time integrity checks; `entrypoint.sh` creates `/root/.ssh` and `/etc/sudoers.d` first, because real-time checks only watch folders that exist when the agent starts.
 - **Healthy** means connected *and* ready to collect: right after enrolling, the agent reloads once when it receives the manager's shared configuration, and events written before that are lost.
 
 ## Contracts and exporting changes
@@ -274,6 +280,7 @@ Everything here works around upstream behaviour or depends on details of the pin
 | `config/entrypoint-scripts/10-enrollment-password.sh` | Writes `authd.pass` from `WAZUH_ENROLLMENT_PASSWORD` at every start (D33, A25) | Enrollment without / with a wrong / with the right password (only the last works) |
 | `config/entrypoint-scripts/20-n8n-integration.sh` | Writes the `custom-n8n` `<integration>` block (URL, token, level) into `ossec.conf` at every start (A41) | C1 passes (`scripts/contracts-check.sh --only C1`) |
 | `config/entrypoint-scripts/30-syslog-allowed-ips.sh` | Writes the syslog `<allowed-ips>` from the container's own subnets plus `WAZUH_SYSLOG_ALLOWED_IPS` at every start (W1.1, A81); needs the marker comment `ASOX-SYSLOG-ALLOWED-IPS` in `ossec.conf` | `docker logs` shows `syslog 514/udp allowed sources: ...`, and `ossec.log` shows `Remote syslog allowed from` for each entry |
+| `config/entrypoint-scripts/35-agent-groups.sh` and the `./groups` mount on `/wazuh-config-mount/etc/shared` | The image copies everything under `/wazuh-config-mount` into `/var/ossec` (and `05-restart-fixes.sh` does on restarts); Wazuh registers a group for every folder in `etc/shared` when it starts; the script only sets owner and mode (W5.1) | `agent_groups -l` lists the three groups after `soc.sh up core`; `verify-agent-conf` says OK for each |
 | `integrations/custom-n8n` | Copy of the shell wrapper Wazuh ships for its integrations (A48) | Diff against the new image's wrappers in `/var/ossec/integrations/`; `custom-n8n.py` runs on Wazuh's bundled Python, so check it still imports `requests` |
 | Manager healthcheck (`compose.yml`) | Names the daemons that must run (`wazuh-analysisd`, `-remoted`, `-authd`, `-db`, `-modulesd`, `-apid`; A27) | Daemon names still exist (`/var/ossec/bin/wazuh-control status`) |
 | Indexer addressed as `wazuh.indexer` | The certificate tool only accepts dotted DNS names (D32, A15) | Tool version in `config/certs.yml` / `WAZUH_CERTS_GENERATOR_IMAGE`; `gen-certs.sh` on a clean `nodes/core/certs/` |
@@ -287,7 +294,7 @@ Pick from this list; Phase 1 only built the baseline. The owner's plan, split in
 
 - ~~Restrict syslog sources~~ Done (W1.1): see "Syslog sources (514/udp)".
 - Detection rules and decoders for the environment; false-positive tuning; the alert level threshold (`WAZUH_ALERT_MIN_LEVEL`, default 7).
-- Agent groups and policies; an enrollment guide for real endpoints (the lab agent is the reference).
+- ~~Agent groups and policies; an enrollment guide~~ Done (W5.1–W5.4): `groups/`, [ENROLLMENT.md](ENROLLMENT.md).
 - Decoders for pfSense and router logs; MITRE ATT&CK mapping.
 - CDB lists fed from MISP IOCs (with the Cortex + MISP owner).
 - Later: response actions through C9 (Phase 2, with the n8n owner).

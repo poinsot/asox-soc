@@ -1,0 +1,49 @@
+<!--
+  ASOX Linux system rules (owner: Wazuh, W5.2). Range 100300-100499.
+  File integrity (FIM): the built-ins rate every change alike, 554 file added
+  (level 5) and 550 file modified (level 7). These raise the changes that
+  mean persistence or privilege escalation, on the paths group linux-servers
+  watches in real time (groups/linux-servers/agent.conf).
+  wazuh-logtest can't replay FIM events, so these are tested live with
+  nodes/lab/trigger.sh, scenario persistence (README "Detection catalog").
+  Copied into /var/ossec/etc/rules/ at every manager start.
+-->
+<group name="asox,linux,syscheck,">
+
+  <rule id="100300" level="10">
+    <if_sid>550, 554</if_sid>
+    <field name="file">^/etc/sudoers</field>
+    <description>ASOX: sudoers changed: $(file)</description>
+    <mitre>
+      <id>T1548.003</id>
+    </mitre>
+  </rule>
+
+  <rule id="100301" level="10">
+    <if_sid>550, 554</if_sid>
+    <field name="file">/.ssh/authorized_keys$</field>
+    <description>ASOX: SSH authorized_keys changed: $(file)</description>
+    <mitre>
+      <id>T1098.004</id>
+    </mitre>
+  </rule>
+
+  <rule id="100302" level="10">
+    <if_sid>550, 554</if_sid>
+    <field name="file">^/etc/cron.d/|^/etc/crontab$</field>
+    <description>ASOX: system cron job added or changed: $(file)</description>
+    <mitre>
+      <id>T1053.003</id>
+    </mitre>
+  </rule>
+
+  <rule id="100303" level="10">
+    <if_sid>554</if_sid>
+    <field name="file">^/etc/systemd/system/\S+.service$</field>
+    <description>ASOX: new systemd service: $(file)</description>
+    <mitre>
+      <id>T1543.002</id>
+    </mitre>
+  </rule>
+
+</group>

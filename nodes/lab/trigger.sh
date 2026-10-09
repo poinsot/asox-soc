@@ -22,6 +22,9 @@
 #                           "uid=0(root)" from the lab agent to example.com (needs internet)
 #   ids-scan                101010 level 10, T1046 (ET SCAN): an nmap SYN scan of the lab
 #                           agent from a throwaway container on the lab network
+#   persistence             100300, 100301, 100302 level 10: real file changes in the lab
+#                           agent (sudoers.d, root's authorized_keys, cron.d), seen by
+#                           real-time FIM (group linux-servers); each run adds new files
 #   opnsense-scan           103000 level 10, T1046: OPNsense filterlog blocks of 10 ports
 #                           from 203.0.113.77, sent as syslog to the manager's 514/udp
 #   opnsense-gui-bruteforce 103011 level 10, T1110: 5 failed OPNsense web GUI logins from
@@ -47,7 +50,7 @@ set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TEST_LOG=/var/log/asox-lab/test.log
-SCENARIOS="ssh-bruteforce ssh-success-after-fail sudo-fail new-user ioc-ip root-login ids-test ids-scan opnsense-scan opnsense-gui-bruteforce"
+SCENARIOS="ssh-bruteforce ssh-success-after-fail sudo-fail new-user ioc-ip root-login ids-test ids-scan opnsense-scan opnsense-gui-bruteforce persistence"
 NMAP_IMAGE=${NMAP_IMAGE:-instrumentisto/nmap:7.98-r2}
 
 # The comment block at the top of this file.
@@ -145,6 +148,17 @@ traffic() {
       docker run --rm --network "$(sed -n 's/^SOC_INSTANCE=//p' "$DIR/.env")-lab_default" "$NMAP_IMAGE" \
         -sS -Pn -n -T4 -p 1-1024,1433,1521,3306 --max-retries 0 lab-agent >/dev/null \
         || { echo "ERROR ids-scan: could not run $NMAP_IMAGE on the lab network" >&2; exit 1; } ;;
+    persistence)
+      # What an attacker leaves behind. Real writes, so FIM sees them; names
+      # carry the run ID, so every run adds new files (FIM rule 554).
+      local r=${2:0:8}
+      compose exec -T lab-agent sh -c "
+        mkdir -p /root/.ssh && chmod 700 /root/.ssh
+        echo 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIASOXlabTESTkeyNOTreal attacker@asox-lab asox_run=$2' >> /root/.ssh/authorized_keys
+        echo 'svc-backup ALL=(ALL) NOPASSWD:ALL # asox_run=$2' > /etc/sudoers.d/90-svc-backup-$r
+        chmod 440 /etc/sudoers.d/90-svc-backup-$r
+        echo '*/5 * * * * root /tmp/.update-$r # asox_run=$2' > /etc/cron.d/asox-update-$r
+      " || { echo "ERROR persistence: could not write in the lab agent" >&2; exit 1; } ;;
   esac
 }
 
@@ -157,7 +171,7 @@ else
   printf '%s\n' "$(ts) $host asox-lab: ASOX_ATTACK_START scenario=$scenario id=$id" | send
   (( print )) || sleep 1
   case $scenario in
-    ids-test|ids-scan) (( print )) || traffic "$scenario" "$id" ;;
+    ids-test|ids-scan|persistence) (( print )) || traffic "$scenario" "$id" ;;
     opnsense-*) if (( print )); then events "$scenario" "$id"; else events "$scenario" "$id" | syslog; fi ;;
     *) events "$scenario" "$id" | send ;;
   esac

@@ -192,16 +192,16 @@ Syslog from network devices is decoded and classified, ready for the real device
 
 Real endpoints can enroll into groups with policies that fit them.
 
-- [ ] **W5.1** Agent groups as code · P1
+- [x] **W5.1** Agent groups as code · P1
   - Done when: Groups `linux-servers`, `windows-desktops`, `network-sensors` (the lab agent reading Suricata belongs here) with their `agent.conf` in the repo, mounted from `compose.yml` and copied into `etc/shared/<group>/` at start (like the rules). Groups created at start if missing.
   - Files: `nodes/core/wazuh/groups/`, `nodes/core/wazuh/compose.yml`, `nodes/core/wazuh/config/entrypoint-scripts/`
-- [ ] **W5.2** Policies per group · P2
+- [x] **W5.2** Policies per group · P2
   - Done when: FIM paths (Linux `/etc`, binaries; Windows System32 and Run registry keys), log collection (journald / auth.log; Windows Security and Sysmon channels), SCA per OS.
   - Files: `nodes/core/wazuh/groups/`
-- [ ] **W5.3** Lab agent joins `linux-servers` · P2, C1
+- [x] **W5.3** Lab agent joins `linux-servers` · P2, C1
   - Done when: `nodes/lab/entrypoint.sh` enrolls with the group; `agent_groups -l` shows it; C1 still passes after `soc.sh reset lab` and `up`.
   - Files: `nodes/lab/entrypoint.sh`
-- [ ] **W5.4** Enrollment guide for real endpoints · P1
+- [x] **W5.4** Enrollment guide for real endpoints · P1
   - Done when: `nodes/core/wazuh/ENROLLMENT.md`: Linux (apt) and Windows (MSI) with `WAZUH_MANAGER`, `WAZUH_REGISTRATION_PASSWORD` and `WAZUH_AGENT_GROUP`; agent version equal to the manager (4.14.8); ports 1514/1515; what distributed mode needs; removing an old registration.
   - Files: `nodes/core/wazuh/ENROLLMENT.md`
   - Refs: D33

@@ -99,6 +99,8 @@ services:
       - ./config/ossec.conf:/wazuh-config-mount/etc/ossec.conf:ro
       - ./rules:/wazuh-config-mount/etc/rules:ro
       - ./decoders:/wazuh-config-mount/etc/decoders:ro
+      # Agent groups as code (W5.1): groups/<name>/agent.conf -> etc/shared/<name>/.
+      - ./groups:/wazuh-config-mount/etc/shared:ro
       - ./integrations:/wazuh-config-mount/integrations:ro
       # Scripts run by the image before Wazuh starts.
       - ./config/entrypoint-scripts:/entrypoint-scripts:ro

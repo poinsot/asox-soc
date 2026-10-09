@@ -98,6 +98,18 @@ Suricata now runs in the lab (M3, ahead of 11-03). Real alerts, from `trigger.sh
 
 **Park:** for the `ids-network-alert` template the title source is `data.alert.signature`. **Jesus:** for an IDS panel, filter on `rule.groups: suricata` and break down by `data.alert.signature` / `data.alert.category`.
 
+## Update 2026-10-08 (2): FIM (syscheck) fields seen
+
+From `trigger.sh --scenario persistence` (real file changes in the lab agent, real-time FIM, group `linux-servers`). Rules 100300, 100301 and 100302 are all level 10; built-ins are 554 (added, level 5) and 550 (modified, level 7).
+
+| Field | Seen | Note |
+|---|---|---|
+| `syscheck.path` | `/etc/sudoers.d/90-svc-backup-2118f542`, `/root/.ssh/authorized_keys` | observable `filename` |
+| `syscheck.event` | `added` (also `modified`, `deleted`) | |
+| `syscheck.sha256_after` | 64 hex characters | Also `md5_after` and `sha1_after`: observable `hash`, C13 `hash` |
+| `syscheck.uname_after` | `root` | owner |
+| `rule.groups` | `asox,linux,syscheck` (+ built-in `ossec,syscheck,syscheck_entry_added,…`) | |
+
 ## By
 
 Checkpoint 1, **2026-10-20** (X-01). This documents fields; C1's payload is unchanged.
