@@ -1,6 +1,6 @@
 # n8n payload fixtures (N8N-0.2)
 
-Real payloads as n8n receives them, for building and testing the normalizer, the routers and the playbooks without waiting for live alerts. Nothing in `wazuh/` and `thehive/` is invented: every file there is a Wazuh alert from the lab's indexer or a TheHive webhook payload recorded by `recv-thehive-event`. `invalid/` and `synthetic/` hold the only constructed files, each derived from a real one and listed below. Captured on 2026-09-30 from the build instance (Wazuh 4.14.8, TheHive 5.7.6 with a Community license).
+Real payloads as n8n receives them, for building and testing the normalizer, the routers and the playbooks without waiting for live alerts. Nothing in `wazuh/` and `thehive/` is invented: every file there is a Wazuh alert from the lab's indexer or a C1 body recorded by `recv-wazuh-alert`, or a TheHive webhook payload recorded by `recv-thehive-event`. `invalid/` and `synthetic/` hold the only constructed files, each derived from a real one and listed below. Captured on 2026-09-30 from the build instance (Wazuh 4.14.8, TheHive 5.7.6 with a Community license); the scenario alerts on 2026-10-09 (below).
 
 - **Wazuh files** (`wazuh/<rule-id>-<short-name>.json`) are the alert JSON, the same object `custom-n8n` POSTs to `/webhook/wazuh-alert` (C1). Files read from the indexer carry two extra fields the indexer adds (`@timestamp`, `input.type`); `100100-asox-test-c1.json` is the exact C1 body of the same alert, for comparison.
 - **TheHive files** (`thehive/NN-<object>-<action>-<detail>.json`) are the request body TheHive POSTs to `/webhook/thehive-event` (C4, webhook version 1). They are numbered in the order they happened, as one flow on one alert and its case.
@@ -17,21 +17,38 @@ Real payloads as n8n receives them, for building and testing the normalizer, the
 | `wazuh/19004-sca-summary.json` | 19004 SCA summary: score < 50 % | 7 | `sca` | yes (same) | `wazuh-query.sh -r 19004 -n 1 -s 30d -j` | 2026-09-25 23:15:39 |
 | `wazuh/503-agent-started.json` | 503 Wazuh agent started. **Below threshold, not sent by C1** (level 3 < `WAZUH_ALERT_MIN_LEVEL` 7); kept as a sample of the `ossec` group and of `data.extra_data` | 3 | `ossec` | **no** | `wazuh-query.sh -r 503 -n 1 -s 30d -j` | 2026-09-30 20:30:42 |
 
+### From the Wazuh lab scenarios (2026-10-09)
+
+Exact C1 bodies, one per rule: the Wazuh owner's scenarios (`nodes/lab/trigger.sh --scenario <name>`, W1.5) run on the build instance, each body read from its `recv-wazuh-alert` execution through the API (`GET /api/v1/executions/<id>?includeData=true`, node `Wazuh alert`, `.body` only: no headers, so no token). Attacker addresses are documentation ranges; lab accounts only. Log lines (and sudo's `data.command`) end with ` asox_run=<run id>`, the scenario's run ID (W1.6): not part of the real message. Route = n8n's routing row (`lib-config` `routing` 2026-10-09); each was checked live on the TheHive alert's `caseTemplate` and the writeback's `Route:` line.
+
+| File | Rule | Level | Groups | MITRE | Scenario | Route | recv execution | Alert time (UTC) |
+|---|---|---|---|---|---|---|---|---|
+| `wazuh/100200-ssh-root-login.json` | 100200 ASOX: SSH login as root | 10 | `asox`, `linux`, `sshd`, `authentication_success` | T1078.003 | `root-login` | `suspicious-login` | 1293 | 2026-10-09 20:38:28 |
+| `wazuh/40112-login-after-bruteforce.json` | 40112 multiple authentication failures followed by a success | 12 | `syslog`, `attacks` (no `sshd`) | T1078, T1110 | `ssh-success-after-fail` | `suspicious-login` | 1438 | 2026-10-09 20:39:54 |
+| `wazuh/5763-sshd-bruteforce.json` | 5763 sshd brute force (existing user `root`, in `data.dstuser`) | 10 | `syslog`, `sshd`, `authentication_failures` | T1110 | `ssh-bruteforce` | `ssh-bruteforce` | 1301 | 2026-10-09 20:38:32 |
+| `wazuh/5712-sshd-bruteforce-invalid-users.json` | 5712 sshd brute force with invalid users (name in `data.srcuser`), from the MISP seed IOC `203.0.113.66` | 10 | `syslog`, `sshd`, `authentication_failures` | T1110 | `ioc-ip` | `ssh-bruteforce` (MISP hit, `suspicious`) | 1309 | 2026-10-09 20:38:32 |
+| `wazuh/5404-sudo-three-failures.json` | 5404 three failed attempts to run sudo (`srcuser` ran it, `dstuser` target, `command`, `pwd`, `tty`) | 10 | `syslog`, `sudo` | T1548.003 | `sudo-fail` | `privilege-escalation` | 1297 | 2026-10-09 20:38:30 |
+| `wazuh/5901-new-group.json` | 5901 new group (`data.dstuser` is the **group** name, plus `gid`) | 8 | `syslog`, `adduser` | — | `new-user` | `account-change` | 1281 | 2026-10-09 20:38:28 |
+| `wazuh/5902-new-user.json` | 5902 new user (`dstuser`, `uid`, `gid`, `home`, `shell`) | 8 | `syslog`, `adduser` | T1136 | `new-user` | `account-change` | 1286 | 2026-10-09 20:38:28 |
+| `wazuh/100211-user-added-to-privileged-group.json` | 100211 ASOX: user added to a privileged group (usermod; `dstuser`, `group`) | 10 | `asox`, `linux`, `adduser`, `account_changed` | T1098 | `new-user` | `account-change` | 1289 | 2026-10-09 20:38:28 |
+| `wazuh/100100-asox-test-syslog-c1.json` | 100100 test rule **received over syslog** (514/udp): `agent.id` `"000"`, `agent.name` `wazuh-manager`, no `agent.ip`, `location` = sender address (`172.19.0.1`, core's network gateway behind the published port), `predecoder.hostname` = the sending machine | 10 | `asox`, `test` | — | `logger -n 127.0.0.1 -P 514 -d --rfc3164 -t asox-test "ASOX_TEST_EVENT id=…"` from the WSL host | `wazuh-generic` | 1539 | 2026-10-09 20:42:26 |
+
+Also produced, not saved: the attack-start marker 100101 (level 3, never sent by C1), and 5710 / 5760 (single failures, level 5). A syslog line in RFC 5424 format (`logger` without `--rfc3164`) arrives with no `predecoder` at all: n8n then has only `location`.
+
 These are all the rule types at level 7 or above in the indexer on 2026-09-30 (last 30 days: 100100 ×17, 19007 ×130, 19004 ×1). The 130 SCA alerts of one agent start-up are a sample of the flood the router must absorb (N8N-1.4, X-09).
 
-### Missing (to come from Wazuh, X-05 / W1.5 `trigger.sh --scenario`, due 2026-10-09)
+### Missing (to come from Wazuh)
 
-Not produced by the lab today at any level, so not captured and **not invented**:
+Not produced by the lab yet at any level, so not captured and **not invented**. sshd, sudo, account changes and `rule.mitre.id` arrived with the scenarios (2026-10-09, above).
 
-| Needed for | Rule type (built-in examples) |
-|---|---|
-| `pb-ssh-bruteforce` (N8N-4.2), observables `data.srcip`, `data.srcuser`/`dstuser` | sshd authentication failures and brute force (e.g. 5710, 5712, 5716, 5760) |
-| privilege escalation, user observables | sudo (e.g. 5401–5403) |
-| `pb-malware-hash` (N8N-4.3), `syscheck.*` | FIM / syscheck (e.g. 550, 553, 554) |
-| `malware-detection` template | rootcheck (e.g. 510), VirusTotal (87105), YARA / ClamAV |
-| `pb-ids-alert` (N8N-4.4), `data.alert.*`, `data.src_ip`, `data.dest_ip`, `data.dest_port` | Suricata (86601), from Wazuh M3 (2026-11-03) |
-| C11 `t_attack_start` | the attack-start marker rule (X-32) |
-| routing on MITRE (`rule.mitre.*`) | any rule with a `<mitre>` block: none of today's alerts has `rule.mitre` |
+| Needed for | Rule type (built-in examples) | Comes with |
+|---|---|---|
+| `pb-malware-hash` (N8N-4.3), `syscheck.*` | FIM / syscheck (e.g. 550, 553, 554) | Wazuh M5 |
+| `malware-detection` template | rootcheck (e.g. 510), VirusTotal (87105), YARA / ClamAV | Wazuh M5 |
+| `pb-ids-alert` (N8N-4.4), `data.alert.*`, `data.src_ip`, `data.dest_ip`, `data.dest_port` | Suricata (86601) | Wazuh M3 (2026-11-03) |
+| `network-scan` row, `data.dstip`, syslog device alerts | pfSense / router (103xxx, 102xxx) | Wazuh M4 (2026-11-10) |
+| `ioc-match` row | MISP IOC matches (108xxx, C14) | Wazuh M6 |
+| C11 `t_attack_start` | the attack-start marker 100101 (level 3: read from the indexer, never sent by C1) | in the lab now; captured by N8N-2.9 from the indexer |
 
 ### Constructed invalid payloads (`invalid/`)
 
