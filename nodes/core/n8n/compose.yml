@@ -31,6 +31,12 @@ services:
       EXECUTIONS_DATA_PRUNE: "true"
       EXECUTIONS_DATA_MAX_AGE: ${N8N_EXECUTIONS_MAX_AGE_HOURS}
       EXECUTIONS_DATA_PRUNE_MAX_COUNT: ${N8N_EXECUTIONS_MAX_COUNT}
+      # After a crash, only mark unfinished executions `crashed` (N8N-1.4).
+      # The default ("extensive") re-amends every execution still listed in the
+      # event log on EVERY start, `crashed` ones included, and calls the error
+      # workflow each time: 3 parks per stale execution per restart (2.40.7).
+      # Crashed alerts are requeued by the alert queue (recv-n8n-start).
+      N8N_EVENTBUS_RECOVERY_MODE: simple
       # Service URLs for workflows ($env.X); non-secret only.
       N8N_BLOCK_ENV_ACCESS_IN_NODE: "false"
       WAZUH_API_URL: ${WAZUH_API_URL}
