@@ -1,0 +1,502 @@
+{
+  "id": "asoxLibThAlState",
+  "name": "lib-thehive-alert-state",
+  "active": true,
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## lib-thehive-alert-state (N8N-1.4 repair path)\n**Trigger:** called by pb-generic when the TheHive alert already existed (`duplicate`).\n**Inputs:** `{thehive_alert_id, wazuh_alert_id, config}`.\n**Actions taken:** reads the alert's comments and observables (TheHive calls with lib-config `thehive_http` timeouts and retries, N8N-6.2). Returns `writeback_exists` (a comment by n8n's account whose first line is the writeback marker for this Wazuh alert, as lib-thehive-writeback checks it) and the observables with their tags. A failed read returns `ok: false` with the stage: **never parks** (the playbook then writes the writeback as before, without repair).\n**Systems changed:** none (reads only).\n**Approval:** not applicable.\n**Owner:** n8n.\nSaved: failed executions only (lib- convention).",
+        "height": 600,
+        "width": 520
+      },
+      "id": "6608875d-8943-57f8-9f99-e3fceb3d90ef",
+      "name": "About this workflow",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -400,
+        -420
+      ]
+    },
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "id": "ac3fcd33-2f31-5ced-b528-6980be237b67",
+      "name": "Called by a workflow",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.THEHIVE_URL }}/api/v1/query",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "theHiveProjectApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ query: [ { _name: 'getAlert', idOrName: $('Called by a workflow').first().json.thehive_alert_id }, { _name: 'comments' }, { _name: 'page', from: 0, to: 500 } ] }) }}",
+        "options": {
+          "timeout": "={{ $('Called by a workflow').first().json.config.thehive_http.timeout_ms }}",
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "1a12a63a-67aa-5180-a174-34a632172637",
+      "name": "List TheHive comments",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        240,
+        0
+      ],
+      "credentials": {
+        "theHiveProjectApi": {
+          "id": "asoxTheHiveApi01",
+          "name": "TheHive API (n8n)"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Retry policy for TheHive calls (N8N-6.2; lib-config thehive_http): a\n// connection error, a timeout or HTTP 5xx -> wait and call again; anything\n// else (2xx, and 4xx, which a retry never fixes) -> passed on. A transient\n// failure on the last call goes to lib-error with the number of calls.\nconst r = $input.first().json;\nconst policy = $('Called by a workflow').first().json.config.thehive_http;\nconst NODE = 'List TheHive comments';\nconst attempt = $runIndex + 1; // this node runs once per call\nconst status = typeof r.statusCode === 'number' ? r.statusCode : null;\nconst thrown = r.error !== undefined && status === null; // HTTP node error output\nconst NETWORK = /ECONNREFUSED|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|ECONNRESET|EHOSTUNREACH|ENETUNREACH|ECONNABORTED|timeout|timed out|socket hang up|connection cannot be established/i;\nconst transient = thrown ? NETWORK.test(JSON.stringify(r)) : status >= 500;\nconst calls = policy.retry_waits_s.length + 1;\nif (transient && attempt < calls) {\n  return [{ json: { decision: 'retry', stage: NODE, attempt, wait_s: policy.retry_waits_s[attempt - 1],\n    reason: thrown ? 'connection error or timeout' : `HTTP ${status}` } }];\n}\nif (thrown || transient) {\n  const e = r.error;\n  const detail = thrown\n    ? (typeof e === 'string' ? e : [e?.message, e?.description].filter(Boolean).join(': ') || JSON.stringify(r))\n    : `HTTP ${status}: ${typeof r.body === 'string' ? r.body : JSON.stringify(r.body)}`;\n  return [{ json: { decision: 'error', stage: NODE, node: NODE, attempts: attempt, retry_exhausted: transient,\n    http_status: status, error_code: e?.code ?? e?.cause?.code ?? null,\n    message: `${detail}`.slice(0, 1000) + (transient ? ` (${attempt} calls)` : '') } }];\n}\nreturn [{ json: { ...r, decision: 'response', attempts: attempt } }];\n"
+      },
+      "id": "86481d42-7550-5909-8eee-981ed068095d",
+      "name": "Assess: List TheHive comments",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "66e5089c-57e6-5d9b-b51a-cf8c7f0083f0",
+              "leftValue": "={{ $json.decision === 'retry' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "8fda06dd-3868-5087-a35c-d1c14308e696",
+      "name": "Retry: List TheHive comments?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        720,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "resume": "timeInterval",
+        "amount": "={{ $json.wait_s }}",
+        "unit": "seconds"
+      },
+      "id": "fbfe27ad-45b5-54d2-bee8-1438a9ba23e3",
+      "name": "Wait before retry: List TheHive comments",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        720,
+        -200
+      ],
+      "webhookId": "80fe4777-bbd7-5527-a3c8-9289524e171d"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "ee554c3b-8cda-5cbe-943c-4f2c14ccf725",
+              "leftValue": "={{ $json.decision === 'response' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "e488f9aa-d80a-5619-9bdb-b0205917d082",
+      "name": "Answered: List TheHive comments?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        960,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.THEHIVE_URL }}/api/v1/query",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "theHiveProjectApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ query: [ { _name: 'getAlert', idOrName: $('Called by a workflow').first().json.thehive_alert_id }, { _name: 'observables' }, { _name: 'page', from: 0, to: 200 } ] }) }}",
+        "options": {
+          "timeout": "={{ $('Called by a workflow').first().json.config.thehive_http.timeout_ms }}",
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "04986c62-32ed-5423-bd9c-e9d27b98b5f0",
+      "name": "List TheHive observables",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1200,
+        0
+      ],
+      "credentials": {
+        "theHiveProjectApi": {
+          "id": "asoxTheHiveApi01",
+          "name": "TheHive API (n8n)"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Retry policy for TheHive calls (N8N-6.2; lib-config thehive_http): a\n// connection error, a timeout or HTTP 5xx -> wait and call again; anything\n// else (2xx, and 4xx, which a retry never fixes) -> passed on. A transient\n// failure on the last call goes to lib-error with the number of calls.\nconst r = $input.first().json;\nconst policy = $('Called by a workflow').first().json.config.thehive_http;\nconst NODE = 'List TheHive observables';\nconst attempt = $runIndex + 1; // this node runs once per call\nconst status = typeof r.statusCode === 'number' ? r.statusCode : null;\nconst thrown = r.error !== undefined && status === null; // HTTP node error output\nconst NETWORK = /ECONNREFUSED|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|ECONNRESET|EHOSTUNREACH|ENETUNREACH|ECONNABORTED|timeout|timed out|socket hang up|connection cannot be established/i;\nconst transient = thrown ? NETWORK.test(JSON.stringify(r)) : status >= 500;\nconst calls = policy.retry_waits_s.length + 1;\nif (transient && attempt < calls) {\n  return [{ json: { decision: 'retry', stage: NODE, attempt, wait_s: policy.retry_waits_s[attempt - 1],\n    reason: thrown ? 'connection error or timeout' : `HTTP ${status}` } }];\n}\nif (thrown || transient) {\n  const e = r.error;\n  const detail = thrown\n    ? (typeof e === 'string' ? e : [e?.message, e?.description].filter(Boolean).join(': ') || JSON.stringify(r))\n    : `HTTP ${status}: ${typeof r.body === 'string' ? r.body : JSON.stringify(r.body)}`;\n  return [{ json: { decision: 'error', stage: NODE, node: NODE, attempts: attempt, retry_exhausted: transient,\n    http_status: status, error_code: e?.code ?? e?.cause?.code ?? null,\n    message: `${detail}`.slice(0, 1000) + (transient ? ` (${attempt} calls)` : '') } }];\n}\nreturn [{ json: { ...r, decision: 'response', attempts: attempt } }];\n"
+      },
+      "id": "a80c01d1-c0ba-52c1-a4dd-e839728309fc",
+      "name": "Assess: List TheHive observables",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1440,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "40af6af8-5b95-5a58-894a-f80abd7d191d",
+              "leftValue": "={{ $json.decision === 'retry' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "00f7e070-1650-5597-af62-faca73a5e401",
+      "name": "Retry: List TheHive observables?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1680,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "resume": "timeInterval",
+        "amount": "={{ $json.wait_s }}",
+        "unit": "seconds"
+      },
+      "id": "09acca08-1488-59d6-8d24-61a5a9b4db59",
+      "name": "Wait before retry: List TheHive observables",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1680,
+        -200
+      ],
+      "webhookId": "324f2304-5b1a-556a-9f87-4623f216c5a3"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "df902867-3f0b-51f8-9e81-ac9f3d63555e",
+              "leftValue": "={{ $json.decision === 'response' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "f841b4a9-639e-59c5-bc70-eba3498e581d",
+      "name": "Answered: List TheHive observables?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1920,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Same test as lib-thehive-writeback: first line exactly the marker line,\n// author n8n's account.\nconst input = $('Called by a workflow').first().json;\nconst wb = input.config.writeback;\nconst firstLine = `${wb.marker} wazuh-alert-id=${input.wazuh_alert_id}`;\nconst comments = $('Answered: List TheHive comments?').first().json;\nconst obs = $input.first().json;\nconst bad = [comments, obs].find((r) => r.statusCode !== 200 || !Array.isArray(r.body));\nif (bad) {\n  return [{ json: { ok: false, stage: bad === comments ? 'List TheHive comments' : 'List TheHive observables',\n    message: `HTTP ${bad.statusCode}: ${JSON.stringify(bad.body)}`.slice(0, 500) } }];\n}\nconst writeback = comments.body.find((cm) => (cm.createdBy ?? cm._createdBy) === wb.author\n  && typeof cm.message === 'string' && cm.message.split('\\n')[0] === firstLine);\nreturn [{ json: { ok: true, writeback_exists: Boolean(writeback), writeback_comment_id: writeback?._id ?? null,\n  observables: obs.body.map((o) => ({ id: o._id, dataType: o.dataType, data: o.data, tags: o.tags ?? [] })) } }];\n"
+      },
+      "id": "74e5015e-7198-53e9-a108-d86caa60c957",
+      "name": "Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2160,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const r = $input.first().json;\nreturn [{ json: { ok: false, stage: r.stage, attempts: r.attempts, message: r.message } }];\n"
+      },
+      "id": "73e0029e-6840-5117-8ee0-c9c5e98a897a",
+      "name": "Failed result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2160,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "List TheHive comments": {
+      "main": [
+        [
+          {
+            "node": "Assess: List TheHive comments",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Assess: List TheHive comments",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Assess: List TheHive comments": {
+      "main": [
+        [
+          {
+            "node": "Retry: List TheHive comments?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Retry: List TheHive comments?": {
+      "main": [
+        [
+          {
+            "node": "Wait before retry: List TheHive comments",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Answered: List TheHive comments?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait before retry: List TheHive comments": {
+      "main": [
+        [
+          {
+            "node": "List TheHive comments",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "List TheHive observables": {
+      "main": [
+        [
+          {
+            "node": "Assess: List TheHive observables",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Assess: List TheHive observables",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Assess: List TheHive observables": {
+      "main": [
+        [
+          {
+            "node": "Retry: List TheHive observables?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Retry: List TheHive observables?": {
+      "main": [
+        [
+          {
+            "node": "Wait before retry: List TheHive observables",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Answered: List TheHive observables?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait before retry: List TheHive observables": {
+      "main": [
+        [
+          {
+            "node": "List TheHive observables",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Called by a workflow": {
+      "main": [
+        [
+          {
+            "node": "List TheHive comments",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Answered: List TheHive comments?": {
+      "main": [
+        [
+          {
+            "node": "List TheHive observables",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Failed result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Answered: List TheHive observables?": {
+      "main": [
+        [
+          {
+            "node": "Result",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Failed result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataSuccessExecution": "none",
+    "saveDataErrorExecution": "all",
+    "saveManualExecutions": true
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "nodeGroups": [],
+  "tags": [],
+  "pinData": {}
+}
