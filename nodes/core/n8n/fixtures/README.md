@@ -13,8 +13,8 @@ Real payloads as n8n receives them, for building and testing the normalizer, the
 |---|---|---|---|---|---|---|
 | `wazuh/100100-asox-test.json` | 100100 ASOX test rule (`nodes/lab/trigger.sh`) | 10 | `asox`, `test` | yes | `scripts/wazuh-query.sh -r 100100 -n 1 -s 30d -j` | 2026-09-26 22:20:41 |
 | `wazuh/100100-asox-test-c1.json` | same alert, exact C1 body | 10 | `asox`, `test` | yes | `recv-wazuh-alert` execution 96 (API, `includeData=true`), `.body` only | 2026-09-26 22:20:41 |
-| `wazuh/19007-sca-check-failed.json` | 19007 SCA check failed (CIS Ubuntu 24.04), agent start-up scan | 7 | `sca` | yes (none reached n8n: they fired before C1 existed) | `wazuh-query.sh -r 19007 -n 1 -s 30d -j` | 2026-09-25 23:15:32 |
-| `wazuh/19004-sca-summary.json` | 19004 SCA summary: score < 50 % | 7 | `sca` | yes (same) | `wazuh-query.sh -r 19004 -n 1 -s 30d -j` | 2026-09-25 23:15:39 |
+| `wazuh/19007-sca-check-failed.json` | 19007 SCA check failed (CIS Ubuntu 24.04), agent start-up scan. **Predates Wazuh's W2.7 tuning:** a live 19007 is level 5 now and is never sent; replaying this level-7 file creates a `wazuh-generic` TheHive alert since n8n dropped its `sca` exclusion (2026-10-09). Kept unchanged as captured | 7 | `sca` | yes then (none reached n8n: they fired before C1 existed); no longer | `wazuh-query.sh -r 19007 -n 1 -s 30d -j` | 2026-09-25 23:15:32 |
+| `wazuh/19004-sca-summary.json` | 19004 SCA summary: score < 50 %. Same as 19007: level 5 since W2.7; this file creates a `wazuh-generic` alert when replayed | 7 | `sca` | yes then (same); no longer | `wazuh-query.sh -r 19004 -n 1 -s 30d -j` | 2026-09-25 23:15:39 |
 | `wazuh/503-agent-started.json` | 503 Wazuh agent started. **Below threshold, not sent by C1** (level 3 < `WAZUH_ALERT_MIN_LEVEL` 7); kept as a sample of the `ossec` group and of `data.extra_data` | 3 | `ossec` | **no** | `wazuh-query.sh -r 503 -n 1 -s 30d -j` | 2026-09-30 20:30:42 |
 
 ### From the Wazuh lab scenarios (2026-10-09)
@@ -35,7 +35,7 @@ Exact C1 bodies, one per rule: the Wazuh owner's scenarios (`nodes/lab/trigger.s
 
 Also produced, not saved: the attack-start marker 100101 (level 3, never sent by C1), and 5710 / 5760 (single failures, level 5). A syslog line in RFC 5424 format (`logger` without `--rfc3164`) arrives with no `predecoder` at all: n8n then has only `location`.
 
-These are all the rule types at level 7 or above in the indexer on 2026-09-30 (last 30 days: 100100 ×17, 19007 ×130, 19004 ×1). The 130 SCA alerts of one agent start-up are a sample of the flood the router must absorb (N8N-1.4, X-09).
+These are all the rule types at level 7 or above in the indexer on 2026-09-30 (last 30 days: 100100 ×17, 19007 ×130, 19004 ×1). The 130 SCA alerts of one agent start-up were a sample of the flood the router must absorb (N8N-1.4, X-09); since W2.7 they stay at level 5 and only SCA regressions (19011, 19014) and a score below 30% (19005) reach n8n. `replay.sh --all --only wazuh` therefore creates TheHive alerts for the two SCA files too: delete them afterwards.
 
 ### Missing (to come from Wazuh)
 

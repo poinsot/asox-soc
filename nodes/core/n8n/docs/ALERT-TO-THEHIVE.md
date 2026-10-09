@@ -205,4 +205,5 @@ Three rows went from proposed to **active** (`suspicious-login`, `privilege-esca
 | Q5 (`customFields` form) | Probe 2026-10-06: both forms filled; n8n keeps the array (AF §4) |
 | Q6 (`data.hostname`, private `agent.ip`) | AF §5 |
 | Q9 (atomic duplicate refusal) | AF §1 "Limit": no TheHive setting; serialize re-sends |
-| Still open | Q4 (SCA template or no SCA in TheHive: X-09), Q7 (informational, nothing to answer), Q8 (case delete silently reopens its alert) |
+| Q4 (SCA template or no SCA in TheHive) | Wazuh W2.7 (2026-10-07): 19007/19004 lowered to level 5, only SCA regressions (19011, 19014, 19005) reach n8n and go to `wazuh-generic`; the Wazuh owner sees no need for a compliance template. n8n dropped its `sca` exclusion (2026-10-09). Park to confirm |
+| Still open | Q7 (informational, nothing to answer), Q8 (case delete silently reopens its alert) |
