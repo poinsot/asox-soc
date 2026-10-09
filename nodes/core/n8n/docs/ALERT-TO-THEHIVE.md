@@ -55,7 +55,7 @@ Gaps:
 - **`rule.mitre.id` exists in no fixture**, so the T1110 branch is untested; the group names are also unverified until real sshd/rootcheck alerts exist (X-05).
 - "Starts with T1110" (so `T1110.001` counts) is n8n's reading of "has `T1110`"; confirm.
 - **An unknown `caseTemplate` is silently dropped:** an alert created with `caseTemplate: "wazuh-generic"` on the build instance (no templates loaded) got HTTP 201 with `caseTemplate: null`. The same applies to custom fields (§4). So a missing template won't fail the playbook, but the case would silently get no tasks. The playbook will check the returned `caseTemplate` and log a warning when it comes back null.
-- The mapping (AF §3) is one input of n8n's routing table (D-N2, X-04), kept as data in a `lib-` workflow, not hardcoded in each playbook. **Done 2026-10-06:** all 9 AF §3 rows are in `lib-config` `routing` (README "Routing"); the table above shows only the 2026-09-30 state, see §8.
+- The mapping (AF §3) is one input of n8n's routing table (D-N2, X-04), kept as data in a `lib-` workflow, not hardcoded in each playbook. **Done 2026-10-06:** all 9 AF §3 rows are in `lib-config` `routing` (README "Routing"); the table above shows only the 2026-09-30 state, see §8. **Since 2026-10-09** n8n's order and matches differ from AF §3 (Wazuh's answers A1–A6): §8, "Routing after the Wazuh owner's answers".
 
 ## 4. AF §4: custom fields
 
@@ -168,11 +168,28 @@ Verdicts: **agree** = n8n already sends this; **n8n changes** = changed by n8n i
 ### Questions for Park (from this review)
 
 - **A. Description:** OK to keep the extra `Time` row, and no code block for alerts without `full_log` (SCA today)?
-- **B. Proposed rows:** n8n evaluates them, and when one matches first it sends `wazuh-generic` and records the row that would have matched (`proposed_match`), until the row is confirmed with the Wazuh owner (W1.3) and switched to `active` in `lib-config`. Now that the templates are loaded on the build instance, do you prefer n8n to send the proposed templates right away?
+- **B. Proposed rows:** n8n evaluates them, and when one matches first it sends `wazuh-generic` and records the row that would have matched (`proposed_match`), until the row is confirmed with the Wazuh owner (W1.3) and switched to `active` in `lib-config`. Now that the templates are loaded on the build instance, do you prefer n8n to send the proposed templates right away? *(2026-10-09: three of the five rows are active now, after the Wazuh owner's confirmation; B applies only to `ioc-match` and `network-scan`, whose rules don't exist yet.)*
 - **C. `playbook` field:** n8n fills it with the playbook that **ran**. While only `pb-generic` exists, a route that names a future playbook (e.g. `pb-ssh-bruteforce`) still runs `pb-generic`, so the field says `pb-generic` and the writeback says which playbook the route wanted. OK?
-- **D. `network-scan`:** "`rule.mitre.id` has `T1046` and the agent is the firewall": n8n has no notion of "the firewall agent". Proposal: the rule group `pfsense` stands for it (pfSense logs arrive through syslog with that group, W4.x). OK, or which field identifies the firewall?
+- **D. `network-scan`:** "`rule.mitre.id` has `T1046` and the agent is the firewall": n8n has no notion of "the firewall agent". Proposal: the rule group `pfsense` stands for it (pfSense logs arrive through syslog with that group, W4.x). OK, or which field identifies the firewall? *(2026-10-09: the Wazuh owner confirms it (A5): pfSense scan and repeated-block rules carry `asox,pfsense,recon` and T1046; n8n matches `pfsense` + `recon`, or `pfsense` + T1046. Please mirror it in AF §3.)*
 
 - **E. MISP hit and `ioc` (also to Diego):** `MISP_2_1` reports a hit as taxonomy level `suspicious`. ALERT-FORMAT §5 says an IP found in MISP should be marked `ioc: true`. Should a MISP hit be malicious (`ioc: true`) for all MISP sources, only for our own events (not feeds like Botvrij), or stay suspicious? n8n uses suspicious / `ioc: false` until you agree; switching is a one-line override in `lib-config`.
+
+### Routing after the Wazuh owner's answers (2026-10-09)
+
+Daniel answered n8n's routing questions from live alerts (A1–A6 in `nodes/core/wazuh/docs/integrator-requests-2026-10-06.md`, update of 2026-10-08 in `request-n8n-rule-groups.md`), and asked Park for the same fixes in AF §3. n8n applied them in `lib-config` `routing` (version `2026-10-09`; table in the README, "Routing"). **Until Park updates AF §3, n8n's table differs from it in order and matches:**
+
+| Row | AF §3 today | n8n since 2026-10-09 | Why (Wazuh) |
+|---|---|---|---|
+| order | `ssh-bruteforce`, `malware-detection`, `ids-network-alert`, then the proposed rows | `ioc-match` first, `suspicious-login` second, then `ssh-bruteforce` … | A1, A4: first match wins; 40112 carries T1110; IOC rules keep the source's groups |
+| `ioc-match` | groups `misp` or `ioc`, range 103xxx | group `misp_ioc`, range 108xxx; still proposed | A4 |
+| `suspicious-login` | T1078, or 40112 | rules 40112 and 100200 only; **active** | A1: 5715 (every login) carries T1078; 100200 is the root-login rule (W2.2) |
+| `privilege-escalation` | `sudo` + `authentication_failed`/`_failures`, or T1548 | rule 5404, or T1548; **active** | A2: 5404 has only `syslog,sudo` |
+| `account-change` | `adduser` or `addgroup`, or T1136 | `adduser`, or T1136; **active** | A3: `addgroup` doesn't exist; 5901 has no MITRE |
+| `network-scan` | `pfsense` + scan rule (104xxx), or T1046 and "the agent is the firewall" | `pfsense` + `recon`, or `pfsense` + T1046; still proposed | A5: pfSense is 103xxx; answers question D |
+
+Three rows went from proposed to **active** (`suspicious-login`, `privilege-escalation`, `account-change`), because Daniel confirmed their rules from live alerts and AF §3 says proposed rows wait only for that. Checked live on 2026-10-09 with his scenarios: each TheHive alert carried that row's `caseTemplate` (README "Routing"). `ioc-match` and `network-scan` stay proposed until their rules exist (M6, M4).
+
+**D-N2 (Daniel's question):** yes, "groups first, then a short rule-ID map" is what the router does. n8n wants **no playbook group** in Wazuh rules (no `pb_ssh_bruteforce`): routing stays n8n data in `lib-config`.
 
 ### §7 questions now answered
 

@@ -53,7 +53,21 @@ Workflows:
 
 ### Routing (N8N-1.3)
 
-`recv-wazuh-alert` → `lib-route-alert` → the chosen playbook. The table is **data** in `lib-config` (`routing`), seeded from ALERT-FORMAT §3 (TheHive) on 2026-10-06; routing key per D-N2: rule groups, rule IDs, MITRE techniques and level.
+`recv-wazuh-alert` → `lib-route-alert` → the chosen playbook. The table is **data** in `lib-config` (`routing`), seeded from ALERT-FORMAT §3 (TheHive) on 2026-10-06; order and matches fixed on 2026-10-09 with the Wazuh owner's answers from live alerts (A1–A6 in `nodes/core/wazuh/docs/integrator-requests-2026-10-06.md`) and his rules 100200/100211/100212 (W2.2). Routing key per D-N2: **rule groups first, then a short rule-ID map** where a group is too broad (e.g. `suspicious-login`), plus MITRE techniques and level. Wazuh rules carry Wazuh's standard groups, never a playbook group (no `pb_*`): which playbook handles what stays n8n data.
+
+| # | Row (= case template) | Status | Matches (any clause) |
+|---|---|---|---|
+| 1 | `ioc-match` | proposed | group `misp_ioc` (C14 rules 108xxx, M6). First, so an IOC match wins: those rules keep the source's groups (e.g. `sshd`) |
+| 2 | `suspicious-login` | active | rules 40112 (failures then success, level 12) and 100200 (SSH login as root). Above `ssh-bruteforce`, because 40112 also carries T1110. Not on T1078: every normal login (5715) carries it |
+| 3 | `ssh-bruteforce` | active | `sshd` + one of `authentication_failures` / `authentication_failed` / `invalid_login`; or T1110 (5712, 5763) |
+| 4 | `malware-detection` | active | one of `virustotal`, `rootcheck`, `yara`, `clamd`, `malware` |
+| 5 | `ids-network-alert` | active | `suricata` or `ids` (86601, M3) |
+| 6 | `privilege-escalation` | active | rule 5404 (sudo, 3 wrong passwords: groups `syslog,sudo` only); or T1548 (5404 carries T1548.003) |
+| 7 | `account-change` | active | group `adduser` (5901 new group, which has no MITRE; 5902, 5904, 100211, 100212); or T1136 |
+| 8 | `network-scan` | proposed | `pfsense` + `recon`, or `pfsense` + T1046 (pfSense scan rules 103xxx, M4: IDs to come) |
+| 9 | `wazuh-generic` | default | everything else, including test alerts (100100) |
+
+The two proposed rows wait only for their Wazuh rules to exist (ALERT-FORMAT §3: proposed rows wait for the Wazuh owner's confirmation). The attack-start marker (rule 100101, group `attack_start`, W1.6) is level 3, below `WAZUH_ALERT_MIN_LEVEL`, so it never reaches n8n and needs no row or exclusion; if its level is ever raised to 7 or more, add an intake exclusion for `attack_start` (C11 reads it from the indexer, N8N-2.9).
 
 - **Rows are ordered; the first `active` match wins.** A `proposed` row that matches is recorded in `proposed_match` (and in the writeback) and evaluation goes on, so its alerts get the default until the row is confirmed (with the Wazuh owner, W1.3, X-04) and switched to `active`. The last row is the default (`wazuh-generic`), and it must stay last.
 - **A row:** `{ id, status: 'active' | 'proposed', match: [clause, ...], playbook, case_template, note }`. The row matches when **any** clause matches. A clause matches when **every** key it has matches: `groups_all` (all of these `rule.groups`), `groups_any` (one of them), `rule_ids` (`rule.id`, as strings), `mitre_prefix` (`T1110` matches `T1110` and `T1110.001`, not `T11100`; techniques from `rule.mitre.id`, else `rule.mitre_techniques`), `min_level` (`rule.level` ≥). A clause with no keys never matches.
@@ -63,7 +77,7 @@ Workflows:
 **How to add or change a row**
 1. Edit `routing.rows` in `lib-config`'s `Config` node (UI or file): put the row **before** the default row, in priority order; use `status: 'proposed'` until the rule IDs and groups are agreed with Wazuh (and the template exists in TheHive's `entities/`). Bump `routing.version`.
 2. A new playbook: build `pb-<use-case>` with a fixed ID, `"active": true` and the header note, add it to `playbooks`, then point the row's `playbook` at it.
-3. Test: replay a fixture (or a variant of one with the groups/technique you route on) and check the recv execution's `Playbook input` (`route`), the TheHive alert's `caseTemplate`, and the writeback's `Route:` line. TheHive silently drops an unknown template (the playbook's writeback warns).
+3. Test: replay a fixture (`fixtures/wazuh/` has a real alert for each active row except malware and IDS; or a variant of one with the groups/technique you route on), or run the Wazuh owner's lab scenario (`nodes/lab/trigger.sh --scenario <name>`, list in `fixtures/README.md`), and check the recv execution's `Playbook input` (`route`), the TheHive alert's `caseTemplate`, and the writeback's `Route:` line. TheHive silently drops an unknown template (the playbook's writeback warns).
 4. `scripts/n8n-export.sh`, review the diff, commit.
 
 ### Enrichment policy (N8N-2.4)
