@@ -11,7 +11,7 @@ Alert triage and case management for analysts. **Apply your Community license be
 | `compose.yml` | `thehive` (TheHive 5, served on port 9000 at the root path) |
 | `config/application.conf` | TheHive configuration; secrets come from the environment (`${VAR}`), never from this file |
 | `scripts/` | `thehive-export.sh` / `thehive-import.sh` (UI configuration ↔ `entities/`), `thehive-test-alert.sh` (test alerts) and their shared `lib.sh` |
-| `entities/` | Exported configuration: 9 custom fields, observable types (+ `user-account`), 4 case templates (JSON, committed) |
+| `entities/` | Exported configuration: 9 custom fields, observable types (+ `user-account`), 9 case templates (JSON, committed) |
 | `BACKLOG.md` | TheHive's backlog: milestones M0–M7 to the 2026-12-01 delivery, tasks `T0.1`… with priority, "done when" and links to the integration register (`X-nn`) |
 | `docs/` | [ALERT-FORMAT.md](docs/ALERT-FORMAT.md) (alert format, severity / TLP / PAP, template routing, alert-to-case rules), [TRIAGE.md](docs/TRIAGE.md) (triage procedure, users and roles) |
 | `../storage.yml` (integrator-owned) | `cassandra` (TheHive's database) and `elasticsearch` (search index, shared with Cortex) |

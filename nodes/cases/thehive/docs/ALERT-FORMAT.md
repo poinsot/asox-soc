@@ -1,6 +1,6 @@
 # Wazuh alert → TheHive: format, mapping and alert-to-case rules
 
-Owner: TheHive (Park). **Status: proposal, to agree with the n8n owner (Inigo) by checkpoint 1 (2026-10-20)**; dedup by `sourceRef` (§1) is already agreed in principle (D-N1, `docs/decisions.md`) before n8n's playbooks implement it (CONTRIBUTING.md rule 5). It builds on contract C3 (n8n → TheHive, Service account `n8n@asox.local`) without changing it: C3 fixes *how* n8n authenticates; this document fixes *what* it sends.
+Owner: TheHive (Park). **Status (2026-10-08): §1–§5 reviewed by the n8n owner (Inigo, 2026-10-06) and answered (questions A–E below, in each section); §3's routing confirmed with the Wazuh owner's live alerts and rule-ID plan (Daniel, W1.3, 2026-10-07/08). To be marked agreed at checkpoint 1 (2026-10-20) once Inigo accepts A–E; §6 R2 (D-N4) to confirm by 2026-11-03.** Dedup by `sourceRef` (§1) is D-N1 (`docs/decisions.md`). It builds on contract C3 (n8n → TheHive, Service account `n8n@asox.local`) without changing it: C3 fixes *how* n8n authenticates; this document fixes *what* it sends.
 
 Reference implementation: `scripts/thehive-test-alert.sh` sends alerts in exactly this format, and `scripts/lib.sh` (`th_severity`) holds the severity table.
 
@@ -13,15 +13,17 @@ One TheHive alert per Wazuh alert forwarded by C1 (`rule.level >= WAZUH_ALERT_MI
 | `type` | `wazuh` | — |
 | `source` | `wazuh` (test alerts: `asox-test`) | — |
 | `sourceRef` | the Wazuh alert ID | `id` |
-| `title` | `<rule description> (<agent>)` | `rule.description`, `agent.name` |
-| `description` | Markdown table: rule, level, agent, MITRE, alert ID, then `full_log` in a code block | several |
+| `title` | `<rule description> (<host>)` | `rule.description`, host (below) |
+| `description` | Markdown table: rule, level, host, MITRE, **time**, alert ID; then `full_log` in a code block **when the alert has one** (SCA alerts don't); for sudo (5404) also `data.command`, `data.pwd`, `data.tty` | several |
 | `severity` | table in section 2 | `rule.level` |
 | `tlp` / `pap` | `2` / `2` (AMBER), section 2 | — |
 | `date` | alert time, epoch milliseconds | `timestamp` |
-| `tags` | `wazuh`, `rule:<id>`, `agent:<name>`, `attack.<technique, lowercase>`, plus `rule.groups` | `rule.id`, `agent.name`, `rule.mitre.id` (see §3 for the fallback), `rule.groups` |
+| `tags` | `wazuh`, `rule:<id>`, `agent:<host>`, `attack.<technique, lowercase>`, plus `rule.groups` | `rule.id`, `agent.name`, `rule.mitre.id` (see §3 for the fallback), `rule.groups` |
 | `caseTemplate` | template name from section 3 | `rule.groups`, `rule.id` |
 | `customFields` | section 4 | several |
 | `observables` | section 5 | several |
+
+**Host of the alert.** Normally `agent.name`. Alerts received over **syslog** (pfSense, routers, anything sent to 514/udp) have `agent.id` = `"000"` and `agent.name` = `wazuh-manager`; for those the host is **`predecoder.hostname`** (the device's own name, e.g. `pfsense`) and its address is **`location`** (the sender's IP). This applies to the title, the `agent:` tag, `wazuh-agent-name` (§4) and the host observables (§5) (Daniel's fields review, item 6).
 
 **Deduplication for free:** TheHive refuses a second alert with the same `type` + `source` + `sourceRef`. Using the Wazuh alert ID as `sourceRef` makes a re-run of the same alert harmless (the n8n "idempotent and safe to re-run" convention, PROJECT.md 6.2); the playbook should treat that refusal (HTTP 400 `CreateError`, "already exists") as "already done", not as an error.
 
@@ -44,21 +46,23 @@ Then **+1 (max 4) when `asset-criticality` is `high` or `critical`**. Until an a
 
 ## 3. Choosing the case template
 
-| Template (`entities/case-templates.json`) | When (first match wins) |
-|---|---|
-| `ssh-bruteforce` | `rule.groups` has `sshd` and one of `authentication_failures`, `authentication_failed`, `invalid_login`; or `rule.mitre.id` has `T1110` |
-| `malware-detection` | `rule.groups` has one of `virustotal`, `rootcheck`, `yara`, `clamd`, `malware` |
-| `ids-network-alert` | `rule.groups` has `suricata` or `ids` (Suricata network IDS, D49; built-in rule 86601 "Suricata: Alert - …", fields `data.alert.signature`, `data.alert.severity`, `data.src_ip`, `data.dest_ip`, `data.dest_port`) |
-| `suspicious-login` *(proposed)* | `rule.mitre.id` has `T1078`, or a login success after failures (built-in 40112; Daniel's W2.2 rule when merged) |
-| `privilege-escalation` *(proposed)* | `rule.groups` has `sudo` and one of `authentication_failed`, `authentication_failures`; or `rule.mitre.id` has `T1548` |
-| `account-change` *(proposed)* | `rule.groups` has `adduser` or `addgroup` (e.g. 5902 "New user added"); or `rule.mitre.id` has `T1136` |
-| `ioc-match` *(proposed)* | `rule.groups` has `misp` or `ioc` (IOC match against the MISP lists, Daniel's W6.4 / C14, range 103xxx) |
-| `network-scan` *(proposed)* | `rule.groups` has `pfsense` and the rule is a port scan / repeated blocks (Daniel's W4.3, range 104xxx); or `rule.mitre.id` has `T1046` and the agent is the firewall |
-| `wazuh-generic` | everything else |
+Checked against live alerts (Wazuh 4.14.8, lab scenarios) and Daniel's rule-ID plan (Wazuh README, "Rules: ID plan, files and groups"). Every custom rule carries `asox`, a source group and Wazuh's standard group names. Ranges: 1001xx tests and markers, 1002xx Linux auth, 101xxx Suricata, 102xxx routers, **103xxx pfSense**, **108xxx MISP IOC matches**, 109xxx tuning; built-in rules keep their IDs.
 
-**MITRE technique:** read `rule.mitre.id`; when it is absent, fall back to `rule.mitre_techniques` (what SCA alerts carry today). "Has `T1110`" is a prefix match: it also matches sub-techniques such as `T1110.001`. Daniel's custom rules use a `<mitre>` block, so new detections arrive in `rule.mitre.id`.
+| Template (`entities/case-templates.json`) | When (first match wins) | Rules today |
+|---|---|---|
+| `ioc-match` | `rule.groups` has `misp_ioc` | 108xxx (C14, W6.4); above every other row, so an IOC match wins |
+| `suspicious-login` | `rule.id` is `40112` or `100200` (rule IDs only: every normal SSH login, 5715, also carries `T1078`) | 40112 failures then success (level 12), 100200 SSH login as root (level 10) |
+| `ssh-bruteforce` | `rule.groups` has `sshd` and one of `authentication_failures`, `authentication_failed`, `invalid_login`; or `rule.mitre.id` has `T1110` | 5712, 5763 (level 10) |
+| `malware-detection` | `rule.groups` has one of `virustotal`, `rootcheck`, `yara`, `clamd`, `malware` | |
+| `ids-network-alert` | `rule.groups` has `suricata` or `ids` (Suricata network IDS, D49; built-in rule 86601 "Suricata: Alert - …", fields `data.alert.signature`, `data.alert.severity`, `data.src_ip`, `data.dest_ip`, `data.dest_port`) | 86601, 101xxx (M3) |
+| `privilege-escalation` | `rule.mitre.id` has `T1548` (sudo failures carry only `syslog,sudo`, no `authentication_*` group) | 5404, three wrong sudo passwords (T1548.003, level 10) |
+| `account-change` | `rule.groups` has `adduser` (Wazuh files new users **and** new groups there; `addgroup` doesn't exist, and 5901 has no MITRE ID) | 5901 new group, 5902 new user (level 8), 5904, 100211 usermod / 100212 gpasswd: user added to a privileged group (level 10, T1098) |
+| `network-scan` | `rule.groups` has `pfsense` and `rule.mitre.id` has `T1046` (the `pfsense` group stands for "the firewall", answer D) | 103xxx scan / repeated-block rules with groups `pfsense,recon` (W4.3, M4) |
+| `wazuh-generic` | everything else, including single pfSense blocks (`firewall_drop` without `recon`) | |
 
-Rows marked *proposed* are the templates added for the new detections (BACKLOG.md T3.5). Their rule IDs and groups follow Daniel's rule plan (W1.3) and are confirmed with him by 2026-10-20; until then n8n can send those alerts to `wazuh-generic`, which works for any alert.
+**MITRE technique:** read `rule.mitre.id` (an array); when it is absent, fall back to `rule.mitre_techniques` (what SCA alerts carry). "Has `T1110`" is a prefix match: it also matches sub-techniques such as `T1110.001`. Some rules have no technique (5901, the test rule 100100, the marker 100101), so no row relies on MITRE alone where that would miss them.
+
+**All rows are active (answer B).** n8n sends each template as soon as its row matches; a row whose rules don't exist yet (`ioc-match`, `network-scan`) simply never matches until Daniel's rules land. The route n8n wanted is recorded even while only `pb-generic` runs (answer C: the `playbook` field says the playbook that actually ran).
 
 The alert only *names* the template; TheHive applies its tasks and custom fields when the alert is promoted to a case.
 
@@ -69,10 +73,10 @@ The alert only *names* the template; TheHive applies its tasks and custom fields
 | `wazuh-alert-id` | `id` |
 | `wazuh-rule-id` | `rule.id`, cast to integer (it arrives as a string in C1) |
 | `wazuh-rule-level` | `rule.level` (integer) |
-| `wazuh-agent-name` | `agent.name` |
+| `wazuh-agent-name` | the host (§1: `agent.name`, or `predecoder.hostname` on syslog alerts) |
 | `mitre-technique` | first of `rule.mitre.id` (else `rule.mitre_techniques`), if any |
 | `asset-criticality` | `medium` until an asset inventory exists |
-| `playbook` | the playbook that handled it, e.g. `pb-ssh-bruteforce` |
+| `playbook` | the playbook that actually ran (`pb-generic` while it is the only one; answer C) |
 | `n8n-execution-id` | `$execution.id` |
 
 Send `customFields` as an **array** of `{name, value}` objects, as `thehive-test-alert.sh` does. A field TheHive doesn't know is dropped silently (HTTP 201), so the fields exist only once `entities/` is loaded (`thehive-import.sh`, T1.3).
@@ -88,9 +92,12 @@ Send `customFields` as an **array** of `{name, value}` objects, as `thehive-test
 | `data.srcip` | `ip` | `src` |
 | `data.dstip` | `ip` | `dst` |
 | `data.src_ip`, `data.dest_ip` (Suricata) | `ip` | `src` / `dst` |
-| `agent.ip` | `ip` | `agent` |
-| `agent.name` | `hostname` | `agent` |
-| `data.srcuser`, `data.dstuser` | `user-account` (added by this component) | `src` / `target` |
+| `agent.ip` (syslog alerts: `location`) | `ip` | `agent` |
+| `agent.name` (syslog alerts: `predecoder.hostname`) | `hostname` | `agent` |
+| sshd alerts: `data.dstuser` or `data.srcuser`, whichever is present | `user-account` | `target` (the attacked account: Wazuh's sshd decoder puts an existing user in `dstuser`, an invalid one in `srcuser`) |
+| sudo (5404): `data.srcuser` / `data.dstuser` | `user-account` | `src` (who ran sudo) / `target` (usually `root`) |
+| `useradd` (5902): `data.dstuser` | `user-account` | `new` |
+| other rules: `data.srcuser`, `data.dstuser` | `user-account` | `src` / `target` |
 | `syscheck.sha256_after` (or `data.virustotal.source.sha256`) | `hash` | `sha256` |
 | `syscheck.path` | `filename` | `path` |
 | `data.url` | `url` | — |
@@ -98,7 +105,9 @@ Send `customFields` as an **array** of `{name, value}` objects, as `thehive-test
 
 n8n also tags each IP observable with its range, `range:internal` (RFC 1918, loopback, link-local) or `range:documentation` (192.0.2.0/24, 198.51.100.0/24, 203.0.113.0/24); nothing is dropped because of its range. `user-account` exists only once `entities/` is loaded: before that, TheHive refuses the **whole alert** (HTTP 404 "Data type not found").
 
-Mark as IOC (`ioc: true`) only what is known bad (a hash flagged by VirusTotal, an IP found in MISP); the analyst decides the rest.
+`groupadd` (5901) puts a **group** name in `data.dstuser`: n8n doesn't make a `user-account` observable from it (it stays in the description).
+
+**IOC flag (answer E).** n8n sets `ioc: true` only for a **malicious** verdict (e.g. a hash flagged by VirusTotal). A **MISP hit stays `suspicious` with `ioc: false`**: our MISP also holds public feeds (Botvrij), so a hit can mean "listed in a feed", not "confirmed bad". The analyst marks the observable as IOC after checking it (TRIAGE.md, "Working the case"). To revisit with Diego if MISP later separates the SOC's own confirmed events from feeds.
 
 ## 6. Alert-to-case rules
 
@@ -117,7 +126,10 @@ TheHive 5 has no automatic promotion rules of its own; these rules are applied b
 
 ## 7. To agree with the n8n owner
 
-1. Fields and names in sections 1, 4, 5 (especially `source` = `wazuh` and `sourceRef` = Wazuh alert ID).
-2. The template routing in section 3: one input of n8n's routing map (D-N2, rule groups + rule-ID map kept as data in a `lib-` workflow), agreed together with the Wazuh owner's rule-ID plan (W1.3) by 2026-10-20.
-3. R2: D-N4 (auto-promotion of Critical alerts of named playbooks only), to confirm by 2026-11-03.
-4. How a playbook reports what it did: comment on the case, plus `containment-action`, `playbook`, `n8n-execution-id`.
+| Item | State (2026-10-08) |
+|---|---|
+| Fields and names, §1, §4, §5 (`source` = `wazuh`, `sourceRef` = Wazuh alert ID) | Reviewed by Inigo 2026-10-06; his questions A (Time row, optional `full_log`), C (`playbook`) answered here. Syslog host rule added from Daniel's fields review (item 6) |
+| Template routing, §3 (D-N2: n8n keeps it as data in `lib-config`) | Rows corrected with Daniel's live alerts (A1–A6) and his 2026-10-08 rules (100200, 100211, 100212); all rows active (answer B); `network-scan` on `pfsense` + `T1046` (answer D) |
+| IOC flag for MISP hits, §5 | Answer E: suspicious, `ioc: false`; Diego asked the same (his question 6) |
+| R2 / D-N4 (auto-promotion of Critical alerts of named playbooks only) | To confirm by 2026-11-03 |
+| How a playbook reports what it did | Writeback comment `[asox-n8n writeback] wazuh-alert-id=<id>`, plus `containment-action`, `playbook`, `n8n-execution-id` |

@@ -68,7 +68,7 @@ Your machine runs the `cases` mode, licensed and backed up, before you change an
 - [x] **T0.4** Activate the Community license and back it up · P1, X-19
   - Done when: `soc.sh info cases` shows Community, valid until 2027-09-29; `backup.sh cases --with-secrets` done right after; `healthcheck.sh` shows no webhook warning.
 - [ ] **T0.5** Verify the baseline you own · P1, C5, X-19
-  - Done when: `contracts-check.sh --only C5` passes in `cases`; C3 and **C4 against this Community license** checked once in `full` or on the integrator's run. C4 on a Community license is the still-open part of X-19 (C11 and the approval flow depend on it).
+  - Done when: `contracts-check.sh --only C5` passes in `cases`; C3 and **C4 against this Community license** checked once in `full` or on the integrator's run. C4 on a Community license: **resolved 2026-09-30** (X-19, Inigo captured 20 real C4 events); left: `contracts-check.sh --only C5` on your machine.
 - [ ] **T0.6** Read the contracts and the TheHive chapter · P2
   - Done when: Read PROJECT.md 5, 6.4, 11, `nodes/cases/thehive/README.md`, CONTRIBUTING.md; run `scripts/ci-checks.sh all` once.
   - Files: `PROJECT.md`, `CONTRIBUTING.md`, `nodes/cases/thehive/README.md`
@@ -87,7 +87,8 @@ Everything built in the UI reaches git, and alerts can be tested without Wazuh.
   - Files: `nodes/cases/thehive/scripts/thehive-test-alert.sh`
 - [ ] **T1.3** Run the starter configuration on the real instance · P1, X-03, X-15
   - Done when: `thehive-import.sh` creates 9 fields, 1 observable type, 9 templates; `thehive-test-alert.sh all --promote` creates 9 alerts and promotes each **with n8n's key** (`POST /api/v1/alert/<id>/case`, D-N4's auto-promotion: X-15), each case getting its template's tasks; `thehive-export.sh` then shows no diff. Tell Inigo, so X-03 and X-15 can be marked provided.
-  - Status (2026-09-30): Inigo measured that the **build instance** has no `entities/` loaded (templates and fields silently dropped, `user-account` alerts refused). Run `thehive-import.sh` there too, before 2026-10-20. n8n's account promoting an alert (HTTP 201) is already confirmed by him.
+  - Status (2026-10-06): **done on the build instance**: Inigo ran `thehive-import.sh` (after `backup.sh cases --with-secrets`): 9 fields, 9 templates, `user-account`; `caseTemplate` and custom fields now kept on n8n's alerts. Left: the same run on your own machine, then tick.
+  - Earlier (2026-09-30): Inigo measured that the **build instance** had no `entities/` loaded (templates and fields silently dropped, `user-account` alerts refused). Run `thehive-import.sh` there too, before 2026-10-20. n8n's account promoting an alert (HTTP 201) is already confirmed by him.
 ## M2 · Data model and alert format v1 (target: 2026-10-20)
 
 The data every other component relies on, agreed and merged at checkpoint 1 (milestone tag `v1.1-detections`).
@@ -103,12 +104,14 @@ The data every other component relies on, agreed and merged at checkpoint 1 (mil
 - [ ] **T2.4** Agree the alert format with the n8n owner (by 2026-10-20) · P1, C3, X-02
   - Done when: `docs/ALERT-FORMAT.md` §1, 4, 5 accepted by Inigo (fields, tags, custom fields, observables, `source` = `wazuh`, `sourceRef` = Wazuh alert ID); its status line changed from proposal to agreed. Ticking this makes D-N1 (dedup by `sourceRef`, already agreed in principle) formal.
   - Files: `nodes/cases/thehive/docs/ALERT-FORMAT.md`
+  - Status (2026-10-08): Inigo reviewed §1–§5 on 2026-10-06 and n8n follows them; his questions A–E answered in the doc (Time row, optional `full_log`, all routing rows active, `playbook` = playbook that ran, `pfsense` = firewall, MISP hit = suspicious and `ioc: false`). Syslog host rule (`predecoder.hostname` when `agent.id` = `000`) added from Daniel's fields review. Left: Inigo accepts A–E, then status → agreed.
   - With: Inigo (n8n owner)
 - [ ] **T2.5** Agree the severity / TLP / PAP mapping (by 2026-10-20) · P1, X-02, X-08
   - Done when: `docs/ALERT-FORMAT.md` §2 accepted: level 12–15 Critical, 10–11 High, 7–9 Medium, +1 for critical assets; TLP / PAP AMBER. Already consistent with Grafana's buckets (D-G4), Cortex's analyzer defaults (`max_tlp` / `max_pap` 2, X-08) and Daniel's Suricata mapping (W3.5: severity 1 → 12, 2 → 10); still needs Daniel's level policy (W2.1) and Inigo's agreement.
   - With: Inigo, Daniel (W2.1), Diego (X-08)
 - [ ] **T2.6** Agree the template routing (by 2026-10-20) · P1, X-04
   - Done when: `docs/ALERT-FORMAT.md` §3 matches Daniel's rule-ID plan and rule groups (W1.3, W2.5), including Suricata's `suricata` / `ids` groups (D49), and Inigo's routing map (D-N2, data in an n8n `lib-` workflow) sets `caseTemplate` from it.
+  - Status (2026-10-08): §3 rewritten from Daniel's live alerts (answers A1–A6) and rules of 2026-10-08: `ioc-match` first (`misp_ioc`, 108xxx), `suspicious-login` before `ssh-bruteforce` on rule IDs 40112 / 100200, `privilege-escalation` on `T1548`, `account-change` on `adduser` only, `network-scan` on `pfsense` + `T1046` (103xxx). Left: Inigo's `lib-config` rows match it; Daniel's W4.3 / C14 rule IDs when built.
   - With: Inigo (router), Daniel (rule groups)
 - [ ] **T2.7** Checkpoint 1 pull request (by 2026-10-20) · P1, C3, C4, C5
   - Done when: `git pull --no-rebase --no-edit origin main`, `healthcheck.sh` green, `contracts-check.sh --only C5` passes (C3, C4 in `full`), `ci-checks.sh all` passes, pull request `thehive` → `main` opened and merged by the integrator.
@@ -128,10 +131,11 @@ Analysts can work every alert type from queue to closed case.
   - With: Inigo (n8n owner)
 - [ ] **T3.4** Walk every test alert through the procedure · P1
   - Done when: For each scenario of `thehive-test-alert.sh`: triage, promote or merge or ignore, work the tasks, close with a summary and resolution status. Screenshots kept for the delivery; gaps fixed in the templates or TRIAGE.md.
+  - Also (2026-10-08): with `full` mode, real Wazuh alerts are available from `nodes/lab/trigger.sh --scenario NAME` (ssh-bruteforce, ssh-success-after-fail, sudo-fail, new-user, root-login, ioc-ip), which go Wazuh → n8n → TheHive end to end; use them after the `thehive-test-alert.sh` round.
 - [ ] **T3.5** Templates for the new detections · P2, X-12
   - Done when: A template (or a documented choice of `wazuh-generic`) for each detection Daniel adds: login success after failures, sudo failure / privilege escalation, new user, IOC match (W6.4), pfSense port scan (W4.3). Exported, and routed in ALERT-FORMAT.md §3.
   - Files: `nodes/cases/thehive/entities/case-templates.json`, `nodes/cases/thehive/docs/ALERT-FORMAT.md`
-  - Status (2026-09-30): 5 templates written (`suspicious-login`, `privilege-escalation`, `account-change`, `ioc-match`, `network-scan`), routed as *proposed* in §3, with test scenarios; left: import + export on the real instance, rule IDs confirmed with Daniel.
+  - Status (2026-10-08): 5 templates written, loaded on the build instance, and routed in §3 with Daniel's confirmed groups and rules (all rows active). Descriptions name the real rules (40112, 100200, 5404, 5901/5902, 100211/100212; ranges 103xxx, 108xxx). Left: import + export on your machine; `ioc-match` and `network-scan` get real rules with C14 and W4.3.
   - With: Daniel (W2.2, W4.3, W6.4)
 - [ ] **T3.6** Adapt `ids-network-alert` to Suricata · P2, X-34
   - Done when: ALERT-FORMAT.md §3 routes `suricata` / `ids` (done 2026-09-30); the template's description and tasks name Suricata (rule 86601, `data.alert.signature`, `data.alert.severity`, `data.src_ip`, `data.dest_ip`, `data.dest_port`), exported; the `ids` test alert uses rule 86601 and those fields.

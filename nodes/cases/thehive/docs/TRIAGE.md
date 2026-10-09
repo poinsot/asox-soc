@@ -40,7 +40,8 @@ Open **Alerts**, filter on status **New**, sort by **severity**, then oldest fir
 ## Working the case
 
 - Follow the template's tasks in order (Triage → Investigation → Response → Closure). Close each task with a short log: what you checked, what you found.
-- Add every new indicator as an observable; mark it **IOC** only when it's confirmed bad.
+- Add every new indicator as an observable; mark it **IOC** only when it's confirmed bad. n8n's enrichment tags observables `asox:verdict=<verdict>`: a MISP hit shows as `suspicious` and is **not** marked IOC automatically (it may only be listed in a public feed). Check the MISP event first, then mark it yourself.
+- **Alerts from pfSense or routers** arrive over syslog: the host in the title and the `agent:` tag is the device (`pfsense`), not a Wazuh agent, and its IP is the `agent`-tagged `ip` observable.
 - **Response actions go through n8n, never by hand** (PROJECT.md 6.2: n8n is the only component that changes systems). Request the playbook's action, wait for its comment on the case, and check `containment-action` is set.
 - **What automation can do (C9, Phase 2):** block an IP (`containment-action` = `ip-blocked`) or disable an account (`user-disabled`). Host isolation and file removal have no automated action yet: if they are done outside the SOC's tools, set `host-isolated` / `file-removed` yourself and describe it in a comment.
 - Change the severity if the facts change (e.g. SSH brute force followed by a successful login → Critical).
