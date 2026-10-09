@@ -1,0 +1,450 @@
+{
+  "id": "asoxLibAlrtDrain",
+  "name": "lib-alert-queue-drain",
+  "active": true,
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## lib-alert-queue-drain (one queued alert, N8N-1.4)\n**Trigger:** called by sched-alert-queue, which holds a slot and has claimed the row (`running`, claim token).\n**Inputs:** `{slot, row, depth, config}`; the row's `payload` is what recv-wazuh-alert queued (`wazuh_alert_id`, `route`, `alert`, `recv_execution_id`).\n**Actions taken:** if another row for the same Wazuh alert is running with a lower id, gives the row back (`pending`, attempt not counted: no concurrent copies, A78); after `max_attempts` (or an unreadable payload) marks it `failed` and parks it (lib-error, with the Wazuh alert id); otherwise runs the route's playbook and waits. Outcome `created` / `duplicate` / `repaired` / `parked` / `skipped` -> `done`; a failed run -> `pending` again, or `failed` and parked on the last attempt. The row is finished with a compare-and-set on its claim token.\n**Systems changed:** n8n's own Data Table (the playbook changes TheHive).\n**Approval:** not applicable.\n**Owner:** n8n.\nSaved: every run (one per processed row). The `status` line of \"Drain result\" has the outcome and the queue depth seen by the scheduler.",
+        "height": 640,
+        "width": 560
+      },
+      "id": "ebb8e4ba-2e10-5be1-a8a0-1104d50d2e84",
+      "name": "About this workflow",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -400,
+        -420
+      ]
+    },
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "id": "6e535c10-f8c5-5c5d-a5e0-1eb567b00a7b",
+      "name": "Called by a workflow",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "row",
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "asox_alert_queue"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "alert_id",
+              "condition": "eq",
+              "keyValue": "={{ $json.row.alert_id }}"
+            },
+            {
+              "keyName": "status",
+              "condition": "eq",
+              "keyValue": "running"
+            }
+          ]
+        },
+        "limit": 20,
+        "orderBy": true,
+        "orderByColumn": "id",
+        "orderByDirection": "ASC"
+      },
+      "id": "66805c4d-ed32-5a8e-a78d-3da82deba930",
+      "name": "Same alert running",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        240,
+        0
+      ],
+      "alwaysOutputData": true,
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $('Called by a workflow').first().json;\nconst row = input.row;\nconst q = input.config.alert_queue;\nlet payload = null;\nlet parseError = null;\ntry { payload = JSON.parse(row.payload); } catch (e) { parseError = e.message; }\nconst earlier = $('Same alert running').all().map((i) => i.json)\n  .filter((r) => r.id !== undefined && r.id !== row.id && r.id < row.id);\nlet action = 'run';\nlet reason = null;\nif (earlier.length > 0) {\n  action = 'yield';\n  reason = `row ${earlier[0].id} for the same Wazuh alert is running: given back to wait for it (no concurrent copies, A78)`;\n} else if (parseError !== null) {\n  action = 'fail';\n  reason = `queued payload is not JSON (${parseError})`;\n} else if (Number(row.attempts) > q.max_attempts) {\n  action = 'fail';\n  reason = `attempts exhausted (${q.max_attempts})`;\n}\nreturn [{ json: { action, reason, payload, row_id: row.id, alert_id: row.alert_id, attempt: Number(row.attempts) } }];\n"
+      },
+      "id": "5b73c7a3-6292-5e79-a75e-de862aa8f861",
+      "name": "Decide",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "d47ded75-0507-5bd0-84a9-69e5fa73b08f",
+              "leftValue": "={{ $json.action === 'run' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "ff8019b2-7464-505d-a582-71f90463dfd9",
+      "name": "Run the playbook?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        720,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// The same input recv-wazuh-alert used to pass, plus a fresh lib-config.\nconst input = $('Called by a workflow').first().json;\nconst d = $input.first().json;\nreturn [{ json: { ...d.payload, config: input.config,\n  queue: { row_id: d.row_id, attempt: d.attempt, slot: input.slot.name } } }];\n"
+      },
+      "id": "e8280d90-83e3-5d30-b61a-dd6a7364cbfe",
+      "name": "Playbook input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        960,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $('Called by a workflow').first().json.row.playbook_id }}"
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "c9f0df4a-f5ad-5795-b885-716d14ef4d3c",
+      "name": "Playbook (by route)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1200,
+        0
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// How the row ends: done, back to pending (retry), or failed (parked).\nconst input = $('Called by a workflow').first().json;\nconst row = input.row;\nconst q = input.config.alert_queue;\nconst d = $('Decide').first().json;\nconst OK = ['created', 'duplicate', 'repaired', 'parked', 'skipped'];\nlet u;\nlet park = null;\nlet outcome = 'none';\nif (d.action === 'run') {\n  const r = $('Playbook (by route)').first().json;\n  if (OK.includes(r.outcome)) {\n    outcome = r.outcome;\n    u = { status: 'done', attempts: d.attempt, note: `attempt ${d.attempt}: ${r.outcome}` + (r.thehive_alert_id ? `, TheHive ${r.thehive_alert_id}` : '') };\n  } else {\n    outcome = 'error';\n    const e = r.error;\n    const msg = `${typeof e === 'string' ? e : (e?.message ?? JSON.stringify(e ?? r))}`.slice(0, 500);\n    if (d.attempt >= q.max_attempts) {\n      u = { status: 'failed', attempts: d.attempt, note: `attempt ${d.attempt} of ${q.max_attempts} failed: ${msg}; parked` };\n      park = msg;\n    } else {\n      u = { status: 'pending', attempts: d.attempt, note: `attempt ${d.attempt} failed: ${msg}; will retry` };\n    }\n  }\n} else if (d.action === 'yield') {\n  u = { status: 'pending', attempts: d.attempt - 1, note: d.reason };\n} else {\n  outcome = 'error';\n  u = { status: 'failed', attempts: d.attempt, note: `${d.reason}; parked` };\n  park = d.reason;\n}\nreturn [{ json: { ...u, outcome, finished_ms: ['done', 'failed'].includes(u.status) ? Date.now() : 0, park } }];\n"
+      },
+      "id": "cc98af2b-25eb-55d0-b345-e060858824a3",
+      "name": "Row update",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1440,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "row",
+        "operation": "update",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "asox_alert_queue"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "id",
+              "condition": "eq",
+              "keyValue": "={{ $('Called by a workflow').first().json.row.id }}"
+            },
+            {
+              "keyName": "claim",
+              "condition": "eq",
+              "keyValue": "={{ $('Called by a workflow').first().json.row.claim }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "status": "={{ $json.status }}",
+            "claim": "none",
+            "attempts": "={{ $json.attempts }}",
+            "finished_ms": "={{ $json.finished_ms }}",
+            "outcome": "={{ $json.outcome }}",
+            "note": "={{ $json.note }}"
+          },
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "6ca2e106-a20b-55b1-a9c2-4d0b19617dcb",
+      "name": "Finish row (compare-and-set)",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        1680,
+        0
+      ],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "ada9fba2-b2c1-5fb3-92f6-9a62e19d2ee0",
+              "leftValue": "={{ $('Row update').first().json.park !== null && $json.status === 'failed' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "467db66a-26c4-597d-b1ae-6061bed1a282",
+      "name": "Park?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1920,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $('Called by a workflow').first().json;\nconst u = $('Row update').first().json;\nreturn [{ json: {\n  error_class: 'queue_attempts_exhausted', stage: 'alert queue (lib-alert-queue-drain)', workflow: $workflow.name,\n  execution_id: $execution.id, node: 'Playbook (by route)', wazuh_alert_id: input.row.alert_id,\n  thehive_alert_id: null, http_status: null, error_code: null, attempts: u.attempts,\n  message: `alert ${input.row.alert_id}: ${u.note}`, payload: { queue_row: input.row.id } } }];\n"
+      },
+      "id": "cb29e85b-b9eb-5d70-80ff-e73280f60f7b",
+      "name": "Park input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2160,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "asoxLibError0001",
+          "cachedResultName": "lib-error"
+        },
+        "options": {
+          "waitForSubWorkflow": false
+        }
+      },
+      "id": "2e2fcd30-5704-5859-9508-c79ca9974be5",
+      "name": "Park (lib-error)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        2400,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $('Called by a workflow').first().json;\nconst u = $('Row update').first().json;\nconst finished = $('Finish row (compare-and-set)').first().json.id !== undefined;\nconst dp = input.depth;\nreturn [{ json: {\n  status: `alert ${input.row.alert_id} (row ${input.row.id}, ${input.slot.name}): ${u.note}`\n    + (finished ? '' : ' [row changed meanwhile: not updated]')\n    + `; queue before this run: ${dp.pending} pending, ${dp.running} running`,\n  row_id: input.row.id, wazuh_alert_id: input.row.alert_id, row_status: u.status, outcome: u.outcome,\n  attempt: u.attempts, finished, depth: dp,\n} }];\n"
+      },
+      "id": "db3b1928-909e-51f8-8b5e-f42f657337a6",
+      "name": "Drain result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2640,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Called by a workflow": {
+      "main": [
+        [
+          {
+            "node": "Same alert running",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Same alert running": {
+      "main": [
+        [
+          {
+            "node": "Decide",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Decide": {
+      "main": [
+        [
+          {
+            "node": "Run the playbook?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run the playbook?": {
+      "main": [
+        [
+          {
+            "node": "Playbook input",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Row update",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Playbook input": {
+      "main": [
+        [
+          {
+            "node": "Playbook (by route)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Playbook (by route)": {
+      "main": [
+        [
+          {
+            "node": "Row update",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Row update": {
+      "main": [
+        [
+          {
+            "node": "Finish row (compare-and-set)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Finish row (compare-and-set)": {
+      "main": [
+        [
+          {
+            "node": "Park?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Park?": {
+      "main": [
+        [
+          {
+            "node": "Park input",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Drain result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Park input": {
+      "main": [
+        [
+          {
+            "node": "Park (lib-error)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Park (lib-error)": {
+      "main": [
+        [
+          {
+            "node": "Drain result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataSuccessExecution": "all",
+    "saveDataErrorExecution": "all",
+    "saveManualExecutions": true
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "nodeGroups": [],
+  "tags": [],
+  "pinData": {}
+}

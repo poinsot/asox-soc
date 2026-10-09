@@ -5,7 +5,7 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## recv-wazuh-alert (contract C1, N8N-1.1)\n**Trigger:** POST /webhook/wazuh-alert from the Wazuh `custom-n8n` integration, header `X-ASOX-Token` required (403 without it, N8N-1.6). Answers 200 on receipt (C1 has a 10 s timeout and no retries).\n**Inputs:** raw Wazuh alert JSON (body). The full alert stays in this execution (the C1 check looks for it here).\n**Actions taken:** reads lib-config; drops alerts below WAZUH_ALERT_MIN_LEVEL (\"filtered: level ...\"); skips intake exclusions (TEMPORARY: rule group sca, \"skipped: sca (X-09)\"); routes every other alert with lib-route-alert (Router de Playbooks, N8N-1.3: playbook and case template from lib-config `routing`; the route is recorded in \"Playbook input\") and calls the chosen playbook by ID without waiting, passing the route. A routing failure (broken table) parks the alert with its id through lib-error.\n**Systems changed:** none here (the playbooks change TheHive).\n**Approval:** not applicable.\n**Owner:** n8n.\nError workflow: recv-n8n-error.",
+        "content": "## recv-wazuh-alert (contract C1, N8N-1.1)\n**Trigger:** POST /webhook/wazuh-alert from the Wazuh `custom-n8n` integration, header `X-ASOX-Token` required (403 without it, N8N-1.6). Answers 200 on receipt (C1 has a 10 s timeout and no retries).\n**Inputs:** raw Wazuh alert JSON (body). The full alert stays in this execution (the C1 check looks for it here).\n**Actions taken:** reads lib-config; drops alerts below WAZUH_ALERT_MIN_LEVEL (\"filtered: level ...\"); skips intake exclusions (TEMPORARY: rule group sca, \"skipped: sca (X-09)\"); routes every other alert with lib-route-alert (Router de Playbooks, N8N-1.3: playbook and case template from lib-config `routing`; the route is recorded in \"Playbook input\") and queues the alert with its route in the n8n Data Table `asox_alert_queue` (N8N-1.4; sched-alert-queue runs at most `alert_queue.slots` playbooks at once). If the queue is unavailable, it calls the playbook by ID directly, without waiting (the behaviour before the queue). A routing failure (broken table) parks the alert with its id through lib-error.\n**Systems changed:** none here (the playbooks change TheHive).\n**Approval:** not applicable.\n**Owner:** n8n.\nError workflow: recv-n8n-error.",
         "height": 380,
         "width": 520
       },
@@ -139,8 +139,8 @@
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.2,
       "position": [
-        1820,
-        -100
+        2540,
+        20
       ]
     },
     {
@@ -221,6 +221,86 @@
       "position": [
         1820,
         120
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// One row in asox_alert_queue (N8N-1.4): sched-alert-queue runs the playbook,\n// at most alert_queue.slots at once. This execution ends here, so the 200\n// sent on receipt (C1) never waits for a playbook.\nconst p = $input.first().json;\nreturn [{ json: {\n  alert_id: p.wazuh_alert_id ?? `no-id:recv-${p.recv_execution_id}`,\n  playbook_id: p.route.playbook_id,\n  payload: JSON.stringify({ wazuh_alert_id: p.wazuh_alert_id, route: p.route, alert: p.alert, recv_execution_id: p.recv_execution_id }),\n  received_ms: Date.now(),\n} }];\n"
+      },
+      "id": "3c6b1fdd-e673-5f3d-9f4d-fddae1526844",
+      "name": "Queue row",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1820,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "row",
+        "operation": "insert",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "asox_alert_queue"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "alert_id": "={{ $json.alert_id }}",
+            "playbook_id": "={{ $json.playbook_id }}",
+            "payload": "={{ $json.payload }}",
+            "status": "pending",
+            "claim": "none",
+            "attempts": "={{ 0 }}",
+            "received_ms": "={{ $json.received_ms }}",
+            "started_ms": "={{ 0 }}",
+            "finished_ms": "={{ 0 }}",
+            "outcome": "none",
+            "note": "queued"
+          },
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "041cffca-99d6-5868-a238-804bec76fdb2",
+      "name": "Queue (asox_alert_queue)",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        2060,
+        -100
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const p = $('Playbook input').first().json;\nconst r = $input.first().json;\nreturn [{ json: { status: `queued: row ${r.id} of asox_alert_queue -> ${p.route.playbook} (run by sched-alert-queue)`, queue_row: r.id } }];\n"
+      },
+      "id": "2b6541ab-0108-5490-93ab-9f0b8c474b3c",
+      "name": "Queued",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2300,
+        -220
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// The queue table is missing or refused the row: run the playbook directly,\n// without waiting (the behaviour before the queue), so the alert isn't lost.\nconst p = $('Playbook input').first().json;\nconst e = $input.first().json.error;\nreturn [{ json: { ...p, status: `queue unavailable (${typeof e === 'string' ? e : e?.message ?? 'error'}): playbook started directly, not queued` } }];\n"
+      },
+      "id": "3643c435-6a84-5344-b298-462dd2679295",
+      "name": "Queue unavailable: run directly",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2300,
+        20
       ]
     }
   ],
@@ -309,7 +389,7 @@
       "main": [
         [
           {
-            "node": "Playbook (by route)",
+            "node": "Queue row",
             "type": "main",
             "index": 0
           }
@@ -321,6 +401,46 @@
         [
           {
             "node": "Park (lib-error)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Queue row": {
+      "main": [
+        [
+          {
+            "node": "Queue (asox_alert_queue)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Queue (asox_alert_queue)": {
+      "main": [
+        [
+          {
+            "node": "Queued",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Queue unavailable: run directly",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Queue unavailable: run directly": {
+      "main": [
+        [
+          {
+            "node": "Playbook (by route)",
             "type": "main",
             "index": 0
           }
