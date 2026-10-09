@@ -4,7 +4,7 @@
 **From:** Daniel (@dmelgar1110), Wazuh owner
 **Date:** 2026-10-05
 **Refs:** W1.5, W1.6, X-32, GRAF-2.2, D-G3, C11 (`t_attack_start`)
-**Status:** draft
+**Status:** sent (2026-10-07, with the checkpoint PR)
 
 ## What exists now (branch `wazuh`, tested on the live lab)
 

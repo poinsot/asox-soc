@@ -18,7 +18,7 @@ Received by the Wazuh owner on 2026-10-07. The original message is kept below as
 | 4.5 | Attack-start marker + low-noise rule | 2026-10-20 | W1.6 | answered | Rule 100101, level 3 (proposed), fields `data.scenario` / `data.run_id`; level to confirm with Jesus ([request-grafana-attack-start-marker.md](request-grafana-attack-start-marker.md)) |
 | 4.1–3 | Field list, `<mitre>` blocks, standard field names | 2026-10-20 | W2.5, W2.3 | open | Checkpoint 1 |
 | 4.6 | Should SCA reach n8n? | 2026-10-20 | W2.7 | open | Checkpoint 1 |
-| 4.9 | C14 design with Diego | 2026-10-16 | W6.1 | open | |
+| 4.9 | C14 design with Diego | 2026-10-16 | W6.1 | answered | Proposal sent: [request-cortex-misp-c14-design.md](request-cortex-misp-c14-design.md) (option a, R-08 variables listed) |
 | 5.1 | C9: acknowledge `n8n-response` (D44), fix README C9 row | 2026-10-16 | W1.7 | answered | **Acknowledged.** README row fixed 2026-10-07. See A7 |
 | 5.2 | C11, C13: acknowledge the indexer parts | 2026-10-16 | W1.7 | answered | **Acknowledged**, with one retention proposal (C11) and the field-map check (C13). See A7 |
 

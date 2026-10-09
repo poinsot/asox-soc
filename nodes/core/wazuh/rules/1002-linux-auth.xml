@@ -1,0 +1,70 @@
+<!--
+  ASOX Linux authentication rules (owner: Wazuh). Range 100200-100299.
+  Only what the built-in ruleset misses or under-rates (README "Rules: ID plan,
+  files and groups", "Alert levels"). Built-ins already cover SSH brute force
+  (5763, 5712), failures then success (40112), sudo failures (5404) and new
+  users and groups (5901, 5902). Tests: tests/cases/1002-linux-auth.cases.
+  Copied into /var/ossec/etc/rules/ at every manager start.
+-->
+<group name="asox,linux,">
+
+  <!--
+    Direct root login over SSH. Built-in 5715 rates every successful login at
+    level 3; a root login should be rare and is worth an analyst's look.
+  -->
+  <rule id="100200" level="10">
+    <if_sid>5715</if_sid>
+    <user>^root$</user>
+    <description>ASOX: SSH login as root from $(srcip)</description>
+    <mitre>
+      <id>T1078.003</id>
+    </mitre>
+    <group>sshd,authentication_success,</group>
+  </rule>
+
+  <!--
+    usermod group changes (decoder asox-usermod, decoders/1002-linux-auth.xml).
+    Any group: context only. The "shadow group" line of the same command
+    matches nothing, so one command gives one alert.
+  -->
+  <rule id="100210" level="3">
+    <decoded_as>asox-usermod</decoded_as>
+    <match>' to group '</match>
+    <description>ASOX: user $(dstuser) added to group $(group)</description>
+    <mitre>
+      <id>T1098</id>
+    </mitre>
+    <group>adduser,account_changed,</group>
+  </rule>
+
+  <!--
+    Added to a group that gives root: sudo/wheel/admin/root, and docker/lxd
+    (root-equivalent through the container runtime). A classic step after
+    creating a backdoor account (new-user scenario).
+  -->
+  <rule id="100211" level="10">
+    <if_sid>100210</if_sid>
+    <field name="group">^sudo$|^wheel$|^admin$|^root$|^docker$|^lxd$</field>
+    <description>ASOX: user $(dstuser) added to privileged group $(group)</description>
+    <mitre>
+      <id>T1098</id>
+    </mitre>
+    <group>adduser,account_changed,</group>
+  </rule>
+
+  <!--
+    The same through gpasswd. Built-ins: 2960 "User added to group" (level 2)
+    and its child 2961 for group sudo only (level 5). Hanging from both covers
+    every privileged group, sudo included.
+  -->
+  <rule id="100212" level="10">
+    <if_sid>2960, 2961</if_sid>
+    <field name="group">^sudo$|^wheel$|^admin$|^root$|^docker$|^lxd$</field>
+    <description>ASOX: user $(dstuser) added to privileged group $(group) by $(srcuser)</description>
+    <mitre>
+      <id>T1098</id>
+    </mitre>
+    <group>adduser,account_changed,</group>
+  </rule>
+
+</group>

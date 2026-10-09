@@ -101,16 +101,16 @@ Close the known gaps before core is exposed on a LAN, and build the tools the la
 
 The first real detections, tuned and mapped, merged at checkpoint 1 (milestone tag `v1.1-detections`).
 
-- [ ] **W2.1** Write the alert level policy and agree the forwarding threshold · P1, C1
+- [x] **W2.1** Write the alert level policy and agree the forwarding threshold · P1, C1
   - Done when: README table: what levels 0–15 mean in ASOX, with the shared cut-offs (0–6 low, 7–9 medium, 10–11 high, 12–15 critical) that TheHive's severity mapping (ALERT-FORMAT.md §2) and Grafana's buckets (D-G4) already use; which levels reach n8n. `WAZUH_ALERT_MIN_LEVEL` agreed with the n8n owner (default 7). Level 12+ is Critical, and D-N4 lets n8n auto-promote Critical alerts of named playbooks straight to TheHive cases: reserve 12+ for detections that deserve a case without an analyst looking first.
   - Files: `nodes/core/wazuh/README.md`
   - With: Inigo (n8n), Park (ALERT-FORMAT.md §2), Jesus (D-G4)
   - Refs: X-09, D-N4, D-G4
-- [ ] **W2.2** Linux authentication detections · P1
+- [x] **W2.2** Linux authentication detections · P1
   - Done when: Rules (or checks that built-ins already fire) for SSH brute force, a successful login after failures (correlation), sudo failures, new user or group, direct root login. Each has test cases in the runner and a lab scenario. Decoders use Wazuh's standard field names (`srcip`, `dstip`, `srcuser`, `dstuser`), which n8n, C13 and TheHive rely on (memo item 3).
   - Files: `nodes/core/wazuh/rules/`, `nodes/core/wazuh/tests/`
   - With: Inigo (`pb-ssh-bruteforce` needs the success-after-failures rule, N8N-4.2), Park (a template per detection, T3.5)
-- [ ] **W2.3** Map every custom rule to MITRE ATT&CK · P1
+- [x] **W2.3** Map every custom rule to MITRE ATT&CK · P1
   - Done when: Each custom rule has `<mitre><id>T…</id></mitre>`; `wazuh-query.sh -j` shows `rule.mitre.id` on the alerts. Tell n8n the convention (its WAZUH-FIELDS.md question 2): custom rules carry `rule.mitre.id`; built-in SCA rules only have `rule.mitre_techniques`, so n8n reads `rule.mitre.id` first and falls back to the other.
   - Files: `nodes/core/wazuh/rules/`
   - With: Inigo (n8n)
@@ -118,7 +118,7 @@ The first real detections, tuned and mapped, merged at checkpoint 1 (milestone t
   - Done when: After 24–48 h of lab data, the noisiest rules at level 7+ are listed (aggregate by `rule.id`), and overrides with a reason per rule live in the tuning file. Alerts forwarded to n8n per hour drop; before/after numbers in the pull request. A second pass follows in W5.7 with TheHive's false-positive report.
   - Files: `nodes/core/wazuh/rules/`
   - Refs: X-11
-- [ ] **W2.5** Agree n8n's alert-field draft, then write the detection catalog and C13's field map · P1, C1, C13
+- [ ] **W2.5** Agree n8n's alert-field draft, then write the detection catalog and C13's field map *(in progress)* · P1, C1, C13
   - Done when: (1) Review `nodes/core/n8n/docs/WAZUH-FIELDS.md`, n8n's draft of the C1 fields verified against real alerts, instead of writing the list from scratch: answer its "To agree with the Wazuh owner" questions and correct anything wrong, so Inigo can mark it agreed. Promise stable types: `id` and `rule.id` as strings, `rule.level` as a number, `rule.groups` as an array, the same `timestamp` format (memo item 1) (the file is n8n's; your README links to it). Fields marked "not seen yet" (`data.*`, `syscheck.*`, `rule.mitre.*`) get confirmed as your scenarios produce them. (2) README: a detection catalog, one row per custom rule (ID, group, level, MITRE ID, lab scenario), used by n8n's router, TheHive's templates and Grafana's panels. (3) C13's field map (PROJECT.md 5) checked against real alerts (`data.srcip`/`data.dstip`, Suricata's `data.src_ip`/`data.dest_ip`, `agent.ip`, `agent.name`, `data.srcuser`/`dstuser`, `syscheck.*_after`); Diego asked to keep it stable. Documenting is not a contract change; changing the payload is.
   - Files: `nodes/core/wazuh/README.md`, `nodes/core/n8n/docs/WAZUH-FIELDS.md (review only)`
   - With: Inigo (n8n), Park (templates), Jesus (panels), Diego (C13 analyzer)
@@ -126,7 +126,7 @@ The first real detections, tuned and mapped, merged at checkpoint 1 (milestone t
 - [ ] **W2.6** Checkpoint 1 pull request (by 2026-10-20) · P1, C1, C2, C8
   - Done when: `git pull --no-rebase --no-edit origin main`, `healthcheck.sh` green, `contracts-check.sh --only C1,C2,C8` passes, `ci-checks.sh all` passes, pull request `wazuh` → `main` opened and merged by the integrator. The first slice of `v1.1-detections` (alert → enriched TheHive alert) depends on it, together with TheHive's T2.7.
   - With: Inigo (review and merge)
-- [ ] **W2.7** Answer X-09: should SCA alerts reach n8n? · P1, C1
+- [ ] **W2.7** Answer X-09: should SCA alerts reach n8n? *(in progress)* · P1, C1
   - Done when: Decided with Inigo by 2026-10-20 and written in the README. Each agent start sends ~130 level-7 SCA alerts (rules 19007, 19004), and n8n excludes group `sca` only temporarily. Inigo's options (memo item 6): raise their level threshold, exclude the `sca` group from `custom-n8n`, or let n8n aggregate them (N8N-1.4). Recommendation: fix it at the source with overwrite rules in your tuning file that lower 19007/19004 below `WAZUH_ALERT_MIN_LEVEL` (e.g. level 5). They stay in the indexer for Grafana's compliance panels, never flood n8n or TheHive, and Inigo can then remove the temporary exclusion from `lib-config`. Also answer TheHive's question whether SCA needs a compliance template (ALERT-TO-THEHIVE.md, question 4).
   - Files: `nodes/core/wazuh/rules/`
   - With: Inigo (n8n), Park (template question), Jesus (compliance panels)
@@ -220,7 +220,7 @@ Real endpoints can enroll into groups with policies that fit them.
 
 Wazuh flags events that match IOCs kept in MISP. This is contract C14 (proposed); its design with Diego is the earliest cross-owner deadline of the whole team (2026-10-16).
 
-- [ ] **W6.1** Design C14 with Diego (by 2026-10-16) · P1, C14
+- [ ] **W6.1** Design C14 with Diego (by 2026-10-16) *(in progress)* · P1, C14
   - Done when: Written and sent to Inigo for PROJECT.md 5: which attributes (IPs, domains, MD5/SHA-256), which events (published, `to_ids`, a tag), refresh cadence, and who runs the sync. Inigo prefers (a) (memo item 9): if n8n ran it, it would need write access to Wazuh's CDB lists, a new permission and a contract change like C9. Options: (a) a Wazuh-side script with its own read-only MISP key (R-08, a new `__from:intel__` value), or (b) an n8n scheduled workflow reusing C10's key (D45) (R-08 dropped; C10 waits for MISP's warninglist memory fix, R-14). Either way the CDB lists and the rules live in your folder.
   - With: Diego (Cortex + MISP), Inigo (PROJECT.md; R-08 or the n8n side)
   - Refs: X-24, R-08, R-14, D45

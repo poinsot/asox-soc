@@ -1,0 +1,20 @@
+<!--
+  ASOX Linux authentication decoders (owner: Wazuh). Range 1002xx.
+  Copied into /var/ossec/etc/decoders/ at every manager start.
+
+  usermod (shadow-utils) group changes, which the built-in ruleset doesn't
+  decode. "usermod -aG sudo bob" logs two lines on Ubuntu:
+    usermod[1234]: add 'bob' to group 'sudo'
+    usermod[1234]: add 'bob' to shadow group 'sudo'
+  Fields use the names of the built-in gpasswd decoder: dstuser (the account
+  added) and group, so n8n and C13 read both the same way.
+-->
+<decoder name="asox-usermod">
+  <program_name>^usermod$</program_name>
+</decoder>
+
+<decoder name="asox-usermod-group">
+  <parent>asox-usermod</parent>
+  <regex>^add '(\S+)' to \.*group '(\S+)'</regex>
+  <order>dstuser,group</order>
+</decoder>

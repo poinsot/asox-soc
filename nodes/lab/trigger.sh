@@ -15,7 +15,9 @@
 #   ssh-bruteforce          5763 level 10: 8 failed SSH passwords for root from 198.51.100.23
 #   ssh-success-after-fail  5763 level 10, then 40112 level 12: the same, then a login from 198.51.100.24
 #   sudo-fail               5404 level 10: 3 wrong sudo passwords by labuser
-#   new-user                5901, 5902 level 8: a new group and user "svc-backup"
+#   new-user                5901, 5902 level 8, then 100211 level 10: a new group and user
+#                           "svc-backup", then added to group sudo (usermod)
+#   root-login              100200 level 10: an SSH login as root from 198.51.100.25
 #   ioc-ip                  5712 level 10: 8 failed SSH logins for invalid users from 203.0.113.66
 # The brute-force rules (5763, 5712) stay quiet for 60 s after they fire, for
 # every source address. So wait a minute before repeating a scenario, and
@@ -33,9 +35,9 @@ set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TEST_LOG=/var/log/asox-lab/test.log
-SCENARIOS="ssh-bruteforce ssh-success-after-fail sudo-fail new-user ioc-ip"
+SCENARIOS="ssh-bruteforce ssh-success-after-fail sudo-fail new-user ioc-ip root-login"
 
-usage() { sed -n '2,31p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,33p' "$0" | sed 's/^# \{0,1\}//'; }
 
 id="" scenario="" print=0
 while (( $# > 0 )); do
@@ -86,9 +88,13 @@ events() {
       echo "$t $host sudo: labuser : 3 incorrect password attempts ; TTY=pts/0 ; PWD=/home/labuser ; USER=root ; COMMAND=/bin/bash$run" ;;
     new-user)
       echo "$t $host groupadd[$pid]: new group: name=svc-backup, GID=1001$run"
-      echo "$t $host useradd[$(( pid + 1 ))]: new user: name=svc-backup, UID=1001, GID=1001, home=/home/svc-backup, shell=/bin/bash, from=/dev/pts/0$run" ;;
+      echo "$t $host useradd[$(( pid + 1 ))]: new user: name=svc-backup, UID=1001, GID=1001, home=/home/svc-backup, shell=/bin/bash, from=/dev/pts/0$run"
+      echo "$t $host usermod[$(( pid + 2 ))]: add 'svc-backup' to group 'sudo'$run"
+      echo "$t $host usermod[$(( pid + 2 ))]: add 'svc-backup' to shadow group 'sudo'$run" ;;
     ioc-ip)
       for i in {1..8}; do echo "$t $host sshd[$pid]: Failed password for invalid user admin from 203.0.113.66 port $(( 42000 + i )) ssh2$run"; done ;;
+    root-login)
+      echo "$t $host sshd[$pid]: Accepted password for root from 198.51.100.25 port 43001 ssh2$run" ;;
   esac
 }
 

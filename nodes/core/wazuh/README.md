@@ -103,7 +103,43 @@ Example:
 </group>
 ```
 
-Routing (D-N2): n8n routes on these groups first, and on a short map of specific rule IDs where a group is too broad. The catalog of every custom rule (ID, groups, level, MITRE, lab scenario) is added here in W2.5.
+Routing (D-N2): n8n routes on these groups first, and on a short map of specific rule IDs where a group is too broad.
+
+### Detection catalog (W2.5)
+
+Every custom rule, the alert it produces and how to fire it. Built-in rules the scenarios rely on are pinned in `tests/cases/builtin-linux.cases`; their levels are in "Alert levels".
+
+| Rule | File | Level | Groups (besides `asox` + source) | MITRE | What it means | Lab scenario | Case template |
+|---|---|---|---|---|---|---|---|
+| 100100 | `local_rules.xml` | 10 | `test` | — | Synthetic test event (C1, C8) | `trigger.sh` (no option) | `wazuh-generic` |
+| 100101 | `local_rules.xml` | 3 | `test`, `attack_start` | — | A lab scenario started (`data.scenario`, `data.run_id`; C11's `t_attack_start`) | every `--scenario` | — (not forwarded) |
+| 100200 | `1002-linux-auth.xml` | 10 | `sshd`, `authentication_success` | T1078.003 | SSH login as root (built-in 5715 rates it 3) | `root-login` | `wazuh-generic` (proposed: `suspicious-login`) |
+| 100210 | `1002-linux-auth.xml` | 3 | `adduser`, `account_changed` | T1098 | `usermod` added a user to a group (Wazuh doesn't decode usermod) | — | — (not forwarded) |
+| 100211 | `1002-linux-auth.xml` | 10 | `adduser`, `account_changed` | T1098 | …to a privileged group: sudo, wheel, admin, root, docker, lxd | `new-user` | `account-change` |
+| 100212 | `1002-linux-auth.xml` | 10 | `adduser`, `account_changed` | T1098 | `gpasswd` added a user to a privileged group (built-in 2960/2961 rate it 2/5) | — | `account-change` |
+| 19004, 19007 | `1090-tuning.xml` | 5 | `sca` | (SCA's own) | Built-in SCA, lowered (W2.7) | re-enrolling an agent | — (not forwarded) |
+
+Decoder `asox-usermod` (`decoders/1002-linux-auth.xml`) gives `data.dstuser` (the account) and `data.group`, the same names as the built-in gpasswd decoder.
+
+## Alert levels (W2.1)
+
+What a Wazuh `rule.level` means in ASOX. Every component uses the same cut-offs: TheHive's severity (ALERT-FORMAT.md §2), Grafana's buckets (D-G4) and n8n's routing.
+
+| Level | Meaning in ASOX | Sent to n8n (C1) | TheHive severity | Grafana bucket | Examples (verified on 4.14.8) |
+|---|---|---|---|---|---|
+| 0 | Silenced: a tuning child that drops noise (`1090-tuning.xml`) | no | — | — | — |
+| 1–6 | Context: indexed for dashboards and investigation, never forwarded | no | (1 Low, manual only) | low | 100101 attack-start marker (3), 5715 SSH login (3), 5403 sudo to root (4), 5760 / 5710 single SSH failure (5) |
+| 7–9 | **Medium:** worth an analyst's look | yes | 2 Medium | medium | 5901 new group, 5902 new user (8) |
+| 10–11 | **High:** a likely attack or a policy break | yes | 3 High | high | 5763 / 5712 SSH brute force, 5404 three wrong sudo passwords, 100100 test rule (10) |
+| 12–15 | **Critical:** an attack that deserves a case without waiting for triage | yes | 4 Critical | critical | 40112 login after brute force (12); planned: MISP IOC match (1080xx, 12), Suricata severity 1 (101xxx, 12) |
+
+**Forwarding threshold:** `WAZUH_ALERT_MIN_LEVEL=7` (`nodes/core/.env`). `custom-n8n` sends alerts at this level or above, and n8n filters on the same value as a second guard. Changing it changes C1's volume, so it needs the n8n owner's agreement first.
+
+**Rules for custom rules:**
+- **Pick the level by what the analyst should do,** not by how bad the event type sounds. If nobody should look at it, it goes below 7. If someone should, it goes 7 or above.
+- **12 or above only for precise detections.** n8n may promote Critical alerts of named playbooks straight to TheHive cases (D-N4), so a false positive at 12+ costs an analyst a case. A custom rule at 12+ gives its reason in the catalog (W2.5): correlation, an IOC match, or an IDS signature of severity 1.
+- **Retuning a built-in:** an `overwrite="yes"` copy in `1090-tuning.xml` with the reason.
+- **SCA (W2.7, X-09):** an agent's first scan reports every failed CIS check (about 85–130 alerts). 19007 (check failed) and 19004 (score < 50%) are lowered to 5 in `1090-tuning.xml`: indexed for compliance panels, not sent to n8n. Only a check that gets worse (19011, 19014, level 9) or a score below 30% (19005, level 9) reaches n8n. `wazuh-logtest` can't decode SCA events, so this is checked live: `soc.sh reset lab --yes && soc.sh init lab`, then count `rule.groups: sca` by level.
 
 ## Indexer admin password
 
@@ -164,7 +200,7 @@ Wazuh agents don't need this: they enroll with the password and send over 1514 w
 A containerized Wazuh agent (`lab-agent`), enrolled exactly like a real endpoint: the package's default configuration plus the manager address and the enrollment password (see `nodes/lab/entrypoint.sh`). It also produces realistic alerts (SCA, rootcheck, FIM) for Grafana.
 
 - **Test alert:** `id=$(nodes/lab/trigger.sh) && scripts/wazuh-query.sh --rule 100100 --match "$id"` (the alert takes a few seconds to be indexed).
-- **Attack scenarios** (W1.5): `id=$(nodes/lab/trigger.sh --scenario ssh-bruteforce) && scripts/wazuh-query.sh --match "$id"`. `--list` shows the scenarios (`ssh-bruteforce`, `ssh-success-after-fail`, `sudo-fail`, `new-user`, `ioc-ip`); `--help` shows the alerts each one produces; `--print` shows the lines without sending them. Each run starts with the attack-start marker (rule 100101, level 3, fields `data.scenario` and `data.run_id`; W1.6), and every event of the run ends with `asox_run=<run id>`. Wait a minute between SSH scenarios: the brute-force rules stay quiet for 60 s after firing.
+- **Attack scenarios** (W1.5): `id=$(nodes/lab/trigger.sh --scenario ssh-bruteforce) && scripts/wazuh-query.sh --match "$id"`. `--list` shows the scenarios (`ssh-bruteforce`, `ssh-success-after-fail`, `sudo-fail`, `new-user`, `ioc-ip`, `root-login`); `--help` shows the alerts each one produces; `--print` shows the lines without sending them. Each run starts with the attack-start marker (rule 100101, level 3, fields `data.scenario` and `data.run_id`; W1.6), and every event of the run ends with `asox_run=<run id>`. Wait a minute between SSH scenarios: the brute-force rules stay quiet for 60 s after firing.
 - **Enrollment** happens once; the agent's keys are kept in a volume. A fresh agent with the same name is refused while the manager still knows the old one, so `scripts/soc.sh reset lab` first removes that registration (when core runs on the same machine). For a real endpoint that is reinstalled, remove its old registration the same way: `docker exec <instance>-core-wazuh-manager-1 /var/ossec/bin/manage_agents -r <agent-id>`.
 - **Healthy** means connected *and* ready to collect: right after enrolling, the agent reloads once when it receives the manager's shared configuration, and events written before that are lost.
 
