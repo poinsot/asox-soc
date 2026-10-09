@@ -136,29 +136,29 @@ The first real detections, tuned and mapped, merged at checkpoint 1 (milestone t
 
 A Suricata sensor watches the lab traffic and its alerts arrive in Wazuh through an agent, then reach Grafana and n8n like any other alert. Chosen over Snort: EVE JSON output that Wazuh reads natively, built-in Wazuh rules for Suricata, free ET Open rules with no account, multi-threaded.
 
-- [ ] **W3.1** Record the decision: Suricata instead of Snort · P1
+- [ ] **W3.1** Record the decision: Suricata instead of Snort *(in progress)* · P1
   - Done when: Done on `main` 2026-09-30 as D49 (PROJECT.md sections 1, 2, 6.1, 13). Left: record the pinned image tag (`jasonish/suricata`, exact 8.0.x version) in `docs/decisions.md` when W3.2 is built.
   - With: Inigo (integrator), team
   - Refs: D49, X-34
-- [ ] **W3.2** Suricata container in the lab node · P1
+- [x] **W3.2** Suricata container in the lab node · P1
   - Done when: Service `suricata` in `nodes/lab/docker-compose.yml`: pinned image, `network_mode: service:lab-agent` so it sees the lab agent's traffic, capabilities `NET_ADMIN`, `NET_RAW`, `SYS_NICE`, ET Open rules loaded by `suricata-update`, `healthcheck`, `mem_limit` = `memswap_limit`, `restart: unless-stopped`. `soc.sh up core` starts it and `healthcheck.sh` stays green.
   - Files: `nodes/lab/docker-compose.yml`, `nodes/lab/suricata/`
   - With: Inigo: R-07 (memory variable in `nodes/lab/.env.example` and `render-env.sh`)
   - Refs: R-07
-- [ ] **W3.3** EVE JSON into Wazuh · P1, C1
+- [x] **W3.3** EVE JSON into Wazuh · P1, C1
   - Done when: Suricata writes `eve.json` (alert events only, to keep the volume low) to a volume shared with the lab agent, which reads it with `<localfile><log_format>json</log_format>`. Built-in rule 86601 ("Suricata: Alert - …") fires and the alert is in the indexer with `data.alert.signature`, `data.src_ip`, `data.dest_ip`. Keep Suricata's own names (`data.src_ip`, `data.dest_ip`, `data.dest_port`); don't rename them in custom rules or decoders (memo item 3).
   - Files: `nodes/lab/docker-compose.yml`, `nodes/lab/entrypoint.sh`
-- [ ] **W3.4** Test traffic in the lab trigger · P1
+- [x] **W3.4** Test traffic in the lab trigger · P1
   - Done when: `trigger.sh --scenario ids-test` (a `curl http://testmynids.org/uid/index.html` from the lab agent, ET rule 2100498) and `--scenario ids-scan` (an `nmap` scan against a lab target) produce Suricata alerts in Wazuh within a minute. `curl` and `nmap` added to the lab image.
   - Files: `nodes/lab/trigger.sh`, `nodes/lab/Dockerfile`
-- [ ] **W3.5** ASOX rules on top of Suricata · P1, C1
+- [x] **W3.5** ASOX rules on top of Suricata · P1, C1
   - Done when: Custom rules map Suricata severity to Wazuh levels (severity 1 → 12, 2 → 10, 3 → 6, the mapping TheHive's ALERT-FORMAT.md already cites), add MITRE IDs by category, and silence noisy signatures (e.g. `SURICATA STREAM`) with a reason each. Sample `eve.json` lines in the test runner.
   - Files: `nodes/core/wazuh/rules/`, `nodes/core/wazuh/tests/`
-- [ ] **W3.6** Measure memory with Suricata running · P2
+- [x] **W3.6** Measure memory with Suricata running · P2
   - Done when: `scripts/mem-report.sh` in mode `core` on your profile; Suricata's limit sized with the D40 formula; `core` on `low` still fits a 6 GB WSL allocation.
   - With: Inigo, if a limit changes
   - Refs: R-07, D39
-- [ ] **W3.7** Hand the IDS fields to n8n, TheHive and Grafana (by 2026-11-03) · P2, C1, C8
+- [ ] **W3.7** Hand the IDS fields to n8n, TheHive and Grafana (by 2026-11-03) *(in progress)* · P2, C1, C8
   - Done when: Inigo (`pb-ids-alert`, N8N-4.4), Park (T3.6, ALERT-FORMAT.md §3, `ids-network-alert` template) and Jesus (GRAF-2.3) have the rule groups (`suricata`, `ids`), rule 86601 and your custom IDs, and the fields `data.alert.signature`, `data.alert.severity`, `data.src_ip`, `data.dest_ip`, `data.dest_port`, all in the W2.5 catalog.
   - With: Inigo (n8n), Park (TheHive), Jesus (Grafana)
   - Refs: X-23, X-34

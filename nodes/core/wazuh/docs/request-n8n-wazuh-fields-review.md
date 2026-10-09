@@ -4,7 +4,7 @@
 **From:** Daniel (@dmelgar1110), Wazuh owner
 **Date:** 2026-10-07
 **Refs:** W2.5, X-01, X-26 (C13), N8N-0.3, N8N-1.2 (normalizer); `nodes/core/n8n/docs/WAZUH-FIELDS.md` (branch `n8n`, read 2026-10-07)
-**Status:** draft
+**Status:** sent (2026-10-08, with the second checkpoint PR)
 
 Your draft was written before any sshd, sudo or account alert existed. The lab scenarios (`trigger.sh --scenario`, 2026-10-05) and the W1.1 syslog tests (2026-10-07) now give real ones. I checked every field in the indexer (Wazuh 4.14.8): rules 5712, 5763, 40112, 5404, 5901, 5902, the marker 100101, and a 100100 test alert received over syslog. **Your file is yours, so I haven't edited it**; here is what to change, and my answers to its section "To agree with the Wazuh owner".
 
@@ -75,6 +75,28 @@ Your draft was written before any sshd, sudo or account alert existed. The lab s
 | `data.dstip`, `data.hostname`, `data.url` | firewall and web decoders, M4 |
 | `syscheck.*` | FIM, M5: no FIM alert in 30 days on the lab |
 | Suricata fields | M3, 2026-11-03 |
+
+## Update 2026-10-08: Suricata fields seen (W3.7)
+
+Suricata now runs in the lab (M3, ahead of 11-03). Real alerts, from `trigger.sh --scenario ids-test` and `ids-scan`:
+
+| Field | Seen | Type | Note |
+|---|---|---|---|
+| `rule.id` | `101000` / `101001` / `101002` (severity 1 / 2 / 3), `101010` (ET SCAN) | string | Built-in 86601 stays at level 3; our children set the level (12 / 10 / 6). 101010 is level 10 |
+| `rule.groups` | `asox,suricata,ids` (+ `recon` on 101010) | array | `ids-network-alert` matches on `suricata` / `ids` |
+| `rule.mitre.id` | `["T1046"]` on 101010 only | array | |
+| `data.src_ip`, `data.dest_ip` | `172.20.0.2`, `104.20.23.154` | string | Suricata's names, not `srcip` / `dstip` |
+| `data.src_port`, `data.dest_port` | `"56920"`, `"80"` | **string** | |
+| `data.proto` | `"TCP"` | string | |
+| `data.alert.signature` | `GPL ATTACK_RESPONSE id check returned root` | string | |
+| `data.alert.signature_id` | `"2100498"` | **string** | |
+| `data.alert.severity` | `"2"` | **string** | 1 high … 3 low |
+| `data.alert.category` | `Potentially Bad Traffic`, `Attempted Information Leak` | string | |
+| `agent.name`, `agent.ip` | `lab-agent`, `172.18.0.4` | string | The sensor's agent. The attacked host is in `src_ip` / `dest_ip` |
+| `location` | `/var/log/suricata/eve.json` | string | |
+| `full_log` | the whole eve.json record | string | |
+
+**Park:** for the `ids-network-alert` template the title source is `data.alert.signature`. **Jesus:** for an IDS panel, filter on `rule.groups: suricata` and break down by `data.alert.signature` / `data.alert.category`.
 
 ## By
 

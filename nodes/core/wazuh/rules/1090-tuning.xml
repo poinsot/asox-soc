@@ -36,3 +36,19 @@
   </rule>
 
 </group>
+
+<!--
+  W3.5: Suricata engine events. "SURICATA STREAM ..." and "SURICATA ...
+  invalid/truncated" signatures (gid 1, sid 22xxxxx) report TCP/IP oddities
+  of Suricata's own stream tracking, not attacks; in a container lab they
+  come from offloading and checksums. Silenced (level 0, not indexed).
+-->
+<group name="asox,suricata,ids,tuning,">
+
+  <rule id="109010" level="0">
+    <if_sid>101000, 101001, 101002</if_sid>
+    <field name="alert.signature">^SURICATA STREAM |^SURICATA TCPv4 invalid checksum|^SURICATA UDPv4 invalid checksum</field>
+    <description>ASOX tuning: Suricata engine event silenced: $(alert.signature)</description>
+  </rule>
+
+</group>

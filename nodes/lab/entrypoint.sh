@@ -32,6 +32,11 @@ cat >> "$OSSEC/etc/ossec.conf" <<CONF
     <log_format>syslog</log_format>
     <location>${TEST_LOG}</location>
   </localfile>
+  <!-- Suricata alerts (W3.3): built-in rule 86601 -->
+  <localfile>
+    <log_format>json</log_format>
+    <location>/var/log/suricata/eve.json</location>
+  </localfile>
 </ossec_config>
 CONF
 chown root:wazuh "$OSSEC/etc/ossec.conf"

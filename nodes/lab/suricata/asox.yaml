@@ -1,0 +1,33 @@
+%YAML 1.1
+---
+# ASOX overrides for Suricata in the lab node (owner: Wazuh, W3.2, D49).
+# Loaded with --include after the image's own suricata.yaml. It replaces the
+# whole "outputs" list, so Suricata writes only alert events to
+# /var/log/suricata/eve.json: no flow, DNS, TLS or stats records. The lab
+# agent reads that file (log_format json) and Wazuh's built-in rule 86601
+# turns each alert into a Wazuh alert (W3.3).
+outputs:
+  - eve-log:
+      enabled: yes
+      filetype: regular
+      filename: eve.json
+      types:
+        - alert:
+            tagged-packets: no
+
+# Sized for the low profile (W3.6, D39): one capture thread per interface
+# instead of one per CPU, and the low detection profile. The lab's traffic is
+# tiny; 8 workers (4 CPUs x 2 interfaces) used ~570 MiB at start.
+af-packet:
+  - interface: eth0
+    threads: 1
+    cluster-id: 98
+    cluster-type: cluster_flow
+  - interface: eth1
+    threads: 1
+    cluster-id: 99
+    cluster-type: cluster_flow
+  - interface: default
+
+detect:
+  profile: low

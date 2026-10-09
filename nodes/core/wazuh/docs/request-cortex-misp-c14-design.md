@@ -4,7 +4,7 @@
 **From:** Daniel (@dmelgar1110), Wazuh owner
 **Date:** 2026-10-07
 **Refs:** C14, W6.1–W6.5, X-24, R-08, D12, D25, D45 (C10); Inigo's memo item 9 (`n8n-requests-2026-09-30.md`)
-**Status:** draft
+**Status:** sent (2026-10-08, with the second checkpoint PR)
 
 ## What C14 does
 

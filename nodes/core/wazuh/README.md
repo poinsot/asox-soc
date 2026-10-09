@@ -117,6 +117,11 @@ Every custom rule, the alert it produces and how to fire it. Built-in rules the 
 | 100210 | `1002-linux-auth.xml` | 3 | `adduser`, `account_changed` | T1098 | `usermod` added a user to a group (Wazuh doesn't decode usermod) | — | — (not forwarded) |
 | 100211 | `1002-linux-auth.xml` | 10 | `adduser`, `account_changed` | T1098 | …to a privileged group: sudo, wheel, admin, root, docker, lxd | `new-user` | `account-change` |
 | 100212 | `1002-linux-auth.xml` | 10 | `adduser`, `account_changed` | T1098 | `gpasswd` added a user to a privileged group (built-in 2960/2961 rate it 2/5) | — | `account-change` |
+| 101000 | `1010-suricata.xml` | 12 | `suricata`, `ids` | — | Suricata alert of severity 1 (built-in 86601 rates every Suricata alert 3) | — | `ids-network-alert` |
+| 101001 | `1010-suricata.xml` | 10 | `suricata`, `ids` | — | Suricata alert of severity 2 | `ids-test` | `ids-network-alert` |
+| 101002 | `1010-suricata.xml` | 6 | `suricata`, `ids` | — | Suricata alert of severity 3 (context) | — | — (not forwarded) |
+| 101010 | `1010-suricata.xml` | 10 | `suricata`, `ids`, `recon` | T1046 | `ET SCAN` signature (severity 1 or 2) | `ids-scan` | `ids-network-alert` (or `network-scan`) |
+| 109010 | `1090-tuning.xml` | 0 | `suricata`, `ids`, `tuning` | — | Suricata engine events (`SURICATA STREAM`, invalid checksums) silenced | — | — |
 | 19004, 19007 | `1090-tuning.xml` | 5 | `sca` | (SCA's own) | Built-in SCA, lowered (W2.7) | re-enrolling an agent | — (not forwarded) |
 
 Decoder `asox-usermod` (`decoders/1002-linux-auth.xml`) gives `data.dstuser` (the account) and `data.group`, the same names as the built-in gpasswd decoder.
@@ -195,12 +200,30 @@ echo 'SYSLOG_ALLOWED_IPS=192.168.1.1' >> topology.env     # or edit the existing
 
 Wazuh agents don't need this: they enroll with the password and send over 1514 with their own key. In `distributed` mode, whether LAN senders keep their real address through the published port is still to be confirmed (W4.5).
 
+## Network IDS: Suricata (M3, D49)
+
+A Suricata sensor runs in the lab node as service `suricata` (`nodes/lab/docker-compose.yml`, image `jasonish/suricata:8.0.7`). It shares the lab agent's network namespace (`network_mode: service:lab-agent`), so it sees that container's traffic on `eth0` (its own network, with the internet route) and `eth1` (`soc-net`, single-host mode). In Phase 2 it moves to its own machine with an agent in group `network-sensors` (PROJECT.md 13).
+
+```
+traffic to/from lab-agent --> suricata (ET Open rules) --> eve.json (alerts only)
+   --> lab agent (localfile, log_format json) --> manager: built-in 86601 (level 3)
+   --> 1010-suricata.xml sets the level from Suricata's severity --> C1 to n8n at 7+
+```
+
+- **Rules:** ET Open through `suricata-update` (no account), kept in volume `suricata-lib` and refreshed at most once a day by `nodes/lab/suricata/start.sh`; the first start needs the internet. `nodes/lab/suricata/enable.conf` turns on extra SIDs (2009582, nmap SYN scan); editing it forces a fresh update at the next start.
+- **Config:** `nodes/lab/suricata/asox.yaml`, loaded with `--include`: EVE output is alerts only (no flow, DNS, TLS or stats records); one capture thread per interface and the `low` detection profile.
+- **HOME_NET** is the lab agent's own addresses, set at start: ET rules alert on traffic from `$EXTERNAL_NET` into `$HOME_NET`, and with Docker's default (every private range) the other lab containers would count as home.
+- **Levels** (W3.5, ALERT-FORMAT.md's mapping): severity 1 → 12, 2 → 10, 3 → 6; `ET SCAN` signatures add T1046 and group `recon`. Fields keep Suricata's names: `data.src_ip`, `data.dest_ip`, `data.dest_port` (a string), `data.proto`, `data.alert.signature`, `data.alert.signature_id`, `data.alert.severity` (a string), `data.alert.category`.
+- **Try it:** `nodes/lab/trigger.sh --scenario ids-test` (needs internet from the lab agent) and `--scenario ids-scan` (nmap from a throwaway `instrumentisto/nmap:7.98-r2` container on the lab network). Measured 2026-10-08: 101001 and 4 × 101010 (nmap SYN scan, MSSQL, Oracle, MySQL probes), all received by n8n's `recv-wazuh-alert`.
+- **Memory** (W3.6, D40): about 480–520 MiB at rest (anonymous, ~53,000 enabled signatures), 576 MiB peak while updating and loading rules, so the limit is `SURICATA_MEM` 750m (default in the compose file until R-07 puts it in `nodes/lab/.env.example`). `core` + lab + Suricata on `low` used about 3.8 GB of the WSL VM.
+- `testmynids.org` (the usual test site) doesn't resolve on some networks, e.g. a university one; `ids-test` sends the same signature's content to `example.com` instead.
+
 ## Lab agent (`nodes/lab/`)
 
 A containerized Wazuh agent (`lab-agent`), enrolled exactly like a real endpoint: the package's default configuration plus the manager address and the enrollment password (see `nodes/lab/entrypoint.sh`). It also produces realistic alerts (SCA, rootcheck, FIM) for Grafana.
 
 - **Test alert:** `id=$(nodes/lab/trigger.sh) && scripts/wazuh-query.sh --rule 100100 --match "$id"` (the alert takes a few seconds to be indexed).
-- **Attack scenarios** (W1.5): `id=$(nodes/lab/trigger.sh --scenario ssh-bruteforce) && scripts/wazuh-query.sh --match "$id"`. `--list` shows the scenarios (`ssh-bruteforce`, `ssh-success-after-fail`, `sudo-fail`, `new-user`, `ioc-ip`, `root-login`); `--help` shows the alerts each one produces; `--print` shows the lines without sending them. Each run starts with the attack-start marker (rule 100101, level 3, fields `data.scenario` and `data.run_id`; W1.6), and every event of the run ends with `asox_run=<run id>`. Wait a minute between SSH scenarios: the brute-force rules stay quiet for 60 s after firing.
+- **Attack scenarios** (W1.5): `id=$(nodes/lab/trigger.sh --scenario ssh-bruteforce) && scripts/wazuh-query.sh --match "$id"`. `--list` shows the scenarios (`ssh-bruteforce`, `ssh-success-after-fail`, `sudo-fail`, `new-user`, `ioc-ip`, `root-login`, and the IDS ones `ids-test`, `ids-scan`); `--help` shows the alerts each one produces; `--print` shows the lines without sending them. Each run starts with the attack-start marker (rule 100101, level 3, fields `data.scenario` and `data.run_id`; W1.6), and every event of the run ends with `asox_run=<run id>`. Wait a minute between SSH scenarios: the brute-force rules stay quiet for 60 s after firing.
 - **Enrollment** happens once; the agent's keys are kept in a volume. A fresh agent with the same name is refused while the manager still knows the old one, so `scripts/soc.sh reset lab` first removes that registration (when core runs on the same machine). For a real endpoint that is reinstalled, remove its old registration the same way: `docker exec <instance>-core-wazuh-manager-1 /var/ossec/bin/manage_agents -r <agent-id>`.
 - **Healthy** means connected *and* ready to collect: right after enrolling, the agent reloads once when it receives the manager's shared configuration, and events written before that are lost.
 

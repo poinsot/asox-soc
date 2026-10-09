@@ -18,6 +18,12 @@
 #   new-user                5901, 5902 level 8, then 100211 level 10: a new group and user
 #                           "svc-backup", then added to group sudo (usermod)
 #   root-login              100200 level 10: an SSH login as root from 198.51.100.25
+#   ids-test                101001 level 10 (Suricata 2100498): an HTTP request carrying
+#                           "uid=0(root)" from the lab agent to example.com (needs internet)
+#   ids-scan                101010 level 10, T1046 (ET SCAN): an nmap SYN scan of the lab
+#                           agent from a throwaway container on the lab network
+# ids-test and ids-scan make real traffic that the Suricata sensor sees (W3.4);
+# their alerts come from Suricata, so --print only shows the marker.
 #   ioc-ip                  5712 level 10: 8 failed SSH logins for invalid users from 203.0.113.66
 # The brute-force rules (5763, 5712) stay quiet for 60 s after they fire, for
 # every source address. So wait a minute before repeating a scenario, and
@@ -35,9 +41,11 @@ set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TEST_LOG=/var/log/asox-lab/test.log
-SCENARIOS="ssh-bruteforce ssh-success-after-fail sudo-fail new-user ioc-ip root-login"
+SCENARIOS="ssh-bruteforce ssh-success-after-fail sudo-fail new-user ioc-ip root-login ids-test ids-scan"
+NMAP_IMAGE=${NMAP_IMAGE:-instrumentisto/nmap:7.98-r2}
 
-usage() { sed -n '2,33p' "$0" | sed 's/^# \{0,1\}//'; }
+# The comment block at the top of this file.
+usage() { awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; }
 
 id="" scenario="" print=0
 while (( $# > 0 )); do
@@ -98,6 +106,25 @@ events() {
   esac
 }
 
+compose() { docker compose --project-directory "$DIR" --env-file "$DIR/.env" -f "$DIR/docker-compose.yml" "$@"; }
+
+# Network traffic for the IDS scenarios (seen by the suricata service).
+# $1 = scenario, $2 = run ID (sent in the HTTP request, so the eve.json
+# record can be tied to the run through its payload when needed).
+traffic() {
+  case $1 in
+    ids-test)
+      compose exec -T lab-agent curl -s -m 15 -o /dev/null \
+        -A "asox-lab ids-test asox_run=$2" "http://example.com/?q=uid=0(root)" \
+        || { echo "ERROR ids-test needs internet access from the lab agent (example.com)" >&2; exit 1; } ;;
+    ids-scan)
+      # The lab node's own network exists in both deployment modes.
+      docker run --rm --network "$(sed -n 's/^SOC_INSTANCE=//p' "$DIR/.env")-lab_default" "$NMAP_IMAGE" \
+        -sS -Pn -n -T4 -p 1-1024,1433,1521,3306 --max-retries 0 lab-agent >/dev/null \
+        || { echo "ERROR ids-scan: could not run $NMAP_IMAGE on the lab network" >&2; exit 1; } ;;
+  esac
+}
+
 if [[ -z $scenario ]]; then
   printf '%s\n' "$(ts) $host asox-test: ASOX_TEST_EVENT id=$id" | send
   echo "Test event sent: ASOX_TEST_EVENT id=$id" >&2
@@ -106,7 +133,10 @@ else
   # (C11's t_attack_start) and every event of the run comes after it.
   printf '%s\n' "$(ts) $host asox-lab: ASOX_ATTACK_START scenario=$scenario id=$id" | send
   (( print )) || sleep 1
-  events "$scenario" "$id" | send
+  case $scenario in
+    ids-test|ids-scan) (( print )) || traffic "$scenario" "$id" ;;
+    *) events "$scenario" "$id" | send ;;
+  esac
   (( print )) || echo "Scenario $scenario sent: run id=$id" >&2
 fi
 (( print )) || printf '%s\n' "$id"
