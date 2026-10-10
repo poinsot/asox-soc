@@ -37,6 +37,13 @@ services:
       # workflow each time: 3 parks per stale execution per restart (2.40.7).
       # Crashed alerts are requeued by the alert queue (recv-n8n-start).
       N8N_EVENTBUS_RECOVERY_MODE: simple
+      # At most 10 webhook and trigger executions at once (N8N-1.8): 40 C1
+      # deliveries at the same instant got n8n OOM-killed at 750m. The others
+      # wait in n8n's memory and answer later. Counted (2.40.7): webhook and
+      # trigger executions (the 5 s scheduler ticks included); not counted:
+      # sub-workflows and error workflows. sched-alert-queue holds up to 2 for
+      # up to 240 s (one per queue slot), which leaves 8 for webhooks.
+      N8N_CONCURRENCY_PRODUCTION_LIMIT: "10"
       # Service URLs for workflows ($env.X); non-secret only.
       N8N_BLOCK_ENV_ACCESS_IN_NODE: "false"
       WAZUH_API_URL: ${WAZUH_API_URL}
