@@ -59,7 +59,7 @@ NET START WazuhSvc
 
 - **What the group adds:** the PowerShell, Sysmon (if installed) and Defender channels, real-time integrity checks on the all-users Startup folder, and the `Run` / `RunOnce` registry keys. The agent's own configuration already reads the Security, System and Application channels.
 - **How to check it:** run `runas /user:asox-nobody cmd` and type a wrong password, which gives a failed logon (Windows event 4625, built-in rule 60122, level 5). Several in a row give 60204 (level 10), which reaches n8n.
-- **Your own Windows PC with the stack in `single` mode:** use `WAZUH_MANAGER='127.0.0.1'`. Mirrored networking forwards it to WSL.
+- **Your own Windows PC with the stack in `single` mode:** use `WAZUH_MANAGER='127.0.0.1'`. Mirrored networking forwards it to WSL. Tested 2026-10-10 (W5.5): agent `YOGA` (Windows 11 Home) in `windows-desktops`. Its first SCA scan came in at level 5, and 10 `runas` failures gave 60122 × 10 and **60204** (level 10, sent to n8n).
 
 ## Suricata sensor VM (VirtualBox)
 
@@ -99,6 +99,18 @@ OPNsense sends syslog; it needs no agent. Steps in the README, "OPNsense firewal
 - the firewall's IP in `SYSLOG_ALLOWED_IPS` on the core machine.
 
 OPNsense also has a Wazuh agent plugin (`os-wazuh-agent`). It isn't needed here: syslog covers the firewall, and the sensor VM covers Suricata.
+
+## Troubleshooting
+
+- **The manager log shows `Invalid password provided by …`.** The agent's password file doesn't match `WAZUH_ENROLLMENT_PASSWORD`, often because a placeholder or a partial value was pasted. On 2026-10-10 the Windows agent's file held the 14 bytes of the text `<contraseña>`. Rewrite the file and restart the agent; no reinstall is needed. On Windows (PowerShell as Administrator, on the PC that runs WSL):
+  ```powershell
+  $p = (wsl -e sh -c "sed -n 's/^WAZUH_ENROLLMENT_PASSWORD=//p' ~/asox-soc/nodes/core/.env").Trim()
+  Set-Content -Path 'C:\Program Files (x86)\ossec-agent\authd.pass' -Value $p -NoNewline -Encoding ascii
+  Restart-Service WazuhSvc
+  ```
+  On Linux, the file is `/var/ossec/etc/authd.pass`; then `systemctl restart wazuh-agent`.
+- **The agent stays `Pending` for a minute after enrolling:** it is receiving its group's configuration, then it restarts and shows `Active`.
+- **The first minutes bring many SCA alerts (19007).** That's the first CIS scan, at level 5 since W2.7, so nothing reaches n8n.
 
 ## Removing or re-enrolling an agent
 

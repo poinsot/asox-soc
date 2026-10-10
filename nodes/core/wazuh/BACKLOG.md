@@ -205,7 +205,7 @@ Real endpoints can enroll into groups with policies that fit them.
   - Done when: `nodes/core/wazuh/ENROLLMENT.md`: Linux (apt) and Windows (MSI) with `WAZUH_MANAGER`, `WAZUH_REGISTRATION_PASSWORD` and `WAZUH_AGENT_GROUP`; agent version equal to the manager (4.14.8); ports 1514/1515; what distributed mode needs; removing an old registration.
   - Files: `nodes/core/wazuh/ENROLLMENT.md`
   - Refs: D33
-- [ ] **W5.5** Enroll your own Windows host · P1
+- [x] **W5.5** Enroll your own Windows host · P1
   - Done when: Following the guide exactly: the Windows agent is `active` in `windows-desktops`, and a failed Windows logon shows up as an alert. With mirrored networking the ports on 127.0.0.1 are reachable from Windows.
 - [ ] **W5.6** Alert on disconnected agents · P3
   - Done when: `agents_disconnection_alert_time` set (it is 0 now); stopping the lab agent produces an alert at the agreed level.
