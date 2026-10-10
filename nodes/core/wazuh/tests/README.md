@@ -41,3 +41,11 @@ log Oct  5 10:00:00 lab-agent asox-test: ASOX_TEST id=1
 "Some event" rather than "the last event": a frequency rule fires on the event that reaches the count and is then quiet for its `ignore` time, so a later line shows the single-event rule again.
 
 Use attacker addresses from documentation ranges (`203.0.113.0/24`, `198.51.100.0/24`), like the lab scenarios (n8n memo item 7).
+
+## End-to-end check (`e2e.sh`)
+
+`nodes/core/wazuh/tests/e2e.sh` runs every scenario of `nodes/lab/trigger.sh` on the live stack, in an order that respects the rules' quiet periods. It then checks:
+- that each scenario's rules and its attack-start marker are in the indexer;
+- that every alert at level ≥ 7 has a `recv-wazuh-alert` execution in n8n (C1).
+
+It takes about 6 minutes. Use `--skip-ids` without Suricata or internet, and `--no-n8n` without n8n. It's also the demo: run it, then show the alerts in Grafana and n8n. Wait 5 minutes between runs, because some rules stay quiet for up to 2 minutes after they fire.

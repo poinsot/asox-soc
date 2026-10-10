@@ -253,10 +253,10 @@ Everything merged into `main`, tested end to end and ready to show one day early
 - [ ] **WD.3** End-to-end run in `full` (by 2026-11-27) · P1, C1, C2, C8
   - Done when: On the 32 GB machine or the shared instance, from `main`: `healthcheck.sh` green, C1–C8 pass, and `trigger.sh --scenario ssh-bruteforce`, `ioc-ip` and `ids-test` each show up in Grafana (with the attack-start annotation), as n8n executions and as TheHive alerts with the right severity and template (TheHive's end-to-end test).
   - With: Inigo (runs `full`), Jesus (Grafana), Park (TheHive)
-- [ ] **WD.4** Evidence for the delivery (by 2026-11-30) · P1
+- [ ] **WD.4** Evidence for the delivery (by 2026-11-30) *(in progress)* · P1
   - Done when: README final; a table of custom rules with level and MITRE ID; test runner output; screenshots of the alerts in Grafana and of an n8n execution; the enrolled Windows agent.
   - Files: `nodes/core/wazuh/README.md`
-- [ ] **WD.5** Rehearse the demo (by 2026-11-30) · P1
+- [ ] **WD.5** Rehearse the demo (by 2026-11-30) *(in progress)* · P1
   - Done when: A short script that runs start to finish without surprises: attack scenario → Wazuh alert → Grafana → n8n; IOC from MISP → alert; syslog from pfSense → alert; Suricata detection → alert.
   - With: Team
 

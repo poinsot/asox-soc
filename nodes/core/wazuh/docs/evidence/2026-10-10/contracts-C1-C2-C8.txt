@@ -1,0 +1,7 @@
+== Integration contracts (C1 C2 C8)
+PASS  C1 Wazuh -> n8n: alert 1791675563.2293217 recorded by recv-wazuh-alert (execution 452); requests without a valid token rejected (HTTP 403/403)
+....  C1 cleanup: TheHive not reachable at http://127.0.0.1:9000 (HTTP 000), nothing deleted
+PASS  C2 n8n -> Wazuh API: credential logs in and lists 3 agents; active response rejected (HTTP 403)
+PASS  C8 Grafana -> Wazuh indexer: datasource healthy, query returns test alert 1791675563.2293217
+
+All checks passed.

@@ -1,0 +1,15 @@
+== core
+PASS  core/wazuh-indexer: running, healthy
+PASS  core/wazuh-manager: running, healthy
+PASS  core/grafana: running, healthy
+PASS  core/n8n: running, healthy
+PASS  core: Wazuh indexer cluster green
+PASS  core: Wazuh API answers, admin wazuh-wui logs in
+PASS  core: n8n ready (http://127.0.0.1:5678), scripts' API key works
+PASS  core: Grafana UI answers, admin admin logs in
+== lab
+PASS  lab/lab-agent: running, healthy
+PASS  lab/suricata: running, healthy
+PASS  lab: agent lab-agent active on the manager
+
+All checks passed.

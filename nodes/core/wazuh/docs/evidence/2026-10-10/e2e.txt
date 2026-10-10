@@ -1,0 +1,32 @@
+== C1 test event trig-1791674973-839, then the scenarios (about 6 minutes)
+PASS  ssh-bruteforce: rule 5763 (1 alert(s), level 10)
+PASS  ssh-bruteforce: attack-start marker 100101
+PASS  sudo-fail: rule 5404 (1 alert(s), level 10)
+PASS  sudo-fail: attack-start marker 100101
+PASS  new-user: rule 5901 (1 alert(s), level 8)
+PASS  new-user: rule 5902 (1 alert(s), level 8)
+PASS  new-user: rule 100211 (1 alert(s), level 10)
+PASS  new-user: attack-start marker 100101
+PASS  root-login: rule 100200 (1 alert(s), level 10)
+PASS  root-login: attack-start marker 100101
+PASS  persistence: rule 100300 (1 alert(s), level 10)
+PASS  persistence: rule 100301 (1 alert(s), level 10)
+PASS  persistence: rule 100302 (1 alert(s), level 10)
+PASS  persistence: attack-start marker 100101
+PASS  ids-test: rule 101001 (1 alert(s), level 10)
+PASS  ids-test: attack-start marker 100101
+PASS  ids-scan: rule 101010 (4 alert(s), level 10)
+PASS  ids-scan: attack-start marker 100101
+PASS  opnsense-scan: rule 103000 (1 alert(s), level 10)
+PASS  opnsense-scan: attack-start marker 100101
+PASS  opnsense-gui-bruteforce: rule 103011 (1 alert(s), level 10)
+PASS  opnsense-gui-bruteforce: attack-start marker 100101
+PASS  ssh-success-after-fail: rule 5763 (1 alert(s), level 10)
+PASS  ssh-success-after-fail: rule 40112 (1 alert(s), level 12)
+PASS  ssh-success-after-fail: attack-start marker 100101
+PASS  ioc-ip: rule 108000 (1 alert(s), level 12)
+PASS  ioc-ip: attack-start marker 100101
+PASS  C1 test event: rule 100100
+PASS  C1: all 20 alerts at level >= 7 reached n8n's recv-wazuh-alert
+
+28 passed, 0 failed (6 min)

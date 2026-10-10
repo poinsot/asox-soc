@@ -15,7 +15,8 @@ Collects events from agents and syslog, decodes them, classifies them with rules
 | `config/entrypoint-scripts/` | Scripts the manager image runs before Wazuh starts: restart fixes, enrollment password, n8n integration (C1), syslog sources |
 | `rules/`, `decoders/` | Custom rules and decoders (`local_rules.xml` holds the Phase 1 test rule `100100`) |
 | `groups/` | Agent groups as code (W5.1): `linux-servers`, `windows-desktops`, `network-sensors`, each an `agent.conf` the manager pushes to its agents. [ENROLLMENT.md](ENROLLMENT.md) says how to enroll into them |
-| `tests/` | Rule test runner: `tests/run.sh` checks the ruleset against sample log lines through `wazuh-logtest` ([tests/README.md](tests/README.md)) |
+| `tests/` | `tests/run.sh`: the ruleset against sample log lines through `wazuh-logtest` ([tests/README.md](tests/README.md)). `tests/e2e.sh`: every lab scenario end to end, from scenario to indexer to n8n (about 6 min) |
+| `docs/EVIDENCE.md` | Delivery evidence: test results, detections, what isn't covered yet |
 
 No Wazuh web UI (the Wazuh dashboard isn't deployed): alerts are in Grafana (`http://localhost:3000`) and `scripts/wazuh-query.sh`; the Wazuh API is `https://localhost:55000` (self-signed certificate), login from `scripts/soc.sh info`. Agents connect on 1514/tcp and enroll on 1515/tcp; syslog on 514/udp.
 
