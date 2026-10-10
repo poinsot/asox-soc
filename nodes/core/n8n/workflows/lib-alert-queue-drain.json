@@ -5,7 +5,7 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## lib-alert-queue-drain (one queued alert, N8N-1.4)\n**Trigger:** called by sched-alert-queue for each row of its run (N8N-1.7), while it holds a slot and has claimed the row (`running`, claim token).\n**Inputs:** `{slot, row, depth, config}`; the row's `payload` is what recv-wazuh-alert queued (`wazuh_alert_id`, `route`, `alert`, `recv_execution_id`).\n**Actions taken:** if another row for the same Wazuh alert is running with a lower id, gives the row back (`pending`, attempt not counted: no concurrent copies, A78); after `max_attempts` (or an unreadable payload) marks it `failed` and parks it (lib-error, with the Wazuh alert id); otherwise runs the route's playbook and waits. Outcome `created` / `duplicate` / `repaired` / `parked` / `skipped` -> `done`; a failed run -> `pending` again, or `failed` and parked on the last attempt. The row is finished with a compare-and-set on its claim token.\n**Systems changed:** n8n's own Data Table (the playbook changes TheHive).\n**Approval:** not applicable.\n**Owner:** n8n.\nSaved: every run (one per processed row). The `status` line of \"Drain result\" has the outcome, the duration, the row's place in the scheduler run and the queue depth when that run started.",
+        "content": "## lib-alert-queue-drain (one queued alert, N8N-1.4, N8N-1.8)\n**Trigger:** called by sched-alert-queue for each row of its run (N8N-1.7), while it holds a slot and has claimed the row (`running`, claim token).\n**Inputs:** `{slot, row, depth, config}`; the row's `payload` is what recv-wazuh-alert queued: the raw alert (`wazuh_alert_id`, `alert`, `recv_execution_id`), not routed yet.\n**Actions taken:** if another row for the same Wazuh alert is running with a lower id, gives the row back (`pending`, attempt not counted: no concurrent copies, A78); after `max_attempts` (or an unreadable payload) marks it `failed` and parks it (lib-error, with the Wazuh alert id); an alert matching a lib-config intake exclusion is finished `done` with `skipped: <label>` (no playbook); otherwise **routes the alert with lib-route-alert** (Router de Playbooks, N8N-1.3; since N8N-1.8 here, not in recv-wazuh-alert: the route is recorded in \"Playbook input\" and on the \"Drain result\" line), runs the route's playbook and waits. A routing failure (broken table in lib-config) marks the row `failed` at once and parks the alert with its id and payload (lib-error, stage `route`). Outcome `created` / `duplicate` / `repaired` / `parked` / `skipped` -> `done`; a failed run -> `pending` again, or `failed` and parked on the last attempt. The row is finished with a compare-and-set on its claim token; the routed playbook's ID is written to its `playbook_id`.\n**Systems changed:** n8n's own Data Table (the playbook changes TheHive).\n**Approval:** not applicable.\n**Owner:** n8n.\nSaved: every run (one per processed row). The `status` line of \"Drain result\" has the outcome, the route, the duration, the row's place in the scheduler run and the queue depth when that run started.",
         "height": 640,
         "width": 560
       },
@@ -73,7 +73,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const input = $('Called by a workflow').first().json;\nconst row = input.row;\nconst q = input.config.alert_queue;\nlet payload = null;\nlet parseError = null;\ntry { payload = JSON.parse(row.payload); } catch (e) { parseError = e.message; }\nconst earlier = $('Same alert running').all().map((i) => i.json)\n  .filter((r) => r.id !== undefined && r.id !== row.id && r.id < row.id);\nlet action = 'run';\nlet reason = null;\nif (earlier.length > 0) {\n  action = 'yield';\n  reason = `row ${earlier[0].id} for the same Wazuh alert is running: given back to wait for it (no concurrent copies, A78)`;\n} else if (parseError !== null) {\n  action = 'fail';\n  reason = `queued payload is not JSON (${parseError})`;\n} else if (Number(row.attempts) > q.max_attempts) {\n  action = 'fail';\n  reason = `attempts exhausted (${q.max_attempts})`;\n}\nreturn [{ json: { action, reason, payload, row_id: row.id, alert_id: row.alert_id, attempt: Number(row.attempts) } }];\n"
+        "jsCode": "const input = $('Called by a workflow').first().json;\nconst row = input.row;\nconst q = input.config.alert_queue;\nlet payload = null;\nlet parseError = null;\ntry { payload = JSON.parse(row.payload); } catch (e) { parseError = e.message; }\nconst earlier = $('Same alert running').all().map((i) => i.json)\n  .filter((r) => r.id !== undefined && r.id !== row.id && r.id < row.id);\n// Intake exclusions (lib-config), applied here since N8N-1.8: recv-wazuh-alert\n// only filters on the level before it queues the raw alert.\nconst alert = payload !== null && typeof payload === 'object' ? payload.alert : undefined;\nconst rule = alert !== null && typeof alert === 'object' ? alert.rule : undefined;\nconst groups = rule !== null && typeof rule === 'object' && Array.isArray(rule.groups) ? rule.groups : [];\nconst ex = (input.config.intake_exclusions ?? []).find((e) => groups.includes(e.rule_group));\nlet action = 'run';\nlet reason = null;\nif (earlier.length > 0) {\n  action = 'yield';\n  reason = `row ${earlier[0].id} for the same Wazuh alert is running: given back to wait for it (no concurrent copies, A78)`;\n} else if (parseError !== null) {\n  action = 'fail';\n  reason = `queued payload is not JSON (${parseError})`;\n} else if (Number(row.attempts) > q.max_attempts) {\n  action = 'fail';\n  reason = `attempts exhausted (${q.max_attempts})`;\n} else if (ex) {\n  action = 'skip';\n  reason = `skipped: ${ex.label}`;\n}\nreturn [{ json: { action, reason, payload, row_id: row.id, alert_id: row.alert_id, attempt: Number(row.attempts) } }];\n"
       },
       "id": "5b73c7a3-6292-5e79-a75e-de862aa8f861",
       "name": "Decide",
@@ -120,10 +120,10 @@
     },
     {
       "parameters": {
-        "jsCode": "// The same input recv-wazuh-alert used to pass, plus a fresh lib-config.\nconst input = $('Called by a workflow').first().json;\nconst d = $input.first().json;\nreturn [{ json: { ...d.payload, config: input.config,\n  queue: { row_id: d.row_id, attempt: d.attempt, slot: input.slot.name } } }];\n"
+        "jsCode": "// What lib-route-alert needs: the raw alert and lib-config.\nreturn [{ json: { alert: $input.first().json.payload.alert, config: $('Called by a workflow').first().json.config } }];\n"
       },
-      "id": "e8280d90-83e3-5d30-b61a-dd6a7364cbfe",
-      "name": "Playbook input",
+      "id": "a8cf6595-7127-5a00-9573-960c812150c3",
+      "name": "Route input",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
@@ -136,7 +136,55 @@
         "workflowId": {
           "__rl": true,
           "mode": "id",
-          "value": "={{ $('Called by a workflow').first().json.row.playbook_id }}"
+          "value": "asoxLibRouteAlrt",
+          "cachedResultName": "lib-route-alert"
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "61e1b72d-11ec-57d5-91d4-d27a63375d68",
+      "name": "Route (lib-route-alert)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1200,
+        0
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// lib-route-alert failed (a broken routing table in lib-config): the row is\n// marked failed and the alert parked with its id and payload (Row update),\n// so it can be replayed once the table is fixed. Not retried: the same\n// table gives the same failure.\nconst err = $input.first().json.error;\nreturn [{ json: { route_error: true,\n  message: 'routing failed: ' + (typeof err === 'string' ? err : err?.message ?? JSON.stringify($input.first().json).slice(0, 500)) } }];\n"
+      },
+      "id": "4192b161-897d-5f35-9df3-948fe4700b27",
+      "name": "Route error input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1440,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// The route is recorded here (this execution is saved) and passed to the\n// playbook with the alert and lib-config; the playbook puts it in TheHive\n// (caseTemplate, writeback).\nconst input = $('Called by a workflow').first().json;\nconst d = $('Decide').first().json;\nconst route = $input.first().json.route;\nreturn [{ json: {\n  status: `routed: ${route.route_id} -> ${route.playbook}` + (route.fallback ? ` (fallback from ${route.fallback.wanted})` : ''),\n  wazuh_alert_id: d.payload.wazuh_alert_id ?? null, route, alert: d.payload.alert,\n  recv_execution_id: d.payload.recv_execution_id ?? null, config: input.config,\n  queue: { row_id: d.row_id, attempt: d.attempt, slot: input.slot.name } } }];\n"
+      },
+      "id": "e8280d90-83e3-5d30-b61a-dd6a7364cbfe",
+      "name": "Playbook input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1440,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $json.route.playbook_id }}"
         },
         "options": {
           "waitForSubWorkflow": true
@@ -147,21 +195,21 @@
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.2,
       "position": [
-        1200,
+        1680,
         0
       ],
       "onError": "continueRegularOutput"
     },
     {
       "parameters": {
-        "jsCode": "// How the row ends: done, back to pending (retry), or failed (parked).\nconst input = $('Called by a workflow').first().json;\nconst row = input.row;\nconst q = input.config.alert_queue;\nconst d = $('Decide').first().json;\nconst OK = ['created', 'duplicate', 'repaired', 'parked', 'skipped'];\nlet u;\nlet park = null;\nlet outcome = 'none';\nif (d.action === 'run') {\n  const r = $('Playbook (by route)').first().json;\n  if (OK.includes(r.outcome)) {\n    outcome = r.outcome;\n    u = { status: 'done', attempts: d.attempt, note: `attempt ${d.attempt}: ${r.outcome}` + (r.thehive_alert_id ? `, TheHive ${r.thehive_alert_id}` : '') };\n  } else {\n    outcome = 'error';\n    const e = r.error;\n    const msg = `${typeof e === 'string' ? e : (e?.message ?? JSON.stringify(e ?? r))}`.slice(0, 500);\n    if (d.attempt >= q.max_attempts) {\n      u = { status: 'failed', attempts: d.attempt, note: `attempt ${d.attempt} of ${q.max_attempts} failed: ${msg}; parked` };\n      park = msg;\n    } else {\n      u = { status: 'pending', attempts: d.attempt, note: `attempt ${d.attempt} failed: ${msg}; will retry` };\n    }\n  }\n} else if (d.action === 'yield') {\n  u = { status: 'pending', attempts: d.attempt - 1, note: d.reason };\n} else {\n  outcome = 'error';\n  u = { status: 'failed', attempts: d.attempt, note: `${d.reason}; parked` };\n  park = d.reason;\n}\nreturn [{ json: { ...u, outcome, finished_ms: ['done', 'failed'].includes(u.status) ? Date.now() : 0, park } }];\n"
+        "jsCode": "// How the row ends: done, back to pending (retry), or failed (parked).\n// The input item is the playbook's result, the routing error, or (no run)\n// Decide's item.\nconst input = $('Called by a workflow').first().json;\nconst row = input.row;\nconst q = input.config.alert_queue;\nconst d = $('Decide').first().json;\nconst OK = ['created', 'duplicate', 'repaired', 'parked', 'skipped'];\nlet u;\nlet park = null;\nlet park_stage = null;\nlet outcome = 'none';\nlet route = null;\nif (d.action === 'run') {\n  const r = $input.first().json;\n  if (r.route_error === true) {\n    outcome = 'error';\n    u = { status: 'failed', attempts: d.attempt, note: `attempt ${d.attempt}: ${r.message}`.slice(0, 600) + '; parked' };\n    park = r.message;\n    park_stage = 'route';\n  } else {\n    route = $('Playbook input').first().json.route;\n    if (OK.includes(r.outcome)) {\n      outcome = r.outcome;\n      u = { status: 'done', attempts: d.attempt, note: `attempt ${d.attempt}: ${r.outcome}` + (r.thehive_alert_id ? `, TheHive ${r.thehive_alert_id}` : '') };\n    } else {\n      outcome = 'error';\n      const e = r.error;\n      const msg = `${typeof e === 'string' ? e : (e?.message ?? JSON.stringify(e ?? r))}`.slice(0, 500);\n      if (d.attempt >= q.max_attempts) {\n        u = { status: 'failed', attempts: d.attempt, note: `attempt ${d.attempt} of ${q.max_attempts} failed: ${msg}; parked` };\n        park = msg;\n        park_stage = 'queue';\n      } else {\n        u = { status: 'pending', attempts: d.attempt, note: `attempt ${d.attempt} failed: ${msg}; will retry` };\n      }\n    }\n  }\n} else if (d.action === 'yield') {\n  u = { status: 'pending', attempts: d.attempt - 1, note: d.reason };\n} else if (d.action === 'skip') {\n  outcome = 'skipped';\n  u = { status: 'done', attempts: d.attempt, note: `attempt ${d.attempt}: ${d.reason}` };\n} else {\n  outcome = 'error';\n  u = { status: 'failed', attempts: d.attempt, note: `${d.reason}; parked` };\n  park = d.reason;\n  park_stage = 'queue';\n}\nreturn [{ json: { ...u, outcome, finished_ms: ['done', 'failed'].includes(u.status) ? Date.now() : 0, park, park_stage,\n  route, playbook_id: route?.playbook_id ?? row.playbook_id ?? 'none' } }];\n"
       },
       "id": "cc98af2b-25eb-55d0-b345-e060858824a3",
       "name": "Row update",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1440,
+        1920,
         0
       ]
     },
@@ -197,7 +245,8 @@
             "attempts": "={{ $json.attempts }}",
             "finished_ms": "={{ $json.finished_ms }}",
             "outcome": "={{ $json.outcome }}",
-            "note": "={{ $json.note }}"
+            "note": "={{ $json.note }}",
+            "playbook_id": "={{ $json.playbook_id }}"
           },
           "matchingColumns": [],
           "schema": [],
@@ -211,7 +260,7 @@
       "type": "n8n-nodes-base.dataTable",
       "typeVersion": 1.1,
       "position": [
-        1680,
+        2160,
         0
       ],
       "alwaysOutputData": true
@@ -246,20 +295,20 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        1920,
+        2400,
         0
       ]
     },
     {
       "parameters": {
-        "jsCode": "const input = $('Called by a workflow').first().json;\nconst u = $('Row update').first().json;\nreturn [{ json: {\n  error_class: 'queue_attempts_exhausted', stage: 'alert queue (lib-alert-queue-drain)', workflow: $workflow.name,\n  execution_id: $execution.id, node: 'Playbook (by route)', wazuh_alert_id: input.row.alert_id,\n  thehive_alert_id: null, http_status: null, error_code: null, attempts: u.attempts,\n  message: `alert ${input.row.alert_id}: ${u.note}`, payload: { queue_row: input.row.id } } }];\n"
+        "jsCode": "const input = $('Called by a workflow').first().json;\nconst u = $('Row update').first().json;\nconst d = $('Decide').first().json;\n// A routing failure is parked as before N8N-1.8 (class unknown, stage route,\n// the alert as payload); anything else as an exhausted queue row.\nconst routing = u.park_stage === 'route';\nreturn [{ json: {\n  error_class: routing ? 'unknown' : 'queue_attempts_exhausted',\n  stage: routing ? 'route' : 'alert queue (lib-alert-queue-drain)', workflow: $workflow.name,\n  execution_id: $execution.id, node: routing ? 'Route (lib-route-alert)' : 'Playbook (by route)', wazuh_alert_id: input.row.alert_id,\n  thehive_alert_id: null, http_status: null, error_code: null, attempts: u.attempts,\n  message: routing ? `alert ${input.row.alert_id} (queue row ${input.row.id}): ${u.park}` : `alert ${input.row.alert_id}: ${u.note}`,\n  payload: routing ? (d.payload?.alert ?? null) : { queue_row: input.row.id } } }];\n"
       },
       "id": "cb29e85b-b9eb-5d70-80ff-e73280f60f7b",
       "name": "Park input",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        2160,
+        2640,
         0
       ]
     },
@@ -280,20 +329,20 @@
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.2,
       "position": [
-        2400,
+        2880,
         0
       ]
     },
     {
       "parameters": {
-        "jsCode": "const input = $('Called by a workflow').first().json;\nconst u = $('Row update').first().json;\nconst finished = $('Finish row (compare-and-set)').first().json.id !== undefined;\nconst dp = input.depth;\nconst duration_ms = Date.now() - Number(input.row.started_ms);\nreturn [{ json: {\n  status: `alert ${input.row.alert_id} (row ${input.row.id}, ${input.slot.name}): ${u.note}`\n    + (finished ? '' : ' [row changed meanwhile: not updated]')\n    + ` (${duration_ms} ms); row ${dp.run_row ?? 1} of this scheduler run; queue when the run started: ${dp.pending} pending, ${dp.running} running`,\n  row_id: input.row.id, wazuh_alert_id: input.row.alert_id, row_status: u.status, outcome: u.outcome,\n  attempt: u.attempts, finished, duration_ms, depth: dp,\n} }];"
+        "jsCode": "const input = $('Called by a workflow').first().json;\nconst u = $('Row update').first().json;\nconst finished = $('Finish row (compare-and-set)').first().json.id !== undefined;\nconst dp = input.depth;\nconst duration_ms = Date.now() - Number(input.row.started_ms);\nconst r = u.route;\nconst routed = r ? `; routed: ${r.route_id} -> ${r.playbook}` + (r.fallback ? ` (fallback from ${r.fallback.wanted})` : '') : '';\nreturn [{ json: {\n  status: `alert ${input.row.alert_id} (row ${input.row.id}, ${input.slot.name}): ${u.note}${routed}`\n    + (finished ? '' : ' [row changed meanwhile: not updated]')\n    + ` (${duration_ms} ms); row ${dp.run_row ?? 1} of this scheduler run; queue when the run started: ${dp.pending} pending, ${dp.running} running`,\n  row_id: input.row.id, wazuh_alert_id: input.row.alert_id, row_status: u.status, outcome: u.outcome,\n  route: r ? { route_id: r.route_id, playbook: r.playbook, matched_by: r.matched_by } : null,\n  attempt: u.attempts, finished, duration_ms, depth: dp,\n} }];"
       },
       "id": "db3b1928-909e-51f8-8b5e-f42f657337a6",
       "name": "Drain result",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        2640,
+        3120,
         0
       ]
     }
@@ -336,11 +385,51 @@
       "main": [
         [
           {
+            "node": "Route input",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Row update",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route input": {
+      "main": [
+        [
+          {
+            "node": "Route (lib-route-alert)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route (lib-route-alert)": {
+      "main": [
+        [
+          {
             "node": "Playbook input",
             "type": "main",
             "index": 0
           }
         ],
+        [
+          {
+            "node": "Route error input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route error input": {
+      "main": [
         [
           {
             "node": "Row update",

@@ -5,7 +5,7 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## recv-wazuh-alert (contract C1, N8N-1.1)\n**Trigger:** POST /webhook/wazuh-alert from the Wazuh `custom-n8n` integration, header `X-ASOX-Token` required (403 without it, N8N-1.6). Answers 200 on receipt (C1 has a 10 s timeout and no retries).\n**Inputs:** raw Wazuh alert JSON (body). The full alert stays in this execution (the C1 check looks for it here).\n**Actions taken:** reads lib-config; drops alerts below WAZUH_ALERT_MIN_LEVEL (\"filtered: level ...\"); skips intake exclusions (TEMPORARY: rule group sca, \"skipped: sca (X-09)\"); routes every other alert with lib-route-alert (Router de Playbooks, N8N-1.3: playbook and case template from lib-config `routing`; the route is recorded in \"Playbook input\") and queues the alert with its route in the n8n Data Table `asox_alert_queue` (N8N-1.4; sched-alert-queue runs at most `alert_queue.slots` playbooks at once). If the queue is unavailable, it calls the playbook by ID directly, without waiting (the behaviour before the queue). A routing failure (broken table) parks the alert with its id through lib-error.\n**Systems changed:** none here (the playbooks change TheHive).\n**Approval:** not applicable.\n**Owner:** n8n.\nError workflow: recv-n8n-error.",
+        "content": "## recv-wazuh-alert (contract C1, N8N-1.1, N8N-1.8)\n**Trigger:** POST /webhook/wazuh-alert from the Wazuh `custom-n8n` integration, header `X-ASOX-Token` required (403 without it, N8N-1.6). Answers 200 **after the alert is in the queue** (C1 has a 10 s timeout and no retries): a 200 means queued (or filtered). If n8n dies first, the delivery fails and Wazuh logs it.\n**Inputs:** raw Wazuh alert JSON (body). The full alert stays in this execution (the C1 check looks for it here).\n**Actions taken:** drops alerts below WAZUH_ALERT_MIN_LEVEL (\"filtered: level ...\", 200, no row); inserts every other alert, raw, into the n8n Data Table `asox_alert_queue` (N8N-1.4) and answers 200. **Nothing else runs before the insert: no Code node, no sub-workflow** (N8N-1.8: 20 deliveries at once got n8n OOM-killed while each ran lib-config, lib-route-alert and five Code nodes). Intake exclusions and routing happen in lib-alert-queue-drain, at most `alert_queue.slots` at once. If the queue is unavailable (insert refused), it answers 200 and then, as before the queue, reads lib-config, applies the intake exclusions, routes with lib-route-alert and calls the playbook by ID without waiting; a routing failure there parks the alert with its id through lib-error.\n**Systems changed:** none here (the playbooks change TheHive).\n**Approval:** not applicable.\n**Owner:** n8n.\nError workflow: recv-n8n-error.",
         "height": 380,
         "width": 520
       },
@@ -23,7 +23,7 @@
         "httpMethod": "POST",
         "path": "wazuh-alert",
         "authentication": "headerAuth",
-        "responseMode": "onReceived",
+        "responseMode": "responseNode",
         "options": {}
       },
       "id": "1f7bc56a-a64c-5130-87bc-623e71570603",
@@ -44,15 +44,199 @@
     },
     {
       "parameters": {
-        "jsCode": "// Only the body goes further: the request headers carry the webhook token.\nreturn [{ json: { alert: $input.first().json.body } }];\n"
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "35e74fbc-1610-5f81-9985-9b67ce566377",
+              "leftValue": "={{ ((() => { const r = $json.body?.rule; const l = r !== null && typeof r === 'object' ? r.level : undefined; return typeof l === 'number' && Number.isInteger(l) ? l : typeof l === 'string' && /^\\d+$/.test(l.trim()) ? Number(l.trim()) : null; })() ?? Infinity) < (/^\\d+$/.test(String($env.WAZUH_ALERT_MIN_LEVEL ?? '').trim()) ? Number(String($env.WAZUH_ALERT_MIN_LEVEL).trim()) : 7) }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
       },
-      "id": "321b0b79-4d1a-5bf2-ae5c-66c1309af330",
-      "name": "Intake input",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
+      "id": "119692b1-580c-5902-9fc5-5a80e40eae16",
+      "name": "Below the threshold?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
       "position": [
         260,
         0
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "c1cadaa4-a4fd-5dc4-ab47-d864b4b5ab73",
+              "name": "status",
+              "value": "={{ 'filtered: level ' + $json.body.rule.level + ' < ' + (/^\\d+$/.test(String($env.WAZUH_ALERT_MIN_LEVEL ?? '').trim()) ? Number(String($env.WAZUH_ALERT_MIN_LEVEL).trim()) : 7) }}",
+              "type": "string"
+            },
+            {
+              "id": "d1e1aff7-8e41-5bd9-854f-07be5da5a1bc",
+              "name": "wazuh_alert_id",
+              "value": "={{ typeof $json.body?.id === 'string' ? $json.body.id : '(no id)' }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "c0abdf17-d82d-5b59-9542-4875641ba3d9",
+      "name": "Filtered",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        520,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { \"status\": \"filtered\" } }}",
+        "options": {}
+      },
+      "id": "df8f8b97-47bc-55f7-a705-e68526a552e5",
+      "name": "Respond 200 (filtered)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        780,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "row",
+        "operation": "insert",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "asox_alert_queue"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "alert_id": "={{ typeof $json.body?.id === 'string' ? $json.body.id : 'no-id:recv-' + $execution.id }}",
+            "playbook_id": "none",
+            "payload": "={{ JSON.stringify({ wazuh_alert_id: typeof $json.body?.id === 'string' ? $json.body.id : null, alert: $json.body, recv_execution_id: $execution.id }) }}",
+            "status": "pending",
+            "claim": "none",
+            "attempts": "={{ 0 }}",
+            "received_ms": "={{ Date.now() }}",
+            "started_ms": "={{ 0 }}",
+            "finished_ms": "={{ 0 }}",
+            "outcome": "none",
+            "note": "queued"
+          },
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "041cffca-99d6-5868-a238-804bec76fdb2",
+      "name": "Queue (asox_alert_queue)",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        520,
+        -100
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { \"status\": \"queued\" } }}",
+        "options": {}
+      },
+      "id": "fcb4a392-dee5-5dd8-a463-4bbf97e2fdb2",
+      "name": "Respond 200 (queued)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        780,
+        -220
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "f1782f61-f275-51af-9340-d71075562e93",
+              "name": "status",
+              "value": "={{ 'queued: row ' + $('Queue (asox_alert_queue)').item.json.id + ' of asox_alert_queue (routed and run by lib-alert-queue-drain)' }}",
+              "type": "string"
+            },
+            {
+              "id": "1737f502-265e-5c96-88b0-e7300ad74152",
+              "name": "queue_row",
+              "value": "={{ $('Queue (asox_alert_queue)').item.json.id }}",
+              "type": "number"
+            },
+            {
+              "id": "678cfec8-90c2-55ed-82f0-b8a421ed3cf3",
+              "name": "wazuh_alert_id",
+              "value": "={{ typeof $('Wazuh alert').item.json.body?.id === 'string' ? $('Wazuh alert').item.json.body.id : '(no id)' }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "22f8b864-fa61-5b1e-883c-6f6844449898",
+      "name": "Queued",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1040,
+        -220
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { \"status\": \"accepted, not queued\" } }}",
+        "options": {}
+      },
+      "id": "6e2d73a1-8c4c-5508-9ff5-405c4915fea3",
+      "name": "Respond 200 (not queued)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        780,
+        20
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// The queue table is missing or refused the row (the 200 is already sent):\n// run the playbook directly, without waiting (the behaviour before the\n// queue), so the alert isn't lost. Only the body goes further: the request\n// headers carry the webhook token.\nconst e = $('Queue (asox_alert_queue)').first().json.error;\nreturn [{ json: {\n  alert: $('Wazuh alert').first().json.body,\n  queue_error: `queue unavailable (${typeof e === 'string' ? e : e?.message ?? 'error'})`,\n} }];\n"
+      },
+      "id": "3643c435-6a84-5344-b298-462dd2679295",
+      "name": "Queue unavailable: run directly",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1040,
+        20
       ]
     },
     {
@@ -72,21 +256,21 @@
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.2,
       "position": [
-        520,
-        0
+        1300,
+        20
       ]
     },
     {
       "parameters": {
-        "jsCode": "// Level filter, then intake exclusions (lib-config). An alert whose level is\n// missing or not numeric is not filtered here: pb-generic's normalizer parks it.\nconst alert = $('Intake input').first().json.alert;\nconst cfg = $input.first().json;\nconst rule = alert !== null && typeof alert === 'object' ? alert.rule : undefined;\nconst raw = rule !== null && typeof rule === 'object' ? rule.level : undefined;\nconst level = typeof raw === 'number' && Number.isInteger(raw) ? raw\n  : typeof raw === 'string' && /^\\d+$/.test(raw.trim()) ? Number(raw.trim()) : null;\nconst groups = rule !== null && typeof rule === 'object' && Array.isArray(rule.groups) ? rule.groups : [];\nlet decision = 'handoff';\nlet status = 'handed off to the router';\nif (level !== null && level < cfg.min_level) {\n  decision = 'filtered';\n  status = `filtered: level ${level} < ${cfg.min_level}`;\n} else {\n  const ex = cfg.intake_exclusions.find((e) => groups.includes(e.rule_group));\n  if (ex) { decision = 'skipped'; status = `skipped: ${ex.label}`; }\n}\nreturn [{ json: {\n  decision, status,\n  wazuh_alert_id: typeof alert?.id === 'string' ? alert.id : null,\n  rule_id: rule?.id ?? null, rule_level: level,\n  alert, config: cfg, recv_execution_id: $execution.id,\n} }];\n"
+        "jsCode": "// Queue-unavailable branch only. Intake exclusions (lib-config), the same\n// rule lib-alert-queue-drain's Decide applies to queued alerts. The level\n// filter already ran (Below the threshold?).\nconst { alert, queue_error } = $('Queue unavailable: run directly').first().json;\nconst cfg = $input.first().json;\nconst rule = alert !== null && typeof alert === 'object' ? alert.rule : undefined;\nconst groups = rule !== null && typeof rule === 'object' && Array.isArray(rule.groups) ? rule.groups : [];\nconst ex = (cfg.intake_exclusions ?? []).find((e) => groups.includes(e.rule_group));\nreturn [{ json: {\n  decision: ex ? 'skipped' : 'handoff',\n  status: ex ? `skipped: ${ex.label}` : `${queue_error}: handed off to the router`,\n  queue_error,\n  wazuh_alert_id: typeof alert?.id === 'string' ? alert.id : null,\n  rule_id: rule?.id ?? null,\n  alert, config: cfg, recv_execution_id: $execution.id,\n} }];\n"
       },
       "id": "e87c7def-1f8e-5ea2-a5c2-4e02fac06898",
       "name": "Intake decision",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        780,
-        0
+        1560,
+        20
       ]
     },
     {
@@ -119,27 +303,7 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        1040,
-        0
-      ]
-    },
-    {
-      "parameters": {
-        "workflowId": {
-          "__rl": true,
-          "mode": "id",
-          "value": "={{ $json.route.playbook_id }}"
-        },
-        "options": {
-          "waitForSubWorkflow": false
-        }
-      },
-      "id": "90b551e0-7e53-59a2-a239-2e86976b4bb4",
-      "name": "Playbook (by route)",
-      "type": "n8n-nodes-base.executeWorkflow",
-      "typeVersion": 1.2,
-      "position": [
-        2540,
+        1820,
         20
       ]
     },
@@ -150,8 +314,8 @@
       "type": "n8n-nodes-base.noOp",
       "typeVersion": 1,
       "position": [
-        1300,
-        260
+        2080,
+        240
       ]
     },
     {
@@ -171,22 +335,42 @@
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.2,
       "position": [
-        1300,
-        -100
+        2080,
+        -80
       ],
       "onError": "continueErrorOutput"
     },
     {
       "parameters": {
-        "jsCode": "// The route is recorded here (this execution is saved) and passed to the\n// playbook, which puts it in TheHive (caseTemplate, writeback).\nconst d = $('Intake decision').first().json;\nconst route = $input.first().json.route;\nreturn [{ json: {\n  status: `routed: ${route.route_id} -> ${route.playbook}` + (route.fallback ? ` (fallback from ${route.fallback.wanted})` : ''),\n  route,\n  wazuh_alert_id: d.wazuh_alert_id,\n  alert: d.alert, config: d.config, recv_execution_id: d.recv_execution_id,\n} }];\n"
+        "jsCode": "// Queue-unavailable branch: the route is recorded here and passed to the\n// playbook, which puts it in TheHive (caseTemplate, writeback). For queued\n// alerts the route is on the lib-alert-queue-drain execution.\nconst d = $('Intake decision').first().json;\nconst route = $input.first().json.route;\nreturn [{ json: {\n  status: `${d.queue_error}: playbook started directly, not queued; routed: ${route.route_id} -> ${route.playbook}` + (route.fallback ? ` (fallback from ${route.fallback.wanted})` : ''),\n  route,\n  wazuh_alert_id: d.wazuh_alert_id,\n  alert: d.alert, config: d.config, recv_execution_id: d.recv_execution_id,\n} }];\n"
       },
       "id": "2de3de05-6f49-5717-b6f1-d4b2be76f7a3",
       "name": "Playbook input",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1560,
-        -100
+        2340,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $json.route.playbook_id }}"
+        },
+        "options": {
+          "waitForSubWorkflow": false
+        }
+      },
+      "id": "90b551e0-7e53-59a2-a239-2e86976b4bb4",
+      "name": "Playbook (by route)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        2600,
+        -80
       ]
     },
     {
@@ -198,7 +382,7 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1560,
+        2340,
         120
       ]
     },
@@ -219,88 +403,8 @@
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.2,
       "position": [
-        1820,
+        2600,
         120
-      ]
-    },
-    {
-      "parameters": {
-        "jsCode": "// One row in asox_alert_queue (N8N-1.4): sched-alert-queue runs the playbook,\n// at most alert_queue.slots at once. This execution ends here, so the 200\n// sent on receipt (C1) never waits for a playbook.\nconst p = $input.first().json;\nreturn [{ json: {\n  alert_id: p.wazuh_alert_id ?? `no-id:recv-${p.recv_execution_id}`,\n  playbook_id: p.route.playbook_id,\n  payload: JSON.stringify({ wazuh_alert_id: p.wazuh_alert_id, route: p.route, alert: p.alert, recv_execution_id: p.recv_execution_id }),\n  received_ms: Date.now(),\n} }];\n"
-      },
-      "id": "3c6b1fdd-e673-5f3d-9f4d-fddae1526844",
-      "name": "Queue row",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        1820,
-        -100
-      ]
-    },
-    {
-      "parameters": {
-        "resource": "row",
-        "operation": "insert",
-        "dataTableId": {
-          "__rl": true,
-          "mode": "name",
-          "value": "asox_alert_queue"
-        },
-        "columns": {
-          "mappingMode": "defineBelow",
-          "value": {
-            "alert_id": "={{ $json.alert_id }}",
-            "playbook_id": "={{ $json.playbook_id }}",
-            "payload": "={{ $json.payload }}",
-            "status": "pending",
-            "claim": "none",
-            "attempts": "={{ 0 }}",
-            "received_ms": "={{ $json.received_ms }}",
-            "started_ms": "={{ 0 }}",
-            "finished_ms": "={{ 0 }}",
-            "outcome": "none",
-            "note": "queued"
-          },
-          "matchingColumns": [],
-          "schema": [],
-          "attemptToConvertTypes": false,
-          "convertFieldsToString": false
-        },
-        "options": {}
-      },
-      "id": "041cffca-99d6-5868-a238-804bec76fdb2",
-      "name": "Queue (asox_alert_queue)",
-      "type": "n8n-nodes-base.dataTable",
-      "typeVersion": 1.1,
-      "position": [
-        2060,
-        -100
-      ],
-      "onError": "continueErrorOutput"
-    },
-    {
-      "parameters": {
-        "jsCode": "const p = $('Playbook input').first().json;\nconst r = $input.first().json;\nreturn [{ json: { status: `queued: row ${r.id} of asox_alert_queue -> ${p.route.playbook} (run by sched-alert-queue)`, queue_row: r.id } }];\n"
-      },
-      "id": "2b6541ab-0108-5490-93ab-9f0b8c474b3c",
-      "name": "Queued",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        2300,
-        -220
-      ]
-    },
-    {
-      "parameters": {
-        "jsCode": "// The queue table is missing or refused the row: run the playbook directly,\n// without waiting (the behaviour before the queue), so the alert isn't lost.\nconst p = $('Playbook input').first().json;\nconst e = $input.first().json.error;\nreturn [{ json: { ...p, status: `queue unavailable (${typeof e === 'string' ? e : e?.message ?? 'error'}): playbook started directly, not queued` } }];\n"
-      },
-      "id": "3643c435-6a84-5344-b298-462dd2679295",
-      "name": "Queue unavailable: run directly",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        2300,
-        20
       ]
     }
   ],
@@ -309,14 +413,83 @@
       "main": [
         [
           {
-            "node": "Intake input",
+            "node": "Below the threshold?",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Intake input": {
+    "Below the threshold?": {
+      "main": [
+        [
+          {
+            "node": "Filtered",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Queue (asox_alert_queue)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filtered": {
+      "main": [
+        [
+          {
+            "node": "Respond 200 (filtered)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Queue (asox_alert_queue)": {
+      "main": [
+        [
+          {
+            "node": "Respond 200 (queued)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond 200 (not queued)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respond 200 (queued)": {
+      "main": [
+        [
+          {
+            "node": "Queued",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respond 200 (not queued)": {
+      "main": [
+        [
+          {
+            "node": "Queue unavailable: run directly",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Queue unavailable: run directly": {
       "main": [
         [
           {
@@ -389,7 +562,7 @@
       "main": [
         [
           {
-            "node": "Queue row",
+            "node": "Playbook (by route)",
             "type": "main",
             "index": 0
           }
@@ -401,46 +574,6 @@
         [
           {
             "node": "Park (lib-error)",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Queue row": {
-      "main": [
-        [
-          {
-            "node": "Queue (asox_alert_queue)",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Queue (asox_alert_queue)": {
-      "main": [
-        [
-          {
-            "node": "Queued",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Queue unavailable: run directly",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Queue unavailable: run directly": {
-      "main": [
-        [
-          {
-            "node": "Playbook (by route)",
             "type": "main",
             "index": 0
           }
