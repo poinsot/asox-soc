@@ -1,0 +1,63 @@
+<!--
+  ASOX MISP IOC matches (owner: Wazuh, C14, W6.4). Range 108000-108999.
+  The CDB lists etc/lists/misp/misp-ip, misp-domain and misp-hash are written
+  from MISP by lists/misp-sync.py (README "MISP IOCs (C14)"). Detection only
+  (D12): a match is an alert at level 12 (Critical, README "Alert levels"),
+  sent to n8n through C1 and routed to TheHive's ioc-match template by the
+  group misp_ioc; any blocking stays an n8n playbook.
+
+  These rules hang from groups, so they are evaluated as children of every
+  rule in those groups, and an IOC match replaces the plain alert (e.g. a
+  5710 SSH failure from a listed address becomes 108000). They load after
+  every source's rules (file prefix 1080), which they depend on.
+  Tested live: nodes/lab/trigger.sh, scenario ioc-ip, once 203.0.113.66 is in
+  MISP with to_ids (FIM and Suricata matches the same way).
+  Copied into /var/ossec/etc/rules/ at every manager start.
+-->
+<group name="asox,misp_ioc,">
+
+  <!-- Log events with a decoded source or destination address:
+       sshd, firewall (filterlog), web and the other syslog sources. -->
+  <rule id="108000" level="12" ignore="60">
+    <if_group>syslog|pfsense|web|firewall</if_group>
+    <list field="srcip" lookup="address_match_key">etc/lists/misp/misp-ip</list>
+    <description>ASOX IOC: source $(srcip) is a MISP indicator</description>
+  </rule>
+
+  <rule id="108001" level="12" ignore="60">
+    <if_group>syslog|pfsense|web|firewall</if_group>
+    <list field="dstip" lookup="address_match_key">etc/lists/misp/misp-ip</list>
+    <description>ASOX IOC: destination $(dstip) is a MISP indicator</description>
+  </rule>
+
+  <!-- Suricata alerts keep Suricata's field names (data.src_ip, data.dest_ip). -->
+  <rule id="108010" level="12">
+    <if_group>suricata</if_group>
+    <list field="src_ip" lookup="address_match_key">etc/lists/misp/misp-ip</list>
+    <description>ASOX IOC: IDS alert from MISP indicator $(src_ip): $(alert.signature)</description>
+    <group>ids,suricata,</group>
+  </rule>
+
+  <rule id="108011" level="12">
+    <if_group>suricata</if_group>
+    <list field="dest_ip" lookup="address_match_key">etc/lists/misp/misp-ip</list>
+    <description>ASOX IOC: IDS alert to MISP indicator $(dest_ip): $(alert.signature)</description>
+    <group>ids,suricata,</group>
+  </rule>
+
+  <!-- File integrity: a new or changed file whose hash is a MISP indicator. -->
+  <rule id="108020" level="12">
+    <if_group>syscheck</if_group>
+    <list field="sha256_after" lookup="match_key">etc/lists/misp/misp-hash</list>
+    <description>ASOX IOC: file $(file) matches a MISP hash (SHA-256)</description>
+    <group>syscheck,malware,</group>
+  </rule>
+
+  <rule id="108021" level="12">
+    <if_group>syscheck</if_group>
+    <list field="md5_after" lookup="match_key">etc/lists/misp/misp-hash</list>
+    <description>ASOX IOC: file $(file) matches a MISP hash (MD5)</description>
+    <group>syscheck,malware,</group>
+  </rule>
+
+</group>

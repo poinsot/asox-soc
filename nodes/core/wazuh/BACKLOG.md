@@ -224,13 +224,13 @@ Wazuh flags events that match IOCs kept in MISP. This is contract C14 (proposed)
   - Done when: Written and sent to Inigo for PROJECT.md 5: which attributes (IPs, domains, MD5/SHA-256), which events (published, `to_ids`, a tag), refresh cadence, and who runs the sync. Inigo prefers (a) (memo item 9): if n8n ran it, it would need write access to Wazuh's CDB lists, a new permission and a contract change like C9. Options: (a) a Wazuh-side script with its own read-only MISP key (R-08, a new `__from:intel__` value), or (b) an n8n scheduled workflow reusing C10's key (D45) (R-08 dropped; C10 waits for MISP's warninglist memory fix, R-14). Either way the CDB lists and the rules live in your folder.
   - With: Diego (Cortex + MISP), Inigo (PROJECT.md; R-08 or the n8n side)
   - Refs: X-24, R-08, R-14, D45
-- [ ] **W6.2** MISP to CDB export · P1, C14
+- [ ] **W6.2** MISP to CDB export *(in progress)* · P1, C14
   - Done when: Per the C14 design, either `nodes/core/wazuh/lists/misp-sync.sh` (option a) or Inigo's n8n workflow (option b) writes `misp-ip`, `misp-domain`, `misp-hash` in CDB `key:value` format into your folder; the generated lists are git-ignored (IOCs are data). A script of yours has PASS/FAIL output and is `shellcheck` clean.
   - Files: `nodes/core/wazuh/lists/`
-- [ ] **W6.3** Load the lists in the manager · P1, C14
+- [ ] **W6.3** Load the lists in the manager *(in progress)* · P1, C14
   - Done when: Lists mounted and copied at start, declared as `<list>` in ossec.conf; a list update plus a manager restart applies it.
   - Files: `nodes/core/wazuh/config/ossec.conf`, `nodes/core/wazuh/compose.yml`
-- [ ] **W6.4** IOC match rules · P1, C1, C14
+- [ ] **W6.4** IOC match rules *(in progress)* · P1, C1, C14
   - Done when: Rules with `<list field="srcip" lookup="address_match_key">` (and dstip, Suricata's `src_ip`/`dest_ip`, domains, FIM hashes). The seed IOC 203.0.113.66 in a lab event fires the rule at level 12 and reaches n8n through C1. Detection only: a match raises an alert, and any blocking stays an n8n playbook (D12).
   - Files: `nodes/core/wazuh/rules/`
   - Refs: D12
