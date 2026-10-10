@@ -16,7 +16,9 @@
 #          to n8n (C4); the MISP analyzer (C7) once intel has created its
 #          MISP key
 #   intel: MISP admin API key, read-only user for Cortex with its key (C7),
-#          and the seed event (nodes/intel/misp/seed/seed-event.json)
+#          the seed event (nodes/intel/misp/seed/seed-event.json), then
+#          nodes/intel/misp/misp-config.sh apply: warninglists with the size
+#          cap, feeds, and the read-only user for n8n with its key (C10)
 set -euo pipefail
 # shellcheck source=scripts/lib/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
@@ -636,11 +638,31 @@ bootstrap_misp_seed() {
   pass "MISP: seed event $id published (\"$info\")"
 }
 
+# Warninglists (size cap, R-14), feeds and n8n's Read Only user (C10) are the
+# MISP owner's configuration as code: nodes/intel/misp/misp-config.json,
+# applied by their own idempotent script (R-22). Its PASS/FAIL/SKIP lines are
+# shown as they come; its closing summary is dropped (this script prints one).
+MISP_CONFIG_SCRIPT="$REPO_ROOT/nodes/intel/misp/misp-config.sh"
+bootstrap_misp_config() {
+  if [[ ! -f $MISP_CONFIG_SCRIPT ]]; then
+    fail "MISP: nodes/intel/misp/misp-config.sh not found"
+    return 1
+  fi
+  if bash "$MISP_CONFIG_SCRIPT" apply 2>&1 \
+       | sed -e '/^$/d' -e '/^All checks passed\.$/d' -e '/^[0-9]* check(s) failed\.$/d'; then
+    pass "MISP: nodes/intel/misp/misp-config.sh apply (warninglists, feeds, n8n user)"
+  else
+    fail "MISP: nodes/intel/misp/misp-config.sh apply failed (its FAIL or ERROR lines are above)"
+    return 1
+  fi
+}
+
 bootstrap_intel() {
   echo "== bootstrap intel"
   bootstrap_misp_admin_key || return
   bootstrap_misp_cortex_user || return
   bootstrap_misp_seed
+  bootstrap_misp_config
 }
 
 # ---------------------------------------------------------------- main ---
