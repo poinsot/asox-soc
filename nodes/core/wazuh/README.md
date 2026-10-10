@@ -132,6 +132,9 @@ Every custom rule, the alert it produces and how to fire it. Built-in rules the 
 | 103011 | `1030-opnsense.xml` | 10 | `opnsense`, `pfsense`, `authentication_failures` | T1110 | Web GUI brute force: 5 failures in 2 min from one source | `opnsense-gui-bruteforce` | `ssh-bruteforce` (through T1110) |
 | 103012 | `1030-opnsense.xml` | 3 | `opnsense`, `pfsense`, `authentication_success` | T1078 | Web GUI login (context) | — | — |
 | 87702 | `1090-tuning.xml` | 10 | `pfsense`, `multiple_blocks` | (removed) | Built-in "18 blocks in 45 s", without its T1110, which misrouted it to brute force | — | `wazuh-generic` |
+| 108000 / 108001 | `1080-misp-ioc.xml` | 12 | `misp_ioc` | — | Source / destination address of a log event is a MISP IOC (C14); one a minute, absorbs that minute's events | `ioc-ip` (once synced) | `ioc-match` |
+| 108010 / 108011 | `1080-misp-ioc.xml` | 12 | `misp_ioc`, `ids`, `suricata` | — | Suricata alert from / to a MISP IOC | — | `ioc-match` |
+| 108020 / 108021 | `1080-misp-ioc.xml` | 12 | `misp_ioc`, `syscheck`, `malware` | — | New or changed file whose SHA-256 / MD5 is a MISP IOC | — | `ioc-match` |
 | 19004, 19007 | `1090-tuning.xml` | 5 | `sca` | (SCA's own) | Built-in SCA, lowered (W2.7) | re-enrolling an agent | — (not forwarded) |
 
 Decoder `asox-usermod` (`decoders/1002-linux-auth.xml`) gives `data.dstuser` (the account) and `data.group`, the same names as the built-in gpasswd decoder.
@@ -245,6 +248,32 @@ OPNsense sends its logs as syslog to the manager's 514/udp; the sender must be i
 4. Check: `docker logs <instance>-core-wazuh-manager-1 | grep "syslog 514"` lists the address, and a scan of the firewall from another machine (`nmap -sS <firewall IP>`) gives 103000 within a minute.
 5. Replace the sample lines in `tests/cases/1030-opnsense.cases` with real ones from the firewall (W4.1), and re-run `tests/run.sh`.
 
+## MISP IOCs as CDB lists (C14)
+
+`lists/misp-sync.py` turns MISP's IOCs into three Wazuh CDB lists, and `rules/1080-misp-ioc.xml` raises a level-12 alert (group `misp_ioc`, TheHive's `ioc-match`) when an event matches one. Design and owners: `docs/request-cortex-misp-c14-design.md`.
+
+```
+MISP (published, to_ids, not on a warninglist) --REST, read-only key--> misp-sync (s6 service in the manager)
+   --> etc/lists/misp/misp-ip, misp-domain, misp-hash ("key:misp-event-<id>", rewritten only when changed)
+   --> PUT /manager/analysisd/reload (no restart) --> 1080 rules: srcip/dstip, Suricata src_ip/dest_ip, FIM sha256/md5
+```
+
+- **Start** (`config/entrypoint-scripts/40-misp-sync.sh`): the three lists always exist (empty until synced, so Wazuh starts with or without MISP); one sync runs before Wazuh starts; then an s6 service (like the image's filebeat) syncs every `WAZUH_MISP_SYNC_INTERVAL` seconds (default 3600). `docker logs <instance>-core-wazuh-manager-1 | grep misp-sync` shows each run.
+- **Off until R-08:** without `WAZUH_MISP_URL` and `WAZUH_MISP_API_KEY` in `nodes/core/.env`, C14 is off and the lists stay as they are. Run one sync by hand with any read-only MISP key:
+  ```bash
+  docker exec -e WAZUH_MISP_URL=https://misp-nginx:8443 -e WAZUH_MISP_API_KEY=<read-only key> \
+    <instance>-core-wazuh-manager-1 /var/ossec/framework/python/bin/python3 /asox/lists/misp-sync.py --once
+  ```
+- **Failures:** a MISP that is down or answers an error leaves the lists as they were (`ERROR: MISP fetch failed ... keeping the current lists`), retried at the next interval.
+- **Limits:** IPv4 addresses and /8, /16, /24, /32 networks (`address_match_key` matches octet prefixes); IPv6 values are skipped for now (`:` is the CDB separator). Domains are listed, but no rule uses them yet (Suricata DNS and HTTP fields, later). At most 200,000 entries per list.
+- **Tested 2026-10-10** (`core` + `intel` on `low`, a local MISP event with `203.0.113.66`, `198.51.100.99`, a domain and a SHA-256, all `to_ids`):
+  - the sync filled the lists and reloaded in under 3 s; a second sync changed nothing and didn't reload;
+  - an IOC added in MISP reached the list on the next interval, with no restart;
+  - with MISP's front end stopped, the lists were kept;
+  - `trigger.sh --scenario ioc-ip` gave **108000**; a file with the IOC hash in `/etc/cron.d` gave **108020**; both reached n8n's `recv-wazuh-alert`. A Suricata alert from the IOC gives 108010 (`tests/cases/1010-suricata.cases`).
+  - The manager stayed at 255 MiB anonymous (peak 623 MiB of its 700m) with the lists loaded.
+- **The seed IOC:** MISP's own seed attribute has `to_ids: false`, and `203.0.113.0/24` is on MISP's "RFC 5735" warninglist (X-36), so neither reaches the lists as it stands. Diego decides (`docs/request-n8n-c1-delivery.md`). The lab machine's lists keep the test IOCs above.
+
 ## Lab agent (`nodes/lab/`)
 
 A containerized Wazuh agent (`lab-agent`), enrolled exactly like a real endpoint: the package's default configuration plus the manager address and the enrollment password (see `nodes/lab/entrypoint.sh`). It also produces realistic alerts (SCA, rootcheck, FIM) for Grafana.
@@ -282,6 +311,7 @@ Everything here works around upstream behaviour or depends on details of the pin
 | `config/entrypoint-scripts/20-n8n-integration.sh` | Writes the `custom-n8n` `<integration>` block (URL, token, level) into `ossec.conf` at every start (A41) | C1 passes (`scripts/contracts-check.sh --only C1`) |
 | `config/entrypoint-scripts/30-syslog-allowed-ips.sh` | Writes the syslog `<allowed-ips>` from the container's own subnets plus `WAZUH_SYSLOG_ALLOWED_IPS` at every start (W1.1, A81); needs the marker comment `ASOX-SYSLOG-ALLOWED-IPS` in `ossec.conf` | `docker logs` shows `syslog 514/udp allowed sources: ...`, and `ossec.log` shows `Remote syslog allowed from` for each entry |
 | `config/entrypoint-scripts/35-agent-groups.sh` and the `./groups` mount on `/wazuh-config-mount/etc/shared` | The image copies everything under `/wazuh-config-mount` into `/var/ossec` (and `05-restart-fixes.sh` does on restarts); Wazuh registers a group for every folder in `etc/shared` when it starts; the script only sets owner and mode (W5.1) | `agent_groups -l` lists the three groups after `soc.sh up core`; `verify-agent-conf` says OK for each |
+| `config/entrypoint-scripts/40-misp-sync.sh`, `lists/` mounted on `/asox/lists`, the s6 service `/etc/services.d/misp-sync` | C14 runs inside the manager with Wazuh's bundled Python (it needs `requests`) and is supervised by the image's s6-overlay; the ruleset is hot-reloaded through `PUT /manager/analysisd/reload` (tested on 4.14.8, W6.1) | `docker logs` shows `misp-sync:` lines; `ps` in the container shows `s6-supervise misp-sync`; a list change logs `Ruleset reloaded successfully` in `ossec.log` |
 | `integrations/custom-n8n` | Copy of the shell wrapper Wazuh ships for its integrations (A48) | Diff against the new image's wrappers in `/var/ossec/integrations/`; `custom-n8n.py` runs on Wazuh's bundled Python, so check it still imports `requests` |
 | Manager healthcheck (`compose.yml`) | Names the daemons that must run (`wazuh-analysisd`, `-remoted`, `-authd`, `-db`, `-modulesd`, `-apid`; A27) | Daemon names still exist (`/var/ossec/bin/wazuh-control status`) |
 | Indexer addressed as `wazuh.indexer` | The certificate tool only accepts dotted DNS names (D32, A15) | Tool version in `config/certs.yml` / `WAZUH_CERTS_GENERATOR_IMAGE`; `gen-certs.sh` on a clean `nodes/core/certs/` |
@@ -297,5 +327,5 @@ Pick from this list; Phase 1 only built the baseline. The owner's plan, split in
 - Detection rules and decoders for the environment; false-positive tuning; the alert level threshold (`WAZUH_ALERT_MIN_LEVEL`, default 7).
 - ~~Agent groups and policies; an enrollment guide~~ Done (W5.1–W5.4): `groups/`, [ENROLLMENT.md](ENROLLMENT.md).
 - Decoders for pfSense and router logs; MITRE ATT&CK mapping.
-- CDB lists fed from MISP IOCs (with the Cortex + MISP owner).
+- ~~CDB lists fed from MISP IOCs~~ Built and tested (W6.2–W6.5): "MISP IOCs as CDB lists (C14)"; on for good once R-08 is on `main`.
 - Later: response actions through C9 (Phase 2, with the n8n owner).

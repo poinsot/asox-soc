@@ -33,7 +33,7 @@ log Oct  5 10:00:00 lab-agent asox-test: ASOX_TEST id=1
 | Line | Meaning |
 |---|---|
 | `case <name>` | Starts a case. All its lines go through one logtest session, so frequency rules see the earlier lines. |
-| `expect rule=<id> [level=<n>] [groups=<a,b>] [decoder=<name>]` | Some event of the session must match this rule. Its level and decoder must be equal, and it must carry every listed group (other groups are allowed). `rule=none` means no event may produce an alert. |
+| `expect rule=<id> [level=<n>] [groups=<a,b>] [decoder=<name>]` | Some event of the session must match this rule. Its level and decoder must be equal, and it must carry every listed group (other groups are allowed). `rule=none` means no event may produce an alert. `rule=a|b` accepts either rule, for results that depend on data outside the repo (e.g. the MISP lists, C14). |
 | `expect not=<id>` | No event of the session may match that rule, e.g. a frequency rule that must not fire. Can be its own `expect` line next to a `rule=` one. |
 | `log <line>` | One log line, exactly as the agent or syslog would send it. |
 | `repeat <n> <line>` | The same line `n` times. |

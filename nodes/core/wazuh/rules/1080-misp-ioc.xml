@@ -17,7 +17,11 @@
 <group name="asox,misp_ioc,">
 
   <!-- Log events with a decoded source or destination address:
-       sshd, firewall (filterlog), web and the other syslog sources. -->
+       sshd, firewall (filterlog), web and the other syslog sources.
+       ignore="60": one IOC alert a minute, not one per event (8 SSH failures
+       would be 8 Critical alerts, maybe 8 TheHive cases, D-N4). Events in
+       that minute are absorbed, so e.g. 5712 (brute force) doesn't also
+       fire: the IOC alert is the stronger signal. Tested 2026-10-10. -->
   <rule id="108000" level="12" ignore="60">
     <if_group>syslog|pfsense|web|firewall</if_group>
     <list field="srcip" lookup="address_match_key">etc/lists/misp/misp-ip</list>
@@ -48,14 +52,14 @@
   <!-- File integrity: a new or changed file whose hash is a MISP indicator. -->
   <rule id="108020" level="12">
     <if_group>syscheck</if_group>
-    <list field="sha256_after" lookup="match_key">etc/lists/misp/misp-hash</list>
+    <list field="sha256" lookup="match_key">etc/lists/misp/misp-hash</list>
     <description>ASOX IOC: file $(file) matches a MISP hash (SHA-256)</description>
     <group>syscheck,malware,</group>
   </rule>
 
   <rule id="108021" level="12">
     <if_group>syscheck</if_group>
-    <list field="md5_after" lookup="match_key">etc/lists/misp/misp-hash</list>
+    <list field="md5" lookup="match_key">etc/lists/misp/misp-hash</list>
     <description>ASOX IOC: file $(file) matches a MISP hash (MD5)</description>
     <group>syscheck,malware,</group>
   </rule>

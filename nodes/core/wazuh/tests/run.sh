@@ -117,7 +117,7 @@ check() {  # file, name, one expect line, logtest results
 
   local r l g d hit="" g_ok
   while IFS='|' read -r r l g d _; do
-    [[ $r == "$want_rule" ]] || continue
+    [[ "|$want_rule|" == *"|$r|"* ]] || continue
     [[ -z $want_level || $l == "$want_level" ]] || { hit="rule $r at level $l, expected level $want_level"; continue; }
     [[ -z $want_dec || $d == "$want_dec" ]] || { hit="rule $r with decoder '$d', expected '$want_dec'"; continue; }
     g_ok=1
