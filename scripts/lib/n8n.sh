@@ -44,8 +44,16 @@ n8n_workflow_id_by_name() {
   n8n_api GET "/workflows?limit=250" | jq -r --arg n "$1" '.data[] | select(.name == $n) | .id' | head -n 1
 }
 
-# Activate (publish) a workflow on the running server, which registers its webhooks.
-n8n_activate() { [[ $(n8n_api POST "/workflows/$1/activate" | jq -r '.active // false') == true ]]; }
+# Activate (publish) a workflow on the running server, which registers its
+# webhooks. When n8n refuses, its reason is left in N8N_ACTIVATE_ERROR.
+N8N_ACTIVATE_ERROR=""
+n8n_activate() {
+  local resp
+  resp=$(n8n_api POST "/workflows/$1/activate")
+  [[ $(jq -r '.active // false' <<<"$resp" 2>/dev/null) == true ]] && return 0
+  N8N_ACTIVATE_ERROR=$(jq -r '.message // empty' <<<"$resp" 2>/dev/null | tr '\n' ' ' | head -c 200)
+  return 1
+}
 n8n_deactivate() { n8n_api POST "/workflows/$1/deactivate" >/dev/null; }
 
 # ---- UI session (bootstrap only) ----
@@ -124,6 +132,11 @@ n8n_wait_webhooks() {
 
 # Import workflow files (overwriting workflows with the same ID), then
 # activate those whose file says "active": true. Prints PASS/FAIL lines.
+# n8n refuses to activate a workflow while a sub-workflow it calls is still
+# inactive, and the files come in name order, not dependency order (R-25):
+# activation is repeated over the refused ones until every workflow is active
+# or a whole pass activates nothing. What is left gets a FAIL line with n8n's
+# reason; a last check reads the active state back from the server.
 n8n_import_workflows() {
   (( $# > 0 )) || return 0
   local tmp f id name active_ids
@@ -143,13 +156,37 @@ n8n_import_workflows() {
     return 1
   fi
   rm -rf "$tmp"
+
+  local -a pending=() refused=() wanted=()
+  local -A reason=()
   for f in "$@"; do
-    id=$(jq -r '.id' "$f"); name=$(jq -r '.name' "$f")
-    if [[ $(jq -r '.active // false' "$f") == true ]]; then
-      if n8n_activate "$id" && n8n_wait_webhooks "$f"; then pass "n8n: workflow $name imported and active"
-      else fail "n8n: workflow $name imported but could not be activated"; fi
-    else
-      pass "n8n: workflow $name imported (inactive)"
-    fi
+    if [[ $(jq -r '.active // false' "$f") == true ]]; then pending+=("$f"); wanted+=("$(jq -r '.id' "$f")")
+    else pass "n8n: workflow $(jq -r '.name' "$f") imported (inactive)"; fi
   done
+  local progress=1
+  while (( ${#pending[@]} > 0 && progress )); do
+    progress=0; refused=()
+    for f in "${pending[@]}"; do
+      id=$(jq -r '.id' "$f"); name=$(jq -r '.name' "$f")
+      if n8n_activate "$id"; then
+        progress=1
+        if n8n_wait_webhooks "$f"; then pass "n8n: workflow $name imported and active"
+        else fail "n8n: workflow $name imported and active, but its webhook did not register"; fi
+      else
+        reason[$id]=$N8N_ACTIVATE_ERROR; refused+=("$f")
+      fi
+    done
+    pending=("${refused[@]}")
+    (( ${#pending[@]} > 0 && progress )) && info "n8n: ${#pending[@]} workflow(s) refused (a sub-workflow wasn't active yet), trying them again"
+  done
+  for f in "${pending[@]}"; do
+    id=$(jq -r '.id' "$f")
+    fail "n8n: workflow $(jq -r '.name' "$f") ($id) imported but could not be activated: ${reason[$id]:-no reason given by n8n}"
+  done
+  (( ${#wanted[@]} > 0 )) || return 0
+  local inactive
+  active_ids=$(n8n_api GET "/workflows?limit=250&active=true" | jq -r '.data[].id')
+  inactive=$(comm -23 <(printf '%s\n' "${wanted[@]}" | sort) <(sort <<<"$active_ids") | paste -sd' ' -)
+  if [[ -z $inactive ]]; then pass "n8n: all ${#wanted[@]} workflow(s) marked active are active on the server"
+  elif (( ${#pending[@]} == 0 )); then fail "n8n: not active on the server after activation: $inactive"; fi
 }

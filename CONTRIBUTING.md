@@ -81,6 +81,24 @@ git add -A && git commit -m "<what changed>" && git push
 | TheHive | Configure → test alerts through the API (no Wazuh in `cases`) → alert and case flow | C3, C4, C5 |
 | Cortex + MISP | Add intel in MISP → run analyzers on test observables → reports | C5, C6, C7 |
 
+### After a checkpoint merge (machines that run `core`)
+
+When a checkpoint merge brings new n8n workflows or a changed n8n compose file into `main` (first time: checkpoint 1, the `n8n` branch), every machine that runs `core` does this once, whatever its `MEM_PROFILE` (the same steps apply on `low`):
+
+1. If you changed any n8n workflow in the UI, the import below overwrites it. Only the n8n owner commits workflow files: export it (`scripts/n8n-export.sh`) and send the diff to the n8n owner before pulling, or accept losing it.
+2. `git pull` (on your branch: `git pull --no-rebase --no-edit origin main`).
+3. `./scripts/soc.sh up <mode>`: Compose recreates the n8n container when its compose file or `.env` changed. Environment settings such as `N8N_EVENTBUS_RECOVERY_MODE` only arrive this way, so do it **before** the import.
+4. `./scripts/n8n-import.sh`: loads every workflow file, **overwriting** workflows with the same ID, and activates them in an order that works. It must end with `All checks passed`; a workflow it couldn't activate gets a `FAIL` line with its name and n8n's reason (send that line to the n8n owner).
+5. Verify:
+   - the import printed `PASS  n8n: all <N> workflow(s) marked active are active on the server`;
+   - the setting is in the container (expect `1`). Never print the container's whole environment: it holds keys and the webhook token.
+     ```bash
+     docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' asox-core-n8n-1 | grep -c '^N8N_EVENTBUS_RECOVERY_MODE=simple$'
+     ```
+   - `./scripts/contracts-check.sh --only C1,C3` passes (C3 needs `cases` running).
+
+The alert queue's Data Tables (`asox_alert_queue`, `asox_queue_slots`) are created automatically on n8n's first run with the new workflows, and found again on later ones: nothing to do.
+
 ### Git cheat sheet
 
 | Situation | Command |
