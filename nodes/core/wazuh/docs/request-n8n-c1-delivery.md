@@ -14,6 +14,8 @@ It is strictly one after the other. The source of the pinned version, `src/os_in
 - For each integration that matches, it starts the script with `wpopenv(...)`, reads its output to the end, and **waits for it to exit** (`wpclose`) before it moves on to the next integration or the next alert.
 - There is no thread pool and no fork-and-forget.
 
+**Checked live 2026-10-11** with your suggested `ps` during a burst: 20 test alerts written at once, plus `new-user` and `ssh-bruteforce` together, sampled every 50 ms for 15 s. Never more than one integratord child at a time; 20 different children, one per alert, one after the other. Note for your command: `ps -ef | grep -c '[c]ustom-n8n'` shows **2 per delivery**, because the wrapper `/bin/sh integrations/custom-n8n` starts `custom-n8n.py` as a child. Count only the wrapper (`grep -c '[/]bin/sh integrations/custom-n8n'`): it was never above 1.
+
 So the webhook sees at most **one C1 request at a time** from a manager: the next starts only after `custom-n8n.py` has returned. Your measured bursts (7–20 alerts, sequential) match this. n8n needs no bound on concurrent `recv-wazuh-alert` executions for C1. Only replays or tests can overlap.
 
 ## X-10: retries, a proposal (C1 behaviour change, after checkpoint 1 as you planned)
