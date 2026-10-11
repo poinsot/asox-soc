@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
 # Check the integration contracts (PROJECT.md section 5): each one must
 # connect and authenticate. Run on the machine hosting core (and lab), with
-# the nodes the checked contracts need running (full mode for C1-C8).
+# the nodes the checked contracts need running (full mode for C1-C8, C10).
 #
 # Usage: scripts/contracts-check.sh [--only C3,C4]
 # One PASS/FAIL line per contract; exit code 1 if any contract fails.
 # C3/C4 create a test alert in TheHive (source contract-check) and delete it;
 # C1 deletes the TheHive alert n8n makes from its test alert (source asox-test).
+# C10 prints SKIP (not a failure) while its check workflow chk-misp-api is
+# neither in n8n nor in nodes/core/n8n/workflows/ (not merged yet).
 set -euo pipefail
 # shellcheck source=scripts/lib/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
@@ -26,11 +28,11 @@ while (( $# > 0 )); do
   esac
   shift
 done
-ALL_CONTRACTS=(C1 C2 C3 C4 C5 C6 C7 C8)
+ALL_CONTRACTS=(C1 C2 C3 C4 C5 C6 C7 C8 C10)
 if [[ -n $ONLY ]]; then
   IFS=',' read -r -a CONTRACTS <<<"${ONLY^^}"
   for c in "${CONTRACTS[@]}"; do
-    [[ " ${ALL_CONTRACTS[*]} " == *" $c "* ]] || die "unknown contract: $c (C1-C8)"
+    [[ " ${ALL_CONTRACTS[*]} " == *" $c "* ]] || die "unknown contract: $c (C1-C8, C10)"
   done
 else
   CONTRACTS=("${ALL_CONTRACTS[@]}")
@@ -318,6 +320,46 @@ check_C7() {
   fi
 }
 
+# C10: through n8n's own credential "MISP API (n8n)", by the check workflow
+# chk-misp-api (n8n's, like C2's and C6's): 8.8.8.8 must be on a public DNS
+# resolver warninglist, and a write (POST /events/add) must be refused.
+# There is no direct call to MISP from here: misp-config.sh apply already
+# checks the key itself, and C10 is about n8n's side. Until chk-misp-api
+# exists the contract can't be checked: SKIP while n8n has no workflow of
+# that name and the repo has no file for it; once the file is in the repo
+# (the n8n branch merged) a missing workflow is a failure.
+C10_WORKFLOW=chk-misp-api
+C10_VALUE=8.8.8.8
+check_C10() {
+  local c="C10 n8n -> MISP" resp status hit write
+  n8n_api_ok || { fail "$c: n8n API not reachable with N8N_API_KEY (run scripts/bootstrap.sh core)"; return; }
+  if [[ -z $(n8n_workflow_id_by_name "$C10_WORKFLOW") ]]; then
+    if [[ -f $N8N_WORKFLOW_DIR/$C10_WORKFLOW.json ]]; then
+      fail "$c: check workflow $C10_WORKFLOW is in nodes/core/n8n/workflows/ but not in n8n (run scripts/n8n-import.sh)"
+    else
+      skip "$c: not checked: check workflow $C10_WORKFLOW doesn't exist yet (neither in n8n nor in nodes/core/n8n/workflows/; it comes with the n8n branch, N8N-2.11)"
+    fi
+    return
+  fi
+  resp=$(curl -s -X POST "$N8N_URL/webhook/$C10_WORKFLOW" -H "X-ASOX-Token: $(core_env N8N_WEBHOOK_TOKEN)" || true)
+  status=$(jq -r '.status // empty' <<<"$resp" 2>/dev/null || true)
+  if [[ $status != 200 ]]; then
+    fail "$c: check workflow $C10_WORKFLOW failed (active? credential \"MISP API (n8n)\"? MISP running? MISP_URL in n8n's environment?): ${resp:0:200}"
+    return
+  fi
+  hit=$(jq -r '[.matches[]? | select(test("public dns"; "i"))] | first // empty' <<<"$resp" 2>/dev/null || true)
+  if [[ -z $hit ]]; then
+    fail "$c: $C10_VALUE is on no public DNS warninglist (matches: $(jq -c '.matches // []' <<<"$resp" 2>/dev/null | cut -c1-160)); run scripts/bootstrap.sh intel"
+    return
+  fi
+  write=$(jq -r '.write_status // empty' <<<"$resp" 2>/dev/null || true)
+  if [[ $write != 403 ]]; then
+    fail "$c: a write (POST /events/add) was NOT refused (HTTP ${write:-none}): n8n's MISP user is not read-only"
+    return
+  fi
+  pass "$c: credential checks $C10_VALUE against the warninglists (\"$hit\"); a write is refused (HTTP 403)"
+}
+
 check_C8() {
   local auth health body resp
   auth="$(core_env GRAFANA_ADMIN_USER):$(core_env GRAFANA_ADMIN_PASSWORD)"
@@ -340,7 +382,7 @@ check_C8() {
   fi
 }
 
-if [[ ! -f $CORE_ENV && " ${CONTRACTS[*]} " =~ \ C[123468]\  ]]; then
+if [[ ! -f $CORE_ENV && " ${CONTRACTS[*]} " =~ \ C([123468]|10)\  ]]; then
   die "nodes/core/.env not found; run this on the core machine after scripts/soc.sh init"
 fi
 echo "== Integration contracts (${CONTRACTS[*]})"
