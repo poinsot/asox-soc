@@ -105,6 +105,57 @@ n8n_cli() {
   compose core run --rm --no-deps -T "${opts[@]}" --entrypoint n8n n8n "$@"
 }
 
+# ---- credentials ----
+
+# n8n credentials, with fixed IDs so that exported workflows (which reference
+# credentials by ID and name) work on every machine. Values come from .env.
+# The webhook token has two forms: header X-ASOX-Token (Wazuh, scripts) and
+# "Authorization: Bearer" (TheHive's webhooks can't send other headers, C4).
+# MISP (C10) takes the bare key in the Authorization header; its self-signed
+# certificate (PROJECT.md 4.1) is accepted by the HTTP Request node's own
+# "ignore SSL issues" option, which a Header Auth credential can't carry.
+# shellcheck disable=SC2034  # used by the scripts that source this file
+N8N_CREDENTIALS='"ASOX webhook token", "ASOX webhook token (Bearer)", "Wazuh API (n8n-api)", "TheHive API (n8n)", "Cortex API (n8n)", "MISP API (n8n)"'
+n8n_credentials_json() {
+  jq -nc \
+    --arg token "$(n8n_env N8N_WEBHOOK_TOKEN)" \
+    --arg wuser "$(n8n_env WAZUH_N8N_API_USER)" --arg wpass "$(n8n_env WAZUH_N8N_API_PASSWORD)" \
+    --arg thkey "$(n8n_env THEHIVE_N8N_API_KEY)" --arg thurl "$(n8n_env THEHIVE_URL)" \
+    --arg cxkey "$(n8n_env CORTEX_N8N_API_KEY)" --arg cxurl "$(n8n_env CORTEX_URL)" \
+    --arg mikey "$(n8n_env MISP_N8N_API_KEY)" '[
+    {id: "asoxWebhookToken", name: "ASOX webhook token", type: "httpHeaderAuth",
+     data: {name: "X-ASOX-Token", value: $token}},
+    {id: "asoxWebhookBear1", name: "ASOX webhook token (Bearer)", type: "httpHeaderAuth",
+     data: {name: "Authorization", value: ("Bearer " + $token)}},
+    {id: "asoxWazuhApiRo01", name: "Wazuh API (n8n-api)", type: "httpBasicAuth",
+     data: {user: $wuser, password: $wpass}},
+    {id: "asoxTheHiveApi01", name: "TheHive API (n8n)", type: "theHiveProjectApi",
+     data: {ApiKey: $thkey, url: $thurl, allowUnauthorizedCerts: false}},
+    {id: "asoxCortexApi001", name: "Cortex API (n8n)", type: "cortexApi",
+     data: {cortexApiKey: $cxkey, host: $cxurl}},
+    {id: "asoxMispApi00001", name: "MISP API (n8n)", type: "httpHeaderAuth",
+     data: {name: "Authorization", value: $mikey}}
+  ]'
+}
+
+# Import the credentials above. n8n's import overwrites a credential with
+# the same ID, so an existing one is updated to the values in .env (a rotated
+# key arrives with the next run). Credential data goes through stdin, never
+# to a file on the host. The running n8n isn't restarted: it reads
+# credentials at execution time.
+n8n_import_credentials() {
+  n8n_credentials_json | n8n_cli -- import:credentials --input=/dev/stdin >/dev/null 2>&1
+}
+
+# The same for the one credential with ID <id>, leaving the others as they
+# are (e.g. on an instance whose n8n must not be touched otherwise).
+n8n_import_credential() {
+  local id=$1 json
+  json=$(n8n_credentials_json | jq -c --arg id "$id" 'map(select(.id == $id))')
+  [[ $json != '[]' ]] || return 1
+  printf '%s\n' "$json" | n8n_cli -- import:credentials --input=/dev/stdin >/dev/null 2>&1
+}
+
 # ---- workflow import ----
 
 # Wait until the webhooks of an activated workflow file are registered (a
