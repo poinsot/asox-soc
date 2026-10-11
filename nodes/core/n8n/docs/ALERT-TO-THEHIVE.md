@@ -93,6 +93,7 @@ Gaps:
 - Duplicate observables in one alert (e.g. the same IP as `src` and `agent`) are merged by `lib-extract-observables` into one observable carrying both tags (N8N-2.3). Values are refanged and validated first; an invalid value is left out and listed in the playbook's writeback.
 - `data.hostname` (n8n's rule until question 6 is answered): an IP → `ip`, a name with a dot → `fqdn`, else `hostname`.
 - `ioc: true` only for known-bad values (AF §5), decided after enrichment, so observables are created with `ioc: false`.
+- **Warninglist tags (C10, N8N-2.11; names proposed, question G in §8):** an `ip`, `fqdn`, `domain`, `url` or `hash` observable whose value is on a MISP warninglist is created with the tag `warninglist` plus `warninglist:<list name>` for at most 3 lists (e.g. `warninglist:List of known IPv4 public DNS resolvers`); the agent's own observables and internal addresses are not checked. The tags mean "common value", never "safe": `ioc`, severity and status are not touched. They are set when the alert is created; when MISP can't be reached the observables simply have none (the writeback says so).
 
 ## 6. C4 events as n8n sees them (input for N8N-1.5, 2.9, 5.3)
 
@@ -177,6 +178,8 @@ Verdicts: **agree** = n8n already sends this; **n8n changes** = changed by n8n i
 - **F. Wazuh field review (2026-10-09; `WAZUH-FIELDS.md`), two points for AF §1/§5:**
   1. **Syslog alerts** (pfSense, routers from M4; anything on 514/udp) have no agent: `agent.id` is `000` and `agent.name` is `wazuh-manager`; the device is `predecoder.hostname` (when the line has one) at the address in `location`. n8n now builds the `agent`-tagged `ip` / `hostname` observables from the device. AF §1 builds the **title** (`<rule.description> (<agent.name>)`), the `agent:` tag and `wazuh-agent-name` from `agent.name`, which would all say `wazuh-manager`. Proposal: for `agent.id` `000`, use `predecoder.hostname`, else `location`, in all three. OK? n8n keeps AF §1 as written until you answer.
   2. **`user-account` tags:** AF §5 says `srcuser` → `src`, `dstuser` → `target`. On sshd alerts Wazuh's decoder puts the targeted account in either field, so n8n tags both `target` there; on groupadd (5901) `dstuser` is a group and n8n makes no `user-account` from it. OK to write this in AF §5?
+
+- **G. Warninglist tags (C10, 2026-10-10):** n8n now tags observables that are on a MISP warninglist with `warninglist` and `warninglist:<list name>` (at most 3 lists per observable; the list names are MISP's, with spaces, e.g. `warninglist:List of known Tor exit nodes`). Are these names fine for the analysts' filters and dashboards, or do you want another form (e.g. `asox:warninglist`, `misp-warninglist=<name>`, the generic tag only)? Both names are settings (`lib-config` `misp_warninglist.tag` / `list_tag_prefix`), so a rename costs nothing; existing alerts keep the old tags. Should AF §5 list them?
 
 ### Routing after the Wazuh owner's answers (2026-10-09)
 
