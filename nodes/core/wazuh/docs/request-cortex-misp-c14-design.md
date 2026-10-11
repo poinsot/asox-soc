@@ -86,6 +86,10 @@ The test used a **local** MISP event and Cortex's read-only key as a stand-in. W
 1. **Diego:** the Read Only user `wazuh@asox.local` with its own key (`MISP_WAZUH_API_KEY`), and the seed IOC decision (X-36, `request-n8n-c1-delivery.md`).
 2. **Inigo (R-08):** `WAZUH_MISP_URL`, `WAZUH_MISP_API_KEY` (`__from:intel__`) and `WAZUH_MISP_SYNC_INTERVAL` in `nodes/core/.env.example`. The compose file already passes them, with C14 off while they're empty. Then the C14 row in PROJECT.md 5 and a C14 check in `contracts-check.sh`: sync, then `trigger.sh --scenario ioc-ip`, then expect 108000.
 
+## Update 2026-10-11: R-08 is now one value
+
+Since R-13, core's `.env` has `MISP_URL` (for C10), and C14's `WAZUH_MISP_URL` defaults to it in `compose.yml`. So **R-08 is just `WAZUH_MISP_API_KEY=__from:intel__`**, the key of `wazuh@asox.local`, plus optionally `WAZUH_MISP_SYNC_INTERVAL`. On X-36, `trigger.sh` takes `ASOX_IOC_IP`, so a new test IOC is a one-line change on my side.
+
 ## By
 
 **2026-10-16** for the design (C14 is due then in the register, X-24). After that, R-08 on `main` when convenient before W6.2 (2026-11-20 milestone). Not a change to any existing contract: it adds C14.

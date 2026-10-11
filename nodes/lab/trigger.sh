@@ -33,7 +33,8 @@
 # their alerts come from Suricata, so --print only shows the marker.
 # The opnsense-* lines travel as real syslog from the lab container to
 # WAZUH_MANAGER_ADDR:514 (W4.5), so they also test the allowed sources (W1.1).
-#   ioc-ip                  5712 level 10: 8 failed SSH logins for invalid users from 203.0.113.66
+#   ioc-ip                  5712 level 10 (108000, level 12, once C14 lists it): 8 failed
+#                           SSH logins for invalid users from the IOC, 203.0.113.66 or ASOX_IOC_IP
 # The brute-force rules (5763, 5712) stay quiet for 60 s after they fire, for
 # every source address. So wait a minute before repeating a scenario, and
 # between ssh-bruteforce and ssh-success-after-fail (both use 5763).
@@ -52,6 +53,10 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TEST_LOG=/var/log/asox-lab/test.log
 SCENARIOS="ssh-bruteforce ssh-success-after-fail sudo-fail new-user ioc-ip root-login ids-test ids-scan opnsense-scan opnsense-gui-bruteforce persistence"
 NMAP_IMAGE=${NMAP_IMAGE:-instrumentisto/nmap:7.98-r2}
+# The lab's IOC: MISP's seed IOC by default. X-36: it's in a documentation
+# range, which MISP warninglists flag as common; set ASOX_IOC_IP to the test
+# IOC the Cortex + MISP owner picks instead.
+IOC_IP=${ASOX_IOC_IP:-203.0.113.66}
 
 # The comment block at the top of this file.
 usage() { awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; }
@@ -109,7 +114,7 @@ events() {
       echo "$t $host usermod[$(( pid + 2 ))]: add 'svc-backup' to group 'sudo'$run"
       echo "$t $host usermod[$(( pid + 2 ))]: add 'svc-backup' to shadow group 'sudo'$run" ;;
     ioc-ip)
-      for i in {1..8}; do echo "$t $host sshd[$pid]: Failed password for invalid user admin from 203.0.113.66 port $(( 42000 + i )) ssh2$run"; done ;;
+      for i in {1..8}; do echo "$t $host sshd[$pid]: Failed password for invalid user admin from $IOC_IP port $(( 42000 + i )) ssh2$run"; done ;;
     root-login)
       echo "$t $host sshd[$pid]: Accepted password for root from 198.51.100.25 port 43001 ssh2$run" ;;
     opnsense-scan)

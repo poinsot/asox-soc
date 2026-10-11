@@ -80,9 +80,10 @@ services:
       # Extra syslog sources (R-06, from SYSLOG_ALLOWED_IPS in topology.env),
       # written into ossec.conf by config/entrypoint-scripts (W1.1).
       WAZUH_SYSLOG_ALLOWED_IPS: ${WAZUH_SYSLOG_ALLOWED_IPS:-}
-      # MISP IOCs as CDB lists (C14), lists/misp-sync.py. Empty until R-08 puts
-      # them in nodes/core/.env: C14 stays off, with empty lists.
-      WAZUH_MISP_URL: ${WAZUH_MISP_URL:-}
+      # MISP IOCs as CDB lists (C14), lists/misp-sync.py. The URL defaults to
+      # core's MISP_URL (C10, R-13: misp-nginx, or INTEL_HOST:9443 when
+      # distributed); the key stays empty until R-08: C14 is off until then.
+      WAZUH_MISP_URL: ${WAZUH_MISP_URL:-${MISP_URL:-}}
       WAZUH_MISP_API_KEY: ${WAZUH_MISP_API_KEY:-}
       WAZUH_MISP_SYNC_INTERVAL: ${WAZUH_MISP_SYNC_INTERVAL:-3600}
     volumes:
