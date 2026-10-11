@@ -207,7 +207,7 @@ Real endpoints can enroll into groups with policies that fit them.
   - Refs: D33
 - [x] **W5.5** Enroll your own Windows host · P1
   - Done when: Following the guide exactly: the Windows agent is `active` in `windows-desktops`, and a failed Windows logon shows up as an alert. With mirrored networking the ports on 127.0.0.1 are reachable from Windows.
-- [ ] **W5.6** Alert on disconnected agents · P3
+- [x] **W5.6** Alert on disconnected agents · P3
   - Done when: `agents_disconnection_alert_time` set (it is 0 now); stopping the lab agent produces an alert at the agreed level.
   - Files: `nodes/core/wazuh/config/ossec.conf`
 - [ ] **W5.7** Second tuning pass from TheHive's false-positive report · P2, C1
@@ -293,7 +293,7 @@ Habits that keep your work safe and mergeable.
 - [ ] **WO.3** Keep the README current · P2
   - Done when: Backlog, contracts table and the local patches table reflect what you changed.
   - Files: `nodes/core/wazuh/README.md`
-- [ ] **WO.4** Raise the Wazuh items in the integrator's backlog · P2
+- [ ] **WO.4** Raise the Wazuh items in the integrator's backlog *(in progress)* · P2
   - Done when: Asked Inigo about excluding the vulnerability feed (~9.5 GB) from core backups and about the lab agent's brief `pending` after `soc.sh up` (docs/handoff.md). Offer to test a core restore.
   - With: Inigo (integrator)
 - [ ] **WO.5** Re-check local patches on any Wazuh upgrade · P3, C8

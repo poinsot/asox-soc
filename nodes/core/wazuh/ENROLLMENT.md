@@ -20,6 +20,18 @@ Check from the other machine: `nc -vz <core IP> 1515` and `nc -vz <core IP> 1514
 
 Every agent appears in `docker exec <instance>-core-wazuh-manager-1 /var/ossec/bin/agent_control -l` as `Active` once connected.
 
+## Naming
+
+Name agents so the manager knows which machines must never go quiet:
+
+| Prefix | Use | If it stops reporting for 15 min |
+|---|---|---|
+| `sensor-` | network sensors, e.g. `sensor-suricata` | rule 100400, **level 10**, sent to n8n |
+| `srv-` | servers | rule 100400, **level 10**, sent to n8n |
+| anything else | desktops, laptops, the lab agent | built-in 504, level 3: indexed only, since a laptop going to sleep is normal |
+
+Pass the name as `WAZUH_AGENT_NAME` (the examples below use the host name).
+
 ## Linux server (Ubuntu or Debian)
 
 As root:
@@ -87,7 +99,7 @@ In `/etc/suricata/suricata.yaml`:
 
 Then `systemctl enable --now suricata`. Refresh the rules daily: `suricata-update && systemctl reload suricata`, from cron.
 
-**3. Wazuh agent:** the Linux steps above with **`WAZUH_AGENT_GROUP='network-sensors'`**. The group tells the agent to read `/var/log/suricata/eve.json` (`groups/network-sensors/agent.conf`); nothing else to configure.
+**3. Wazuh agent:** the Linux steps above with **`WAZUH_AGENT_GROUP='network-sensors'`** and **`WAZUH_AGENT_NAME='sensor-suricata'`** ("Naming": an alert if it goes quiet). The group tells the agent to read `/var/log/suricata/eve.json` (`groups/network-sensors/agent.conf`); nothing else to configure.
 
 **4. Check:** from a machine on the watched network, `curl "http://example.com/?q=uid=0(root)"` gives Suricata 2100498, which becomes ASOX rule 101001 (level 10). An `nmap -sS` of a host in `HOME_NET` gives 101010 (T1046, once SID 2009582 is enabled as in `nodes/lab/suricata/enable.conf`).
 

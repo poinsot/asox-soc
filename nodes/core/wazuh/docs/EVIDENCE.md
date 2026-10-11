@@ -13,6 +13,7 @@
 | Contracts C1 (Wazuh → n8n), C2 (n8n → Wazuh API, read-only), C8 (Grafana → indexer) | **all pass** | [contracts-C1-C2-C8.txt](evidence/2026-10-10/contracts-C1-C2-C8.txt) |
 | `healthcheck.sh`: core, lab, Suricata | **all pass** | [healthcheck.txt](evidence/2026-10-10/healthcheck.txt) |
 | CI checks (`ci-checks.sh all`: compose, shellcheck, XML, JSON, secret scan) | **all pass** | — |
+| **Fresh clone** (`git clone` → `topology.env` from the example, `SOC_INSTANCE=fresh`, `low` → `soc.sh init core`), 2026-10-11 | Init green in **11.5 min**, Suricata included. Groups, syslog sources and C14 (off) at start; the lab agent enrolled straight into `linux-servers`. C1/C2/C8 pass, rule tests 55/55, e2e 27/28. The one failure was a race, now fixed: `ssh-success-after-fail` sent its login in the same millisecond as the 8th failure, and the manager's parallel analysis missed 40112. The login now comes 2 s later: 3/3 runs gave 40112. The instance was then reset and deleted | — |
 | Agents | manager (000), lab Linux agent (002, `linux-servers`), Daniel's Windows 11 PC (003, `windows-desktops`): all `Active` | — |
 
 To reproduce, with `scripts/soc.sh up core` running:

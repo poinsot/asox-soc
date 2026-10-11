@@ -173,6 +173,17 @@ else
   case $scenario in
     ids-test|ids-scan|persistence) (( print )) || traffic "$scenario" "$id" ;;
     opnsense-*) if (( print )); then events "$scenario" "$id"; else events "$scenario" "$id" | syslog; fi ;;
+    ssh-success-after-fail)
+      # The login comes 2 s after the failures. Sent in the same burst, the
+      # manager's parallel analysis can evaluate the login before it has
+      # counted the 8th failure (5763), and 40112 then misses it (seen on a
+      # fresh instance, 2026-10-11). A real attacker isn't that fast either.
+      if (( print )); then events "$scenario" "$id"; else
+        lines=$(events "$scenario" "$id")
+        head -n -1 <<<"$lines" | send
+        sleep 2
+        tail -n 1 <<<"$lines" | send
+      fi ;;
     *) events "$scenario" "$id" | send ;;
   esac
   (( print )) || echo "Scenario $scenario sent: run id=$id" >&2
