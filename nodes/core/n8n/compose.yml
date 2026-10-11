@@ -49,6 +49,8 @@ services:
       WAZUH_API_URL: ${WAZUH_API_URL}
       THEHIVE_URL: ${THEHIVE_URL}
       CORTEX_URL: ${CORTEX_URL}
+      # C10 (warninglist check). The key is in the credential "MISP API (n8n)".
+      MISP_URL: ${MISP_URL}
       # C1 threshold, also applied by recv-wazuh-alert (non-secret; lib-config
       # holds 7 only as a fallback).
       WAZUH_ALERT_MIN_LEVEL: ${WAZUH_ALERT_MIN_LEVEL:-7}

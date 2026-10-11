@@ -42,6 +42,7 @@ Workflows:
 | `chk-wazuh-api` | `POST /webhook/chk-wazuh-api` (`scripts/contracts-check.sh`) | Contract check C2: logs in with the n8n-api credential, lists agents, and verifies that active response is refused. Don't change it without the integrator. |
 | `chk-thehive-api` | `POST /webhook/chk-thehive-api` (`scripts/contracts-check.sh`) | Contract check C3: creates a test alert (`source: contract-check`) with the TheHive credential and reads it back; a second call deletes it (only alerts whose source is `contract-check`). Don't change it without the integrator. |
 | `chk-cortex-api` | `POST /webhook/chk-cortex-api` (`scripts/contracts-check.sh`) | Contract check C6: lists Cortex's enabled analyzers with the Cortex credential. Don't change it without the integrator. |
+| `chk-misp-api` | `POST /webhook/chk-misp-api` (`scripts/contracts-check.sh`) | Contract check C10: with the MISP credential, checks `8.8.8.8` against MISP's warninglists (`POST /warninglists/checkValue`) and verifies that a write (`POST /events/add`) is refused with 403. Always answers 200 with `status`, `matches` (warninglist names) and `write_status`. Don't change it without the integrator. |
 
 ## Playbook conventions (every workflow author follows them)
 
@@ -123,9 +124,10 @@ Every webhook uses **Header Auth** with the shared token `N8N_WEBHOOK_TOKEN` (fr
   | `Wazuh API (n8n-api)` (`asoxWazuhApiRo01`) | Basic Auth | Wazuh API login (`POST ${WAZUH_API_URL}/security/user/authenticate?raw=true`, then `Authorization: Bearer <token>`); read-only role (C2) |
   | `TheHive API (n8n)` (`asoxTheHiveApi01`) | The Hive 5 API | TheHive nodes, or HTTP Request nodes with "Predefined credential type" → The Hive 5 API and URLs from `$env.THEHIVE_URL`; Service account `n8n@asox.local`, profile `analyst` (C3). Its key is `THEHIVE_N8N_API_KEY` in `nodes/core/.env`, copied from the cases node |
   | `Cortex API (n8n)` (`asoxCortexApi001`) | Cortex API | Cortex nodes, or HTTP Request nodes with `$env.CORTEX_URL`; Cortex user `n8n`, roles read + analyze (C6). Its key is `CORTEX_N8N_API_KEY` in `nodes/core/.env`, copied from the cases node |
+  | `MISP API (n8n)` (`asoxMispApi00001`) | Header Auth (`Authorization: <key>`, the bare key, no `Bearer`) | HTTP Request nodes with "Generic credential type" → Header Auth and URLs from `$env.MISP_URL`; MISP user `n8n@asox.local`, role Read Only (C10). Its key is `MISP_N8N_API_KEY` in `nodes/core/.env`, copied from the intel node. **Set "Ignore SSL Issues" on every HTTP Request node that calls MISP:** its certificate is self-signed (PROJECT.md 4.1) and a Header Auth credential can't carry that setting |
 
-  The TheHive and Cortex keys arrive through `__from:cases__` (PROJECT.md section 4): `soc.sh init` bootstraps cases before core. After `soc.sh reset cases` (new keys), run `scripts/render-env.sh && scripts/bootstrap.sh core`. A workflow that needs a **new** credential: ask the integrator to add it to `bootstrap.sh` (a credential created only in your UI gets a random ID and breaks on teammates' machines).
-- **Service URLs** are available to workflows as environment variables: `{{ $env.WAZUH_API_URL }}`, `{{ $env.THEHIVE_URL }}`, `{{ $env.CORTEX_URL }}`, `{{ $env.N8N_WEBHOOK_URL }}`, plus the C1 threshold `{{ $env.WAZUH_ALERT_MIN_LEVEL }}` (default 7) and `{{ $env.THEHIVE_ENABLED }}` (is TheHive deployed for this core; see "TheHive not configured" below). Never hardcode a host or IP (PROJECT.md section 4).
+  The TheHive and Cortex keys arrive through `__from:cases__` and the MISP key through `__from:intel__` (PROJECT.md section 4): `soc.sh init` bootstraps cases and intel before core. After `soc.sh reset cases` (new keys), run `scripts/render-env.sh && scripts/bootstrap.sh core`. A workflow that needs a **new** credential: ask the integrator to add it to `bootstrap.sh` (a credential created only in your UI gets a random ID and breaks on teammates' machines).
+- **Service URLs** are available to workflows as environment variables: `{{ $env.WAZUH_API_URL }}`, `{{ $env.THEHIVE_URL }}`, `{{ $env.CORTEX_URL }}`, `{{ $env.MISP_URL }}`, `{{ $env.N8N_WEBHOOK_URL }}`, plus the C1 threshold `{{ $env.WAZUH_ALERT_MIN_LEVEL }}` (default 7) and `{{ $env.THEHIVE_ENABLED }}` (is TheHive deployed for this core; see "TheHive not configured" below). Never hardcode a host or IP (PROJECT.md section 4).
 - **Rule: never put secrets in the n8n container's environment** (`environment:` in `compose.yml`), because every workflow can read it (`$env`). Secrets go in n8n credentials or in secret files (Compose secrets, read through `*_FILE` variables, like the encryption key; docs/decisions.md A42).
 - The Wazuh API and the Wazuh indexer use self-signed/internal certificates in the lab: enable "Ignore SSL issues" on HTTP Request nodes that call them (PROJECT.md 4.1).
 
@@ -252,9 +254,10 @@ Measured 2026-10-10 (`full`, same method as above; "queued" = rows in `asox_aler
 | C3 n8n → TheHive | Credential "TheHive API (n8n)" (Service account `n8n@asox.local`), checked by `chk-thehive-api` | Passes |
 | C4 TheHive → n8n | Receives TheHive events on `recv-thehive-event` (token as `Authorization: Bearer`) | Passes |
 | C6 n8n → Cortex | Credential "Cortex API (n8n)" (user `n8n`), checked by `chk-cortex-api`; used by `lib-enrich-observable` / `lib-cortex-job` (N8N-2.4) | Passes |
+| C10 n8n → MISP | Credential "MISP API (n8n)" (user `n8n@asox.local`, Read Only), checked by `chk-misp-api` (2026-10-10); `lib-misp-warninglist` isn't built yet (N8N-2.11) | Check passes (not in the baseline) |
 | C9 n8n → endpoints (Phase 2) | Response actions through Wazuh active response | Planned |
 
-Check: `scripts/contracts-check.sh --only C1,C2,C3,C4,C6` (enrichment: add C7, in `full`). Exporting changes: section "Keeping workflows as code". Changing a contract needs the other owner's agreement first (PROJECT.md 5).
+Check: `scripts/contracts-check.sh --only C1,C2,C3,C4,C6` (enrichment: add C7 and C10, in `full`). Exporting changes: section "Keeping workflows as code". Changing a contract needs the other owner's agreement first (PROJECT.md 5).
 
 ## Local patches and deprecations (re-check on upgrade)
 
@@ -272,7 +275,7 @@ Pinned: `n8nio/n8n` 2.40.7 (`postgres` 16.15 for the optional `pg` profile). On 
 | Internal REST API used by `bootstrap.sh` / `scripts/lib/n8n.sh`: `/rest/settings`, `/rest/owner/setup`, `/rest/login`, `/rest/api-keys` | Owner setup and API key creation have no public API (A45, A46) | `soc.sh reset core` + `soc.sh init core` on a scratch instance (`SOC_INSTANCE=test`) |
 | CLI `import:credentials` / `import:workflow` in a one-off container, then activation through the public API | `--activeState=fromJson` only works in queue mode; activation must go through the running server (A44) | `bootstrap.sh core` on a fresh instance; `n8n-import.sh` round trip |
 | `N8N_WEBHOOK_URL` as the webhook base URL | The older `WEBHOOK_URL` is deprecated and not used (A42) | Webhook URLs shown in the UI still use `N8N_WEBHOOK_URL` |
-| Credentials with fixed IDs (`asoxWebhookToken`, `asoxWebhookBear1`, `asoxWazuhApiRo01`, `asoxTheHiveApi01`, `asoxCortexApi001`) and types `httpHeaderAuth` / `httpBasicAuth` / `theHiveProjectApi` / `cortexApi` | Exported workflows reference credentials by ID (A44) | Credential types still exist (fields `ApiKey`, `url`; `cortexApiKey`, `host`); C1–C4 and C6 pass |
+| Credentials with fixed IDs (`asoxWebhookToken`, `asoxWebhookBear1`, `asoxWazuhApiRo01`, `asoxTheHiveApi01`, `asoxCortexApi001`, `asoxMispApi00001`) and types `httpHeaderAuth` / `httpBasicAuth` / `theHiveProjectApi` / `cortexApi` | Exported workflows reference credentials by ID (A44) | Credential types still exist (fields `ApiKey`, `url`; `cortexApiKey`, `host`); C1–C4 and C6 pass |
 | `recv-thehive-event` authenticates `Authorization: Bearer` instead of `X-ASOX-Token` | TheHive's webhook endpoints can't send custom headers (A64, D43) | If a TheHive upgrade supports headers, C4 could move back to `X-ASOX-Token` (contract change) |
 | Secrets as Compose secret files (`N8N_ENCRYPTION_KEY_FILE`, `DB_POSTGRESDB_PASSWORD_FILE`) | Workflows can read the whole environment (D37, A42) | The `*_FILE` variables are still supported |
 
