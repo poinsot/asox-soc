@@ -87,13 +87,13 @@ When a checkpoint merge brings new n8n workflows or a changed n8n compose file i
 
 1. If you changed any n8n workflow in the UI, the import below overwrites it. Only the n8n owner commits workflow files: export it (`scripts/n8n-export.sh`) and send the diff to the n8n owner before pulling, or accept losing it.
 2. `git pull` (on your branch: `git pull --no-rebase --no-edit origin main`).
-3. `./scripts/soc.sh up <mode>`: Compose recreates the n8n container when its compose file or `.env` changed. Environment settings such as `N8N_EVENTBUS_RECOVERY_MODE` only arrive this way, so do it **before** the import.
+3. `./scripts/render-env.sh`, then `./scripts/soc.sh up <mode>`: Compose recreates the n8n container when its compose file or `.env` changed (`soc.sh up` doesn't re-render `.env` itself; the render brings shared changes such as `N8N_MEM`). Environment settings such as `N8N_EVENTBUS_RECOVERY_MODE` and `N8N_CONCURRENCY_PRODUCTION_LIMIT` only arrive this way, so do it **before** the import.
 4. `./scripts/n8n-import.sh`: loads every workflow file, **overwriting** workflows with the same ID, and activates them in an order that works. It must end with `All checks passed`; a workflow it couldn't activate gets a `FAIL` line with its name and n8n's reason (send that line to the n8n owner).
 5. Verify:
    - the import printed `PASS  n8n: all <N> workflow(s) marked active are active on the server`;
-   - the setting is in the container (expect `1`). Never print the container's whole environment: it holds keys and the webhook token.
+   - both settings are in the container (expect `2`: the recovery mode and the limit of 10 concurrent webhook and trigger executions). Never print the container's whole environment: it holds keys and the webhook token.
      ```bash
-     docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' asox-core-n8n-1 | grep -c '^N8N_EVENTBUS_RECOVERY_MODE=simple$'
+     docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' asox-core-n8n-1 | grep -c -e '^N8N_EVENTBUS_RECOVERY_MODE=simple$' -e '^N8N_CONCURRENCY_PRODUCTION_LIMIT=10$'
      ```
    - `./scripts/contracts-check.sh --only C1,C3` passes (C3 needs `cases` running).
 
