@@ -43,7 +43,9 @@ done
 PLAN=(
   "ssh-bruteforce|5763|0"
   "sudo-fail|5404|0"
-  "new-user|5901 5902 100211|0"
+  # 40501 (level 15, "attacks followed by the addition of a user") replaces
+  # 5901 or 5902 when 4+ attack alerts came from the lab in the last 5 minutes.
+  "new-user|5901|40501 5902|40501 100211|0"
   "root-login|100200|0"
   "persistence|100300 100301 100302|0"
   "ids-test|101001|0"

@@ -136,6 +136,7 @@ Every custom rule, the alert it produces and how to fire it. Built-in rules the 
 | 108000 / 108001 | `1080-misp-ioc.xml` | 12 | `misp_ioc` | — | Source / destination address of a log event is a MISP IOC (C14); one a minute, absorbs that minute's events | `ioc-ip` (once synced) | `ioc-match` |
 | 108010 / 108011 | `1080-misp-ioc.xml` | 12 | `misp_ioc`, `ids`, `suricata` | — | Suricata alert from / to a MISP IOC | — | `ioc-match` |
 | 108020 / 108021 | `1080-misp-ioc.xml` | 12 | `misp_ioc`, `syscheck`, `malware` | — | New or changed file whose SHA-256 / MD5 is a MISP IOC | — | `ioc-match` |
+| 40501 (built-in) | Wazuh `0280-attack_rules.xml` | 15 | `elevation_of_privilege` | T1068, T1136, T1203 | A user or group added after 4+ alerts of group `attacks` (e.g. 40112) from the same source within 5 min. Seen 2026-10-11 when `new-user` ran right after `ssh-success-after-fail` runs | `ssh-success-after-fail` ×4, then `new-user` | `account-change` (through T1136) |
 | 19004, 19007 | `1090-tuning.xml` | 5 | `sca` | (SCA's own) | Built-in SCA, lowered (W2.7) | re-enrolling an agent | — (not forwarded) |
 
 Decoder `asox-usermod` (`decoders/1002-linux-auth.xml`) gives `data.dstuser` (the account) and `data.group`, the same names as the built-in gpasswd decoder.

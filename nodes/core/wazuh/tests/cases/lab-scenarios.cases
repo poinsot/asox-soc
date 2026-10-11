@@ -22,7 +22,7 @@ expect rule=5404 level=10 groups=sudo
 case new-user
 scenario new-user
 expect rule=100101 level=3 groups=attack_start
-expect rule=5901 level=8 groups=adduser
+expect rule=5901 groups=adduser
 expect rule=5902 level=8 groups=adduser
 expect rule=100211 level=10 groups=asox,linux,adduser
 

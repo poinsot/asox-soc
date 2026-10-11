@@ -52,11 +52,22 @@ Bold rules are ASOX's own (custom IDs 100000–120999); the others are Wazuh bui
 | C14 permanently on | Built and tested with a local MISP event. It needs Diego's Read Only MISP user and Inigo's R-08 variables (`request-cortex-misp-c14-design.md`) |
 | End-to-end in `full` mode with TheHive (WD.3) | Integrator, on the 32 GB machine, after the final checkpoint merge |
 
-## Screenshots to add (Daniel)
+## Screenshots (2026-10-11, right after `tests/e2e.sh`)
 
-Taken with the stack running, right after `tests/e2e.sh`:
-1. Grafana: the alerts of the run, ideally with the attack-start annotations.
-2. n8n: one `recv-wazuh-alert` execution of a level-12 alert (e.g. 40112 or 108000).
-3. The Windows agent: `agent_control -l` output, or the Windows service running.
+**Grafana, "SOC Overview":** the e2e run's spike. Recent alerts include 108000 (MISP IOC, level 12) from `lab-agent` and the Windows agent YOGA's Defender events.
 
-Save them in `evidence/2026-10-10/` and link them here.
+![Grafana SOC Overview](evidence/2026-10-10/grafana.png)
+
+**n8n, `recv-wazuh-alert` (C1):** the executions of the run, all succeeded in 0.2–0.5 s.
+
+![n8n recv-wazuh-alert executions](evidence/2026-10-10/n8n.png)
+
+**Agents:** the manager, the lab Linux agent and Daniel's Windows 11 PC (YOGA), all `Active`.
+
+![Wazuh agents](evidence/2026-10-10/wazuh-agents.png)
+
+## Burst timing fix (2026-10-11)
+
+A run on 2026-10-11 gave 25/28: 5763, 40112 and 103000 missed. The scenarios wrote their lines in one burst (same millisecond), and the manager's parallel analysis sometimes counted fewer events than the frequency rules need. The scenarios now send lines 0.1 s apart, with a margin over each threshold (10 SSH failures for 8, 12 ports for 10, 7 web GUI failures for 5). Afterwards, `opnsense-scan` plus `ssh-success-after-fail` passed 3 rounds out of 3. Real attacks are never that synchronous, so this only affected the lab's replays.
+
+The next full run gave 27/28, for a good reason. `new-user` ran a few minutes after several `ssh-success-after-fail` runs, so the account creation raised Wazuh's built-in **40501** (level 15, "attacks followed by the addition of a user", 4+ `attacks` alerts within 5 min) in place of 5901 or 5902. That's the platform correlating the attack chain. `e2e.sh` now accepts 40501 for either, and the catalog lists it.
