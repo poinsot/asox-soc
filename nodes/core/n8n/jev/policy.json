@@ -1,5 +1,5 @@
 {
-  "version": "policy-0.2.0",
+  "version": "policy-0.3.0",
   "status": "draft: proposal docs/jev-implementation.md 8.3 and 8.4, not accepted",
   "description": "Every threshold that turns a Jev answer into a decision, and the parameters of the state builder. Start values are the doc's [ASSUMPTION] values; change them only with a measurement attached to the pull request (doc 12.3).",
   "stage": 0,
@@ -26,7 +26,7 @@
     ]
   },
   "gates": {
-    "_comment": "De-escalation gates of doc 8.3. All must pass for auto_close_fp. G1 = mode gated; G2 = rule listed in auto_close_rules (and not in never_auto_rules) with level below max_auto_close_level. G4 also needs a code-verified benign pattern when benign_pattern_match >= pattern_match_verify_min. G12 (added to the doc's list) = no fact has a value in blocked_fact_classes.",
+    "_comment": "De-escalation gates of doc 8.3. All must pass for auto_close_fp. G1 = mode gated; G2 = rule listed in auto_close_rules (and not in never_auto_rules) with level below max_auto_close_level. G4 also needs a benign pattern verified in code (codeCtx.benign_pattern_verified = yes), whatever Jev answers to benign_pattern_match. G12 (added to the doc's list) = no fact has a value in blocked_fact_classes.",
     "asset_criticality_allowed": [
       "low",
       "medium"
@@ -42,7 +42,6 @@
     "misp_high_threat_old_age_buckets": [
       "more than 30 days ago"
     ],
-    "pattern_match_verify_min": 0.5,
     "blocked_fact_classes": [
       "embedded_text",
       "attack_pattern"

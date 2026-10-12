@@ -12,7 +12,7 @@
         "id": "bp-uptime-healthz",
         "description": "Uptime checks from the external monitoring service against /healthz every minute",
         "applies_to": { "agents": ["web-01"] },
-        "verify": { "type": "source_ip_in", "list": "ip-lists/test-uptime-monitor.json" }
+        "verify": { "type": "source_ip_in", "field": "data.srcip", "list": "ip-lists/test-uptime-monitor.json" }
       }
     ],
     "ip_lists": {

@@ -1,7 +1,7 @@
 {
   "version": "triage-v1",
   "status": "draft: proposal docs/jev-implementation.md 7.1, not accepted",
-  "description": "Triage question set, sent in one call. Keys are what code reads. Changing any instruction or criterion creates a new version (triage-v2). The effective version stored with a judgment is this version plus a hash of the playbook catalog (lib/request.js resolveQuestionSet).",
+  "description": "Triage question set, sent in one call. Keys are what code reads. A draft until it is first used in shadow mode; from then on it is frozen and changing any instruction or criterion creates a new version (triage-v2). The effective version stored with a judgment is this version plus a hash of the playbook catalog (lib/request.js resolveQuestionSet).",
   "order_check": ["verdict"],
   "questions": {
     "verdict": {
@@ -11,7 +11,7 @@
       "criteria": {
         "true_positive": "Malicious activity is happening against our asset. Choose this when the evidence in facts and intel supports an attack and nothing in context explains the activity as authorized or expected.",
         "benign_true_positive": "The rule fired correctly, but the activity is authorized or expected: it matches a description in context.known_benign_patterns, or it is fully expected for context.asset_role.",
-        "false_positive": "The activity is not what the rule or the threat intel claims: the rule description does not fit what alert and facts show, or intel points at shared infrastructure rather than an attacker.",
+        "false_positive": "The activity is not what the rule or the threat intel claims: what alert and facts show does not fit the rule's groups, MITRE tactics and level, or intel points at shared infrastructure rather than an attacker.",
         "insufficient_evidence": "The state does not contain enough to decide. Choose this when most facts are unknown, when intel is unknown or empty, or when the evidence supports two of the other options equally."
       }
     },

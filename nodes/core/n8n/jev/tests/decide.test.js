@@ -34,7 +34,7 @@ test('baseline: gated, listed rule, every gate passes -> auto_close_fp', () => {
   assert.deepEqual(result.tags, []);
   assert.equal(result.wouldAutoClose, true);
   assert.deepEqual(result.closeGatesFailed, []);
-  assert.equal(result.policy_version, 'policy-0.2.0');
+  assert.equal(result.policy_version, 'policy-0.3.0');
 });
 
 test('policy.json in git: auto_close_fp is unreachable in every mode', () => {
@@ -65,8 +65,8 @@ test('each gate failing on its own blocks the closure and gives advisory', () =>
     ['G4', (b) => { b.ctx.benign_pattern_verified = 'no'; }],
     ['G4', (b) => { b.ctx.benign_pattern_verified = 'unknown'; }],
     ['G4', (b) => { delete b.ctx.benign_pattern_verified; }],
-    ['G4', (b) => { b.ctx.benign_pattern_verified = 'no'; b.runs.full.answers.benign_pattern_match.noul = 0.5; }],
-    ['G4', (b) => { delete b.runs.full.answers.benign_pattern_match; }],
+    ['G4', (b) => { b.ctx.benign_pattern_verified = 'no'; b.runs.full.answers.benign_pattern_match.noul = 0.01; }],
+    ['G4', (b) => { b.ctx.benign_pattern_verified = 'no'; delete b.runs.full.answers.benign_pattern_match; }],
     ['G5', (b) => { b.runs.full.answers.verdict = h.verdict('benign_true_positive', 0.97, 0.89); }],
     ['G5', (b) => { delete b.runs.full.answers.verdict.confidence; }],
     ['G6', (b) => { delete b.runs.ablated; }],
@@ -112,8 +112,9 @@ test('gates that pass at their limits', () => {
   const passes = [
     (b) => { b.ctx.wazuh_rule_level = 9; },
     (b) => { b.facts.asset_criticality = 'medium'; },
-    // No pattern claimed: nothing to verify.
-    (b) => { b.ctx.benign_pattern_verified = 'no'; b.runs.full.answers.benign_pattern_match.noul = 0.49; },
+    // Jev's own answer about patterns does not matter once code verified one.
+    (b) => { b.runs.full.answers.benign_pattern_match.noul = 0.01; },
+    (b) => { delete b.runs.full.answers.benign_pattern_match; },
     (b) => { for (const name of ['request_path_class', 'user_agent_class', 'untrusted_text_class']) b.facts[name] = 'unknown'; },
     (b) => { for (const name of Object.keys(b.runs)) b.runs[name].answers.verdict = h.verdict('false_positive', 0.95, 0.9); },
     (b) => { b.runs.full.answers.steering.noul = 0.19; },
@@ -198,15 +199,29 @@ test('strict ablation decides G6; the tags come from the plain ablation only', (
   assert.equal(result.gateDetails.G6, 'delta 0.27 > 0.10 without untrusted');
 });
 
-test('G4: a benign verdict resting on a pattern needs the pattern verified in code', () => {
+test('G4: no benign verdict closes without a pattern verified in code', () => {
   for (const verified of ['no', 'unknown', undefined, true, 'YES']) {
     const result = run((b) => { b.ctx.benign_pattern_verified = verified; });
     assert.deepEqual(result.gatesFailed, ['G4'], `verified ${verified}`);
     assert.equal(result.decision, 'advisory');
     assert.equal(result.wouldAutoClose, false);
   }
-  assert.equal(run((b) => { b.ctx.benign_pattern_verified = 'no'; }).gateDetails.G4,
-    'benign_pattern_match 0.96 >= 0.50, benign_pattern_verified no');
+  assert.equal(run((b) => { b.ctx.benign_pattern_verified = 'no'; }).gateDetails.G4, 'benign_pattern_verified no');
+  assert.equal(run((b) => { delete b.ctx.benign_pattern_verified; }).gateDetails.G4, 'benign_pattern_verified unknown');
+  // Both benign verdicts, and whatever Jev answers to benign_pattern_match.
+  for (const choice of ['false_positive', 'benign_true_positive']) {
+    for (const match of [0, 0.05, 0.49, 0.5, 0.96, 1, undefined]) {
+      const change = (b) => {
+        for (const name of Object.keys(b.runs)) b.runs[name].answers.verdict = h.verdict(choice, 0.99, 0.99);
+        if (match === undefined) delete b.runs.full.answers.benign_pattern_match;
+        else b.runs.full.answers.benign_pattern_match.noul = match;
+      };
+      const label = `${choice}, benign_pattern_match ${match}`;
+      assert.equal(run(change).decision, 'auto_close_fp', `${label}, verified`);
+      const unverified = run((b) => { change(b); b.ctx.benign_pattern_verified = 'no'; });
+      assert.deepEqual([unverified.decision, unverified.gatesFailed], ['advisory', ['G4']], label);
+    }
+  }
   // It is a closure gate only: in advisory mode nothing else changes.
   const advisory = run((b) => { b.mode = 'advisory'; b.ctx.benign_pattern_verified = 'no'; });
   assert.deepEqual([advisory.decision, advisory.gatesFailed, advisory.closeGatesFailed], ['advisory', ['G1', 'G4'], ['G4']]);
@@ -351,7 +366,7 @@ test('mode off: none, nothing evaluated', () => {
   const result = run((b) => { b.mode = 'off'; });
   assert.deepEqual(result, {
     decision: 'none', triggers: [], tags: [], gatesFailed: [], gateDetails: {}, wouldAutoClose: false,
-    closeGatesFailed: [], notes: [], evaluated: false, mode: 'off', policy_version: 'policy-0.2.0',
+    closeGatesFailed: [], notes: [], evaluated: false, mode: 'off', policy_version: 'policy-0.3.0',
   });
   for (const mode of [undefined, null, '', 'Gated', 'auto', 3]) {
     const unknown = run((b) => { b.mode = mode; });
@@ -443,7 +458,6 @@ test('a missing or malformed full run gives none: the alert continues without Je
 test('a broken policy gives none, never a looser decision', () => {
   const breaks = [
     (p) => { delete p.gates.verdict_p_min; },
-    (p) => { delete p.gates.pattern_match_verify_min; },
     (p) => { delete p.gates.blocked_fact_classes; },
     (p) => { p.gates.steering_max = '0.2'; },
     (p) => { p.auto_close_rules = '100100'; },

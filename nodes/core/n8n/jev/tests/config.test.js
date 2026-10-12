@@ -65,6 +65,9 @@ test('triage-v1: the 9 questions of doc 7.1, criteria for every option and level
     role_consistency: 'score', outcome: 'choice', severity: 'score', steering: 'noul', playbook: 'choice',
   });
   assert.deepEqual(Object.keys(set.questions.verdict.criteria), h.VERDICTS);
+  // The rule description is untrusted, and verdict must not use untrusted.
+  assert.ok(!/rule.description/i.test(JSON.stringify(set.questions.verdict)));
+  assert.equal(set.version, 'triage-v1', 'still a draft: edited in place');
   assert.deepEqual(Object.keys(set.questions.outcome.criteria), ['attempt_failed', 'attempt_succeeded', 'informational', 'unclear']);
   assert.deepEqual(Object.keys(set.questions.role_consistency.criteria), ['0', '1', '2']);
   assert.deepEqual(Object.keys(set.questions.severity.criteria), ['0', '1', '2', '3']);
@@ -93,6 +96,7 @@ test('seed files: one playbook, one asset, one example pattern, draft markers', 
   // Every verify block names a known type and a list file that exists and parses.
   for (const pattern of patterns.filter((entry) => entry.verify)) {
     assert.equal(pattern.verify.type, 'source_ip_in');
+    assert.match(pattern.verify.field, /^[a-z_]+(\.[a-z_]+)+$/, 'the block names the alert field it reads');
     const list = h.readJson(pattern.verify.list);
     assert.match(pattern.verify.list, /^ip-lists\/[a-z0-9-]+\.json$/);
     assert.ok(Array.isArray(list.cidrs) && list.cidrs.length > 0);
@@ -101,7 +105,6 @@ test('seed files: one playbook, one asset, one example pattern, draft markers', 
   assert.deepEqual(h.readJson('untrusted-fields.json').static_description_rules, []);
   assert.equal(h.readJson('untrusted-fields.json').default[0].path, 'rule.description');
   assert.deepEqual(h.readJson('policy.json').gates.blocked_fact_classes, ['embedded_text', 'attack_pattern']);
-  assert.equal(h.readJson('policy.json').gates.pattern_match_verify_min, 0.5);
   assert.equal(h.readJson('untrusted-fields.json').status, 'draft: pending Wazuh owner');
   assert.equal(h.readJson('intel-fields.json').status, 'draft: pending Cortex + MISP owner');
   assert.equal(h.readJson('untrusted-fields.json').max_chars_total, 2000);

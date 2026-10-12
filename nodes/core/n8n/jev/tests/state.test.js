@@ -379,7 +379,8 @@ test('benign_pattern_verified: source_ip_in evaluated in code against a CIDR lis
   assert.equal(verified(lab('198.51.100.1')), 'no');
   assert.equal(verified(lab(undefined)), 'unknown', 'no source address to check');
   assert.equal(verified(lab('203.0.113.66 (authorized)')), 'unknown', 'not an address');
-  assert.equal(verified({ rule: { id: '100100' }, agent: { name: 'lab-agent' }, data: { src_ip: '203.0.113.9' } }), 'yes', 'Suricata field name');
+  // Only the field the block names is read: no fallback to another address field.
+  assert.equal(verified({ rule: { id: '100100' }, agent: { name: 'lab-agent' }, data: { src_ip: '203.0.113.9', xff: '203.0.113.9' } }), 'unknown');
   assert.equal(verified({ rule: { id: '5716' }, agent: { name: 'lab-agent' }, data: { srcip: '203.0.113.66' } }), 'no', 'the pattern does not apply to this rule');
   assert.equal(verified({ rule: { id: '100100' }, agent: { name: 'web-01' }, data: { srcip: '203.0.113.66' } }), 'no', 'nor to this agent');
 
@@ -390,8 +391,8 @@ test('benign_pattern_verified: source_ip_in evaluated in code against a CIDR lis
     return s.buildCodeCtx(lab('203.0.113.66'), c, {}).benign_pattern_verified;
   };
   const list = 'ip-lists/example-lab-test-sources.json';
-  const good = { description: 'verified pattern', verify: { type: 'source_ip_in', list } };
-  const miss = { description: 'other source', verify: { type: 'source_ip_in', list: 'ip-lists/other.json' } };
+  const good = { description: 'verified pattern', verify: { type: 'source_ip_in', field: 'data.srcip', list } };
+  const miss = { description: 'other source', verify: { type: 'source_ip_in', field: 'data.srcip', list: 'ip-lists/other.json' } };
   const other = { 'ip-lists/other.json': { cidrs: ['192.0.2.0/24'] }, [list]: h.readJson(list) };
   assert.equal(withPatterns([]), 'no', 'no pattern at all');
   assert.equal(withPatterns([{ description: 'prose only, nothing to check in code' }]), 'no');
@@ -405,6 +406,17 @@ test('benign_pattern_verified: source_ip_in evaluated in code against a CIDR lis
   assert.equal(withPatterns([good], { [list]: { cidrs: ['not a cidr', '203.0.113.0/33'] } }), 'no', 'a broken entry matches nothing');
   assert.equal(withPatterns([{ description: 'x', verify: { type: 'user_agent_is', value: 'UptimeMonitor' } }]), 'unknown', 'unknown check type');
   assert.equal(withPatterns([{ description: 'x', verify: 'yes' }]), 'no');
+  // The field is required, and it is the one read.
+  assert.equal(withPatterns([{ description: 'x', verify: { type: 'source_ip_in', list } }]), 'unknown', 'no field named');
+  assert.equal(withPatterns([{ description: 'x', verify: { type: 'source_ip_in', field: '', list } }]), 'unknown');
+  assert.equal(withPatterns([{ description: 'x', verify: { type: 'source_ip_in', field: 'data.src_ip', list } }]), 'unknown', 'that field is absent');
+  assert.equal(withPatterns([{ description: 'x', verify: { type: 'source_ip_in', field: 'agent.name', list } }]), 'unknown', 'not an address');
+  const suricata = h.loadConfig(NOW);
+  suricata.benignPatterns.patterns = [{ description: 'x', verify: { type: 'source_ip_in', field: 'data.src_ip', list } }];
+  const both = { data: { srcip: '198.51.100.1', src_ip: '203.0.113.9' } };
+  assert.equal(s.buildCodeCtx(both, suricata, {}).benign_pattern_verified, 'yes');
+  both.data = { srcip: '203.0.113.9', src_ip: '198.51.100.1' };
+  assert.equal(s.buildCodeCtx(both, suricata, {}).benign_pattern_verified, 'no');
   const none = h.loadConfig(NOW);
   none.benignPatterns = undefined;
   assert.equal(s.buildCodeCtx(lab('203.0.113.66'), none, {}).benign_pattern_verified, 'unknown');

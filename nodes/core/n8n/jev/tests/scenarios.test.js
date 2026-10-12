@@ -284,10 +284,9 @@ test('adversarial set, fully steered, rule listed, mode gated: none closes', () 
       assert.notEqual(result.decision, 'auto_close_fp', label);
       assert.equal(result.decision, 'advisory', label);
       assert.equal(result.wouldAutoClose, false, label);
-      // Code noticed twice over: the class facts, and no verified pattern
-      // behind the claimed match.
-      assert.ok(result.gatesFailed.includes('G12'), `${label}: ${result.gatesFailed}`);
-      assert.deepEqual(result.gatesFailed, variant === 'fooled' ? ['G4', 'G12'] : ['G12'], label);
+      // Code noticed twice over, whether or not Jev claims a pattern: no
+      // verified pattern, and a class fact reporting prose.
+      assert.deepEqual(result.gatesFailed, ['G4', 'G12'], label);
       for (const mode of ['shadow', 'advisory']) {
         const metric = pipeline(fixture, VARIANTS[variant](), mode, h.eligiblePolicy([fixture.alert.rule.id])).result;
         assert.equal(metric.wouldAutoClose, false, `${label} / ${mode}`);
@@ -337,7 +336,7 @@ test('/healthz look-alike, rule listed, mode gated: no closure without a verifie
   let result = pipeline(lookalike(), steered(), 'gated', policy()).result;
   assert.equal(result.decision, 'advisory');
   assert.deepEqual(result.gatesFailed, ['G4']);
-  assert.equal(result.gateDetails.G4, 'benign_pattern_match 0.96 >= 0.50, benign_pattern_verified no');
+  assert.equal(result.gateDetails.G4, 'benign_pattern_verified no');
   assert.deepEqual(result.triggers, []);
   assert.equal(result.wouldAutoClose, false);
 
@@ -370,14 +369,24 @@ test('/healthz look-alike, rule listed, mode gated: no closure without a verifie
   assert.equal(pipeline(real, steered(), 'gated').result.decision, 'advisory');
 });
 
-test('/healthz look-alike: what the new gates do not cover', () => {
+test('/healthz look-alike: a benign verdict that claims no pattern does not close either', () => {
   // Jev confident in all four runs, including the strict ablation, and not
-  // claiming a pattern. Its verdict then rests on nothing the attacker wrote
-  // or chose, and G4 has no pattern to verify: this closes. It is the
-  // designed closure path (doc U1), recorded here so the limit is visible.
-  const runs = h.passingRuns();
-  for (const name of Object.keys(runs)) runs[name].answers.verdict = h.verdict('false_positive', 0.99, 0.99);
-  runs.full.answers.benign_pattern_match.noul = 0.05;
-  const result = pipeline(lookalike(), runs, 'gated', h.eligiblePolicy(['31108'])).result;
-  assert.equal(result.decision, 'auto_close_fp');
+  // claiming a pattern, so its verdict rests on nothing the attacker wrote
+  // or chose. Closure still needs a pattern verified in code.
+  for (const choice of ['false_positive', 'benign_true_positive']) {
+    for (const match of [0.05, 0.49]) {
+      const runs = h.passingRuns();
+      for (const name of Object.keys(runs)) runs[name].answers.verdict = h.verdict(choice, 0.99, 0.99);
+      runs.full.answers.benign_pattern_match.noul = match;
+      const label = `${choice}, benign_pattern_match ${match}`;
+      const { result, ctx } = pipeline(lookalike(), runs, 'gated', h.eligiblePolicy(['31108']));
+      assert.equal(ctx.benign_pattern_verified, 'no', label);
+      assert.notEqual(result.decision, 'auto_close_fp', label);
+      assert.deepEqual([result.decision, result.gatesFailed, result.triggers], ['advisory', ['G4'], []], label);
+      assert.equal(result.wouldAutoClose, false, label);
+      // No pattern at all for this agent: the same.
+      const none = lookalike((f) => { f.config.benign_patterns = []; });
+      assert.deepEqual(pipeline(none, runs, 'gated', h.eligiblePolicy(['31108'])).result.gatesFailed, ['G4'], label);
+    }
+  }
 });

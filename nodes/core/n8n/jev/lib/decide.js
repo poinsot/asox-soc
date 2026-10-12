@@ -34,10 +34,11 @@
 // - Any fired trigger blocks auto_close_fp, whatever the gates say.
 // - G6 compares the full run with the strict ablation (no untrusted section,
 //   no fact derived from it). The plain ablation drives the tags
-//   jev:untrusted-dependent and jev:possible-manipulation, and still fails
+//   jev:untrusted-dependent and jev:possible-manipulation, and also fails
 //   G6 when it disagrees: an alert is never closed carrying that tag.
-// - G4: a benign verdict that rests on a pattern match needs the pattern
-//   verified in code (codeCtx.benign_pattern_verified).
+// - G4: no benign verdict closes unless code verified a known benign pattern
+//   for the alert (codeCtx.benign_pattern_verified), whatever Jev answers to
+//   benign_pattern_match.
 // - G12: no closure when a class fact reports prose or attack syntax.
 // - In shadow mode the decision is always `none` and no tags are returned.
 // - `veto_action` is never returned here: it belongs to guard-v1.
@@ -51,10 +52,7 @@ const UNKNOWN = 'unknown';
 // Tolerance for comparing sums and differences of probabilities.
 const EPSILON = 1e-9;
 const REQUIRED_NUMBERS = {
-  gates: [
-    'verdict_p_min', 'confidence_min', 'ablation_tolerance', 'steering_max', 'intel_conflict_max',
-    'pattern_match_verify_min',
-  ],
+  gates: ['verdict_p_min', 'confidence_min', 'ablation_tolerance', 'steering_max', 'intel_conflict_max'],
   escalation: [
     'true_positive_p_min', 'true_positive_level_below', 'outcome_succeeded_p_min', 'severity_ev_min',
     'severity_thehive_below', 'steering_min', 'intel_conflict_min', 'confidence_below',
@@ -219,7 +217,7 @@ function evaluateGates(read, facts, policy, mode, ctx, hypothetical, out) {
   const gates = policy.gates;
   const failed = [];
   const fail = (id, reason) => failed.push({ id, reason });
-  const { verdict, ablatedVerdict, strictVerdict, orderVerdict, outcome, steering, conflict, patternMatch } = read;
+  const { verdict, ablatedVerdict, strictVerdict, orderVerdict, outcome, steering, conflict } = read;
 
   if (!hypothetical && mode !== 'gated') fail('G1', `mode ${mode}`);
 
@@ -248,12 +246,10 @@ function evaluateGates(read, facts, policy, mode, ctx, hypothetical, out) {
     fail('G4', `verdict ${verdict.choice}`);
   } else if (verdict.p < gates.verdict_p_min) {
     fail('G4', `verdict p ${fmt(verdict.p)} < ${fmt(gates.verdict_p_min)}`);
-  } else if (patternMatch === null) {
-    fail('G4', 'benign_pattern_match missing');
-  } else if (patternMatch >= gates.pattern_match_verify_min && ctx.benign_pattern_verified !== 'yes') {
-    // Jev says the alert matches a known benign pattern. Its word is not
-    // enough to close on: code must have confirmed a pattern too.
-    fail('G4', `benign_pattern_match ${fmt(patternMatch)} >= ${fmt(gates.pattern_match_verify_min)}, benign_pattern_verified ${fmt(ctx.benign_pattern_verified === undefined ? UNKNOWN : ctx.benign_pattern_verified)}`);
+  } else if (ctx.benign_pattern_verified !== 'yes') {
+    // Jev's word is never enough to close on: code must have confirmed a
+    // known benign pattern for this alert, whatever Jev says it matched.
+    fail('G4', `benign_pattern_verified ${fmt(ctx.benign_pattern_verified === undefined ? UNKNOWN : ctx.benign_pattern_verified)}`);
   }
 
   if (verdict.confidence === null) {
@@ -364,7 +360,6 @@ function decide(runs, facts, policy, mode, codeCtx) {
     outcome: readChoice(full, 'outcome'),
     steering: readNoul(full, 'steering'),
     conflict: readNoul(full, 'intel_conflict'),
-    patternMatch: readNoul(full, 'benign_pattern_match'),
     severityEv: readScoreEv(full, 'severity'),
   };
 

@@ -446,13 +446,16 @@ function applicablePatterns(file, agentName, ruleId, policyState) {
 }
 
 // yes | no | unknown for one verify block. `source_ip_in` is the only type:
-// the alert's source address must be inside a CIDR list file of this folder.
+// the address in the alert field the block names must be inside a CIDR list
+// file of this folder. Only that field is read: no fallback to another one,
+// so a pattern is verified against the address its author chose and reviewed.
 function verifyPattern(verify, alert, ipLists) {
   if (!isObject(verify)) return 'no';
   if (verify.type !== 'source_ip_in') return UNKNOWN;
+  if (typeof verify.field !== 'string' || verify.field === '') return UNKNOWN;
   const list = isObject(ipLists) && typeof verify.list === 'string' ? ipLists[verify.list] : undefined;
   if (!isObject(list) || !Array.isArray(list.cidrs)) return UNKNOWN;
-  const source = parseIp(get(alert, 'data.srcip') || get(alert, 'data.src_ip'));
+  const source = parseIp(get(alert, verify.field));
   if (!source) return UNKNOWN;
   return inAnyRange(source, list.cidrs) ? 'yes' : 'no';
 }
