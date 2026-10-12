@@ -1,0 +1,14 @@
+{
+  "version": "benign-patterns-1",
+  "status": "draft",
+  "description": "Known benign patterns written by analysts in plain language (doc 6.4). Added by pull request only, reviewed by a second owner (R7). `applies_to` is optional and filters in code which descriptions are sent: `agents` (Wazuh agent names) and `rule_ids`; a pattern without it is sent with every alert.",
+  "patterns": [
+    {
+      "id": "bp-example-lab-test-event",
+      "example": true,
+      "description": "Synthetic test events written by the asox-test program on the lab agent, fired on purpose by the SOC team to test the pipeline.",
+      "applies_to": { "agents": ["lab-agent"], "rule_ids": ["100100"] },
+      "added": "2026-10-12"
+    }
+  ]
+}
