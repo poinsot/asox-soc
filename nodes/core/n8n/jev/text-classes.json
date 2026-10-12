@@ -1,0 +1,29 @@
+{
+  "version": "text-classes-1",
+  "status": "draft",
+  "description": "Classes for facts.untrusted_text_class, computed in code from the untrusted fields that have no class of their own (user names, commands, file names, the log line, the rule description), joined, lowercased and cut to max_input_chars. Patterns are JavaScript regular expressions without flags; they are phrases, not single words, because log lines legitimately say things like 'unauthorized' or 'illegal instruction'.",
+  "max_input_chars": 2000,
+  "default_class": "plain",
+  "exclude_keys": [
+    "request_url",
+    "user_agent"
+  ],
+  "classes": [
+    {
+      "class": "embedded_text",
+      "description": "Contains phrases aimed at whoever classifies the alert",
+      "patterns": [
+        "ignore (all |any |the )?(previous|prior|above|earlier)",
+        "(previous|prior|following|these|new) instructions",
+        "classify (this|it|as)|classif(y|ied) as",
+        "(false|true)[ _-]?positive",
+        "\\bbenign",
+        "\\btriage\\b|\\bverdict\\b",
+        "do not (alert|block|escalate|report)",
+        "(approved|authori[sz]ed) (maintenance|test|testing|scan|scanner|activity|pentest)",
+        "system[ _-]?prompt",
+        "\\b(ai|llm|automated|soc|security) (system|analyst|team|triage|assistant|classifier)"
+      ]
+    }
+  ]
+}

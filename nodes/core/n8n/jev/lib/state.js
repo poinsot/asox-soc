@@ -10,18 +10,25 @@
 //                 warninglists    ["list name", ...]                      C10
 //                 cortex_reports  [{ analyzer, summary: { taxonomies }, full }]   C6
 //   config      { policy, assets, benignPatterns, untrustedFields, intelFields,
-//                 pathClasses, userAgentClasses, now }
-//               the parsed JSON files of this folder; `now` is an ISO date or
-//               epoch milliseconds, passed in so the function stays pure.
+//                 pathClasses, userAgentClasses, textClasses, ipLists, now }
+//               the parsed JSON files of this folder (ipLists maps a list's
+//               path in this folder to its parsed file); `now` is an ISO date
+//               or epoch milliseconds, passed in so the function stays pure.
 //
-// The returned state has exactly five sections and all of them may be sent to
-// Jev: alert, facts, intel, context, untrusted. Values used only by code
-// (buildCodeCtx) are never part of it.
+// The returned state has five sections that may be sent to Jev: alert, facts,
+// intel, context, untrusted. It also carries `derived_facts`, the names of
+// the facts computed from untrusted fields: lib/request.js removes them for
+// the strict ablation and never sends the list itself. Values used only by
+// code (buildCodeCtx) are never part of the state.
 //
 // Pure: no I/O, no clock, no require. A fact whose input is missing is the
 // string "unknown"; nothing here throws on a missing or malformed input.
 
 const UNKNOWN = 'unknown';
+
+// Facts computed from untrusted fields. This is the one list: a new class
+// fact is added here, and the strict ablation and the tests follow.
+const DERIVED_FACTS = ['request_path_class', 'user_agent_class', 'untrusted_text_class'];
 
 // Category labels of doc 6.2, written once. lib/decide.js compares against
 // policy values, never against these strings directly.
@@ -355,6 +362,15 @@ function requestPathClass(url, classFile) {
   return classify(path, classFile);
 }
 
+// Class of the untrusted text that has no class of its own (user names,
+// commands, file names, the log line, the rule description).
+function untrustedTextClass(untrusted, classFile) {
+  if (!isObject(classFile)) return UNKNOWN;
+  const exclude = Array.isArray(classFile.exclude_keys) ? classFile.exclude_keys : [];
+  const values = Object.keys(untrusted).filter((key) => exclude.indexOf(key) === -1).map((key) => untrusted[key]);
+  return values.length === 0 ? UNKNOWN : classify(values.join('\n'), classFile);
+}
+
 function userAgentClass(userAgent, classFile) {
   if (typeof userAgent !== 'string') return UNKNOWN;
   const maxPlain = isObject(classFile) ? positiveInt(classFile.max_plain_chars, 256) : 256;
@@ -411,8 +427,11 @@ function intelSummaries(reports, intelFields) {
   return summaries;
 }
 
-function benignPatterns(file, agentName, ruleId, policyState) {
-  if (!isObject(file) || !Array.isArray(file.patterns)) return UNKNOWN;
+// The patterns that apply to this agent and rule, as [{ description, verify }],
+// or null when there is no pattern file. Jev is shown the descriptions; the
+// verify blocks are evaluated in code (verifyBenignPatterns).
+function applicablePatterns(file, agentName, ruleId, policyState) {
+  if (!isObject(file) || !Array.isArray(file.patterns)) return null;
   const selected = [];
   for (const pattern of file.patterns) {
     if (!isObject(pattern)) continue;
@@ -421,12 +440,41 @@ function benignPatterns(file, agentName, ruleId, policyState) {
     const scope = isObject(pattern.applies_to) ? pattern.applies_to : {};
     if (Array.isArray(scope.agents) && scope.agents.indexOf(agentName) === -1) continue;
     if (Array.isArray(scope.rule_ids) && scope.rule_ids.map(String).indexOf(ruleId) === -1) continue;
-    selected.push(description);
+    selected.push({ description, verify: pattern.verify });
   }
   return selected.slice(0, positiveInt(policyState.max_benign_patterns, 20));
 }
 
-function untrustedFields(alert, file) {
+// yes | no | unknown for one verify block. `source_ip_in` is the only type:
+// the alert's source address must be inside a CIDR list file of this folder.
+function verifyPattern(verify, alert, ipLists) {
+  if (!isObject(verify)) return 'no';
+  if (verify.type !== 'source_ip_in') return UNKNOWN;
+  const list = isObject(ipLists) && typeof verify.list === 'string' ? ipLists[verify.list] : undefined;
+  if (!isObject(list) || !Array.isArray(list.cidrs)) return UNKNOWN;
+  const source = parseIp(get(alert, 'data.srcip') || get(alert, 'data.src_ip'));
+  if (!source) return UNKNOWN;
+  return inAnyRange(source, list.cidrs) ? 'yes' : 'no';
+}
+
+// Did code confirm a known benign pattern for this alert? `yes` when the
+// verify block of at least one applicable pattern holds; `no` when none
+// does, including when no applicable pattern has a verify block (prose
+// alone verifies nothing); `unknown` when a check could not be made.
+function verifyBenignPatterns(alert, config) {
+  const a = isObject(alert) ? alert : {};
+  const c = isObject(config) ? config : {};
+  const policyState = isObject(c.policy) && isObject(c.policy.state) ? c.policy.state : {};
+  const patterns = applicablePatterns(
+    c.benignPatterns, cleanOrUnknown(get(a, 'agent.name'), 80), cleanOrUnknown(get(a, 'rule.id'), 20), policyState,
+  );
+  if (patterns === null) return UNKNOWN;
+  const results = patterns.map((pattern) => verifyPattern(pattern.verify, a, c.ipLists));
+  if (results.indexOf('yes') !== -1) return 'yes';
+  return results.indexOf(UNKNOWN) !== -1 ? UNKNOWN : 'no';
+}
+
+function untrustedFields(alert, file, skipPaths) {
   const out = {};
   if (!isObject(file)) return out;
   const maxTotal = positiveInt(file.max_chars_total, 2000);
@@ -438,6 +486,7 @@ function untrustedFields(alert, file) {
   for (const field of listed) {
     if (remaining <= 0) break;
     if (!isObject(field) || typeof field.path !== 'string' || typeof field.key !== 'string') continue;
+    if (skipPaths.indexOf(field.path) !== -1) continue;
     if (Object.prototype.hasOwnProperty.call(out, field.key)) continue;
     const value = clean(get(alert, field.path), Math.min(maxField, remaining));
     if (!value) continue;
@@ -463,6 +512,13 @@ function buildState(alert, enrichment, config) {
   const tactics = get(a, 'rule.mitre.tactic');
   const asset = isObject(c.assets) && isObject(c.assets.assets) ? c.assets.assets[agentName] : undefined;
   const observable = primaryObservable(a, e);
+  // A rule description can interpolate decoded fields, so it is untrusted
+  // unless the rule is listed as having a static one.
+  const staticRules = isObject(c.untrustedFields) && Array.isArray(c.untrustedFields.static_description_rules)
+    ? c.untrustedFields.static_description_rules.map(String) : [];
+  const staticDescription = ruleId !== UNKNOWN && staticRules.indexOf(ruleId) !== -1;
+  const groups = get(a, 'rule.groups');
+  const untrusted = untrustedFields(a, c.untrustedFields, staticDescription ? ['rule.description'] : []);
 
   const facts = { observable_type: observable.type };
   facts.ip_scope = observable.type === 'ip' ? ipScope(observable.value, networks) : UNKNOWN;
@@ -476,39 +532,47 @@ function buildState(alert, enrichment, config) {
   facts.warninglists = warninglistNames(e.warninglists, policyState);
   facts.asset_criticality = isObject(asset) && CRITICALITIES.indexOf(asset.criticality) !== -1
     ? asset.criticality : UNKNOWN;
-  // Safe facts derived in code from untrusted fields: a closed set of class
-  // names, so they stay in the ablated run while the raw values do not.
+  // Safe facts derived in code from untrusted fields (DERIVED_FACTS): a
+  // closed set of class names. They stay in the ablated run, while the raw
+  // values do not, and are removed from the strict ablation.
   facts.request_path_class = requestPathClass(get(a, 'data.url'), c.pathClasses);
   facts.user_agent_class = userAgentClass(get(a, 'data.http_user_agent'), c.userAgentClasses);
+  facts.untrusted_text_class = untrustedTextClass(untrusted, c.textClasses);
+
+  const alertSection = {
+    rule_id: ruleId,
+    rule_level: Number.isInteger(ruleLevel) ? ruleLevel : UNKNOWN,
+    rule_groups: Array.isArray(groups) ? groups.map((group) => clean(group, 40)).filter(Boolean).slice(0, 10) : [],
+    mitre_tactics: Array.isArray(tactics)
+      ? tactics.map((tactic) => clean(tactic, 60)).filter(Boolean).slice(0, 10) : [],
+    agent_name: agentName,
+    decoder: cleanOrUnknown(get(a, 'decoder.name'), 80),
+  };
+  if (staticDescription) alertSection.rule_description = cleanOrUnknown(get(a, 'rule.description'), 200);
+  const patterns = applicablePatterns(c.benignPatterns, agentName, ruleId, policyState);
 
   return {
-    alert: {
-      rule_id: ruleId,
-      rule_description: cleanOrUnknown(get(a, 'rule.description'), 200),
-      rule_level: Number.isInteger(ruleLevel) ? ruleLevel : UNKNOWN,
-      mitre_tactics: Array.isArray(tactics)
-        ? tactics.map((tactic) => clean(tactic, 60)).filter(Boolean).slice(0, 10) : [],
-      agent_name: agentName,
-      decoder: cleanOrUnknown(get(a, 'decoder.name'), 80),
-    },
+    alert: alertSection,
     facts,
     intel: intelSummaries(e.cortex_reports, c.intelFields),
     context: {
       asset_role: isObject(asset) ? cleanOrUnknown(asset.role, 300) : UNKNOWN,
-      known_benign_patterns: benignPatterns(c.benignPatterns, agentName, ruleId, policyState),
+      known_benign_patterns: patterns === null ? UNKNOWN : patterns.map((pattern) => pattern.description),
     },
-    untrusted: untrustedFields(a, c.untrustedFields),
+    untrusted,
+    derived_facts: DERIVED_FACTS.slice(),
   };
 }
 
 // Values the decision needs and Jev must never see (doc 6.2 marks
-// rule_eligible_for_auto "used by code only"). `extra` carries what only the
-// playbook knows: thehive_severity (1-4) and response_action_proposed.
-// The key names differ from every key of the state on purpose, so a test can
-// prove none of them reaches a request body.
-function buildCodeCtx(alert, policy, extra) {
+// rule_eligible_for_auto "used by code only"). `config` is the one given to
+// buildState; `extra` carries what only the playbook knows: thehive_severity
+// (1-4) and response_action_proposed. The key names differ from every key of
+// the state on purpose, so a test can prove none of them reaches a request
+// body.
+function buildCodeCtx(alert, config, extra) {
   const a = isObject(alert) ? alert : {};
-  const p = isObject(policy) ? policy : {};
+  const p = isObject(config) && isObject(config.policy) ? config.policy : {};
   const x = isObject(extra) ? extra : {};
   const ruleId = cleanOrUnknown(get(a, 'rule.id'), 20);
   const ruleLevel = Number(get(a, 'rule.level'));
@@ -518,6 +582,7 @@ function buildCodeCtx(alert, policy, extra) {
     wazuh_rule_id: ruleId,
     wazuh_rule_level: Number.isInteger(ruleLevel) ? ruleLevel : UNKNOWN,
     rule_eligible_for_auto: ruleId !== UNKNOWN && listed && !never ? 'yes' : 'no',
+    benign_pattern_verified: verifyBenignPatterns(a, config),
     thehive_severity: Number.isInteger(x.thehive_severity) ? x.thehive_severity : UNKNOWN,
     response_action_proposed: typeof x.response_action_proposed === 'boolean'
       ? x.response_action_proposed : UNKNOWN,
@@ -527,6 +592,7 @@ function buildCodeCtx(alert, policy, extra) {
 const jevState = {
   buildState,
   buildCodeCtx,
+  DERIVED_FACTS,
   // exported for the unit tests
   parseIp,
   ipInCidr,
@@ -538,6 +604,7 @@ const jevState = {
   classify,
   requestPathClass,
   userAgentClass,
+  verifyBenignPatterns,
   UNKNOWN,
   SEEN_BEFORE,
   AGE,

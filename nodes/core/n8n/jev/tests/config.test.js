@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const h = require('./helpers.js');
 const { policyProblems } = require('../lib/decide.js');
+const { parseCidr } = require('../lib/state.js');
 
 test('every config file is JSON with a version', () => {
   for (const file of h.CONFIG_FILES) {
@@ -89,17 +90,29 @@ test('seed files: one playbook, one asset, one example pattern, draft markers', 
   const patterns = h.readJson('benign-patterns.json').patterns;
   assert.equal(patterns.length, 1);
   assert.equal(patterns[0].example, true);
+  // Every verify block names a known type and a list file that exists and parses.
+  for (const pattern of patterns.filter((entry) => entry.verify)) {
+    assert.equal(pattern.verify.type, 'source_ip_in');
+    const list = h.readJson(pattern.verify.list);
+    assert.match(pattern.verify.list, /^ip-lists\/[a-z0-9-]+\.json$/);
+    assert.ok(Array.isArray(list.cidrs) && list.cidrs.length > 0);
+    for (const cidr of list.cidrs) assert.notEqual(parseCidr(cidr), null, cidr);
+  }
+  assert.deepEqual(h.readJson('untrusted-fields.json').static_description_rules, []);
+  assert.equal(h.readJson('untrusted-fields.json').default[0].path, 'rule.description');
+  assert.deepEqual(h.readJson('policy.json').gates.blocked_fact_classes, ['embedded_text', 'attack_pattern']);
+  assert.equal(h.readJson('policy.json').gates.pattern_match_verify_min, 0.5);
   assert.equal(h.readJson('untrusted-fields.json').status, 'draft: pending Wazuh owner');
   assert.equal(h.readJson('intel-fields.json').status, 'draft: pending Cortex + MISP owner');
   assert.equal(h.readJson('untrusted-fields.json').max_chars_total, 2000);
   const paths = h.readJson('untrusted-fields.json').default.map((field) => field.path);
-  for (const expected of ['full_log', 'data.url', 'data.srcuser', 'data.dstuser', 'data.http_user_agent', 'data.command']) {
+  for (const expected of ['rule.description', 'full_log', 'data.url', 'data.srcuser', 'data.dstuser', 'data.http_user_agent', 'data.command']) {
     assert.ok(paths.includes(expected), `untrusted default lists ${expected}`);
   }
 });
 
 test('class and intel files: every pattern compiles, class names are unique', () => {
-  for (const file of ['path-classes.json', 'user-agent-classes.json']) {
+  for (const file of ['path-classes.json', 'user-agent-classes.json', 'text-classes.json']) {
     const parsed = h.readJson(file);
     const names = parsed.classes.map((entry) => entry.class);
     assert.equal(new Set(names).size, names.length, `${file}: duplicate class`);

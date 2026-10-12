@@ -5,7 +5,8 @@
 //   question set. Its version is "<file version>+pb.<12 hex of SHA-256 of the
 //   catalog>", so a judgment records which catalog it was asked with.
 //
-// buildRequests(state, questionSet, options) -> { full, ablated, orderCheck }
+// buildRequests(state, questionSet, options)
+//     -> { full, ablated, strictAblated, orderCheck }
 //   options.model is required: the model name is configuration (JEV_MODEL),
 //   never written here. Each result is a request body { model, state,
 //   questions }. Nothing is sent: there is no network code in this file.
@@ -182,11 +183,15 @@ function wireQuestions(questionSet, keep, reverse) {
 
 // Only the five sections of the state are copied: anything else on the
 // object passed in (code-only values, playbook data) cannot reach a request.
-function wireState(state, withUntrusted) {
+// `dropFacts` names facts to leave out (the strict ablation).
+function wireState(state, withUntrusted, dropFacts) {
   const wire = {};
   for (const section of STATE_SECTIONS) {
     if (section === 'untrusted' && !withUntrusted) continue;
     if (state[section] !== undefined) wire[section] = clone(state[section]);
+  }
+  if (dropFacts && isObject(wire.facts)) {
+    for (const fact of dropFacts) delete wire.facts[fact];
   }
   return wire;
 }
@@ -198,7 +203,14 @@ function buildRequests(state, questionSet, options) {
   if (!isObject(questionSet) || !isObject(questionSet.questions)) {
     throw new Error('jev: a resolved question set is required');
   }
+  // Without the list the strict ablation would silently keep facts an
+  // attacker can choose, so a state that does not carry it is refused.
+  const derived = state.derived_facts;
+  if (!Array.isArray(derived) || derived.some((fact) => typeof fact !== 'string')) {
+    throw new Error('jev: state.derived_facts is required (build the state with buildState)');
+  }
   const orderCheck = Array.isArray(questionSet.order_check) ? questionSet.order_check : [];
+  const withoutUntrusted = (key, question) => question.reads_untrusted !== true;
   return {
     // The judgment the alert gets.
     full: {
@@ -211,7 +223,15 @@ function buildRequests(state, questionSet, options) {
     ablated: {
       model,
       state: wireState(state, false),
-      questions: wireQuestions(questionSet, (key, question) => question.reads_untrusted !== true, false),
+      questions: wireQuestions(questionSet, withoutUntrusted, false),
+    },
+    // Nothing an attacker wrote or chose: no untrusted section and none of
+    // the facts derived from it either. The closure gate G6 compares the
+    // full run with this one.
+    strictAblated: {
+      model,
+      state: wireState(state, false, derived),
+      questions: wireQuestions(questionSet, withoutUntrusted, false),
     },
     // The order-check questions again, options reversed (doc 9.3).
     orderCheck: {

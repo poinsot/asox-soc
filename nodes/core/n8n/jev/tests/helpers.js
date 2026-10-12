@@ -15,8 +15,19 @@ function clone(value) {
 
 const CONFIG_FILES = [
   'policy.json', 'playbooks.json', 'assets.json', 'benign-patterns.json', 'untrusted-fields.json',
-  'intel-fields.json', 'path-classes.json', 'user-agent-classes.json', 'questions/triage-v1.json',
+  'intel-fields.json', 'path-classes.json', 'user-agent-classes.json', 'text-classes.json',
+  'ip-lists/example-lab-test-sources.json', 'questions/triage-v1.json',
 ];
+
+// Every CIDR list of ip-lists/, keyed by its path in this folder, which is
+// how a benign pattern's verify block names it.
+function loadIpLists() {
+  const lists = {};
+  for (const file of fs.readdirSync(path.join(ROOT, 'ip-lists')).filter((name) => name.endsWith('.json')).sort()) {
+    lists[`ip-lists/${file}`] = readJson(path.join('ip-lists', file));
+  }
+  return lists;
+}
 
 // The config as buildState takes it, from the files in git. `now` is fixed
 // so the date buckets are reproducible.
@@ -29,6 +40,8 @@ function loadConfig(now) {
     intelFields: readJson('intel-fields.json'),
     pathClasses: readJson('path-classes.json'),
     userAgentClasses: readJson('user-agent-classes.json'),
+    textClasses: readJson('text-classes.json'),
+    ipLists: loadIpLists(),
     now: now || '2026-10-12T12:00:00Z',
   };
 }
@@ -41,6 +54,7 @@ function configFor(fixture) {
   if (overrides.assets) Object.assign(config.assets.assets, overrides.assets);
   if (overrides.benign_patterns) config.benignPatterns.patterns = overrides.benign_patterns;
   if (overrides.networks) Object.assign(config.policy.state.networks, overrides.networks);
+  if (overrides.ip_lists) Object.assign(config.ipLists, overrides.ip_lists);
   return config;
 }
 
@@ -88,7 +102,7 @@ function score(probabilities) {
   return { type: 'score', score: Number(best), confidence: 0.8, probabilities };
 }
 
-// Three runs in which every Jev-side gate passes and no trigger fires: a
+// Four runs in which every Jev-side gate passes and no trigger fires: a
 // confident benign verdict, stable without the untrusted text and with the
 // options reversed. Tests change one thing at a time from here.
 function passingRuns() {
@@ -107,6 +121,7 @@ function passingRuns() {
       },
     },
     ablated: { answers: { verdict: verdict('benign_true_positive', 0.96, 0.94) } },
+    strictAblated: { answers: { verdict: verdict('benign_true_positive', 0.95, 0.93) } },
     orderCheck: { answers: { verdict: verdict('benign_true_positive', 0.96, 0.94) } },
   };
 }
@@ -126,6 +141,7 @@ function passingFacts() {
     asset_criticality: 'low',
     request_path_class: 'health_check',
     user_agent_class: 'claims_monitoring_tool',
+    untrusted_text_class: 'plain',
   };
 }
 
@@ -134,6 +150,7 @@ function passingCtx(ruleId) {
     wazuh_rule_id: String(ruleId),
     wazuh_rule_level: 7,
     rule_eligible_for_auto: 'yes',
+    benign_pattern_verified: 'yes',
     thehive_severity: 2,
     response_action_proposed: false,
   };

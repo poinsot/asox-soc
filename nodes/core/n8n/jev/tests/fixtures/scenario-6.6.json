@@ -30,6 +30,7 @@
       "id": "100210",
       "level": 10,
       "description": "Repeated HTTP requests from IP flagged by threat intel",
+      "groups": ["web", "threat-intel"],
       "mitre": { "id": ["T1595"], "tactic": ["Reconnaissance"] }
     },
     "agent": { "id": "002", "name": "web-01" },
@@ -93,6 +94,14 @@
         "verdict": {
           "type": "choice", "choice": "benign_true_positive", "confidence": 0.84,
           "probabilities": { "true_positive": 0.05, "benign_true_positive": 0.88, "false_positive": 0.06, "insufficient_evidence": 0.01 }
+        }
+      }
+    },
+    "strictAblated": {
+      "answers": {
+        "verdict": {
+          "type": "choice", "choice": "benign_true_positive", "confidence": 0.8,
+          "probabilities": { "true_positive": 0.07, "benign_true_positive": 0.84, "false_positive": 0.07, "insufficient_evidence": 0.02 }
         }
       }
     },

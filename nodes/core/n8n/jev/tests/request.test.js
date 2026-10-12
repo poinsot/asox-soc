@@ -71,7 +71,8 @@ test('buildRequests: the model is a parameter', () => {
   assert.throws(() => r.buildRequests(state, questionSet), /model is required/);
   assert.throws(() => r.buildRequests(state, questionSet, { model: ' ' }), /model is required/);
   const requests = r.buildRequests(state, questionSet, { model: MODEL });
-  for (const name of ['full', 'ablated', 'orderCheck']) {
+  assert.deepEqual(Object.keys(requests), ['full', 'ablated', 'strictAblated', 'orderCheck']);
+  for (const name of Object.keys(requests)) {
     assert.deepEqual(Object.keys(requests[name]), ['model', 'state', 'questions']);
     assert.equal(requests[name].model, MODEL);
   }
@@ -80,7 +81,8 @@ test('buildRequests: the model is a parameter', () => {
 test('full request: the state of doc 6.6 and all 9 questions in the 7.3 shape', () => {
   const { state, questionSet } = scenario();
   const { full } = r.buildRequests(state, questionSet, { model: MODEL });
-  assert.deepEqual(full.state, state);
+  assert.deepEqual(Object.keys(full.state), ['alert', 'facts', 'intel', 'context', 'untrusted']);
+  for (const section of Object.keys(full.state)) assert.deepEqual(full.state[section], state[section]);
   assert.deepEqual(Object.keys(full.questions), Object.keys(questionSet.questions));
   assert.deepEqual(Object.keys(full.questions.verdict), ['type', 'instructions', 'criteria']);
   assert.deepEqual(Object.keys(full.questions.steering), ['type', 'instructions']);
@@ -107,6 +109,48 @@ test('ablated request: no untrusted section, no question that reads it', () => {
   assert.ok(!JSON.stringify(ablated).includes('UptimeMonitor'));
 });
 
+test('strict ablation: no untrusted section and no fact derived from untrusted', () => {
+  const { state, questionSet } = scenario();
+  const { ablated, strictAblated } = r.buildRequests(state, questionSet, { model: MODEL });
+  assert.deepEqual(Object.keys(strictAblated.state), ['alert', 'facts', 'intel', 'context']);
+  assert.deepEqual(s.DERIVED_FACTS, ['request_path_class', 'user_agent_class', 'untrusted_text_class']);
+  for (const fact of s.DERIVED_FACTS) {
+    assert.ok(fact in ablated.state.facts, `${fact} stays in the plain ablation`);
+    assert.ok(!(fact in strictAblated.state.facts), `${fact} is in the strict ablation`);
+  }
+  // Everything else is the plain ablation, unchanged.
+  const expected = h.clone(ablated);
+  for (const fact of s.DERIVED_FACTS) delete expected.state.facts[fact];
+  assert.deepEqual(strictAblated, expected);
+  assert.deepEqual(Object.keys(strictAblated.state.facts), [
+    'observable_type', 'ip_scope', 'direction', 'seen_before', 'first_seen', 'last_seen', 'related_high_alerts',
+    'misp_match', 'warninglists', 'asset_criticality',
+  ]);
+  // Every fact of the state is either derived (and listed) or built from
+  // trusted input: a new *_class fact that is not in the list fails here.
+  for (const fact of Object.keys(state.facts)) {
+    assert.equal(fact.endsWith('_class'), s.DERIVED_FACTS.includes(fact), fact);
+  }
+  // The list travels on the state and is never sent.
+  assert.deepEqual(state.derived_facts, s.DERIVED_FACTS);
+  for (const body of Object.values(r.buildRequests(state, questionSet, { model: MODEL }))) {
+    assert.ok(!JSON.stringify(body).includes('derived_facts'));
+  }
+  // A future class fact added to the list is removed without touching request.js.
+  const future = h.clone(state);
+  future.facts.command_class = 'shell_download';
+  future.derived_facts.push('command_class');
+  const built = r.buildRequests(future, questionSet, { model: MODEL });
+  assert.equal(built.ablated.state.facts.command_class, 'shell_download');
+  assert.ok(!('command_class' in built.strictAblated.state.facts));
+  // A state without the list is refused rather than sent with the facts in.
+  for (const bad of [undefined, 'request_path_class', [1]]) {
+    const broken = h.clone(state);
+    broken.derived_facts = bad;
+    assert.throws(() => r.buildRequests(broken, questionSet, { model: MODEL }), /derived_facts is required/);
+  }
+});
+
 test('order check: only the verdict question, options reversed, same texts', () => {
   const { state, questionSet } = scenario();
   const { full, orderCheck } = r.buildRequests(state, questionSet, { model: MODEL });
@@ -121,14 +165,14 @@ test('order check: only the verdict question, options reversed, same texts', () 
 
 test('no code-only value reaches a request body', () => {
   const { fixture, config, state, questionSet } = scenario();
-  const ctx = s.buildCodeCtx(fixture.alert, h.eligiblePolicy(['100210']), { thehive_severity: 3, response_action_proposed: true });
-  assert.deepEqual(Object.keys(ctx), ['wazuh_rule_id', 'wazuh_rule_level', 'rule_eligible_for_auto', 'thehive_severity', 'response_action_proposed']);
+  const ctx = s.buildCodeCtx(fixture.alert, Object.assign({}, config, { policy: h.eligiblePolicy(['100210']) }), { thehive_severity: 3, response_action_proposed: true });
+  assert.deepEqual(Object.keys(ctx), ['wazuh_rule_id', 'wazuh_rule_level', 'rule_eligible_for_auto', 'benign_pattern_verified', 'thehive_severity', 'response_action_proposed']);
   // Even if a caller wrongly hangs the context (or anything else) on the state.
   const polluted = Object.assign({}, state, ctx, { codeCtx: ctx, policy: config.policy });
   for (const source of [state, polluted]) {
     const body = JSON.stringify(r.buildRequests(source, questionSet, { model: MODEL }));
-    for (const key of Object.keys(ctx).concat(['codeCtx', 'auto_close_rules', 'policy'])) {
-      assert.ok(!body.includes(`"${key}"`), `${key} is in a request body`);
+    for (const key of Object.keys(ctx).concat(['codeCtx', 'auto_close_rules', 'policy', 'verify', 'cidrs', 'ip-lists'])) {
+      assert.ok(!body.includes(key === 'ip-lists' ? key : `"${key}"`), `${key} is in a request body`);
     }
   }
 });

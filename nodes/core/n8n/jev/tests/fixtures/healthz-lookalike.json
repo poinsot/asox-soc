@@ -1,0 +1,37 @@
+{
+  "name": "healthz-lookalike",
+  "description": "An attacker who knows the benign pattern imitates it: a request for /healthz with the uptime monitor's user agent, from an address that is not the monitor's. Nothing in the request is prose, so no class fact flags it; both class facts are the ones the real monitor gets. Only the source address, which the attacker cannot choose freely, tells them apart.",
+  "now": "2026-10-12T12:00:00Z",
+  "monitor_address": "198.51.100.5",
+  "config": {
+    "assets": {
+      "web-01": { "role": "public web server, nginx, serves the marketing site; monitored by an external uptime service", "criticality": "medium" }
+    },
+    "benign_patterns": [
+      {
+        "id": "bp-uptime-healthz",
+        "description": "Uptime checks from the external monitoring service against /healthz every minute",
+        "applies_to": { "agents": ["web-01"] },
+        "verify": { "type": "source_ip_in", "list": "ip-lists/test-uptime-monitor.json" }
+      }
+    ],
+    "ip_lists": {
+      "ip-lists/test-uptime-monitor.json": { "version": "test", "cidrs": ["198.51.100.0/28"] }
+    }
+  },
+  "alert": {
+    "timestamp": "2026-10-12T11:55:00.000+0000",
+    "rule": { "id": "31108", "level": 5, "description": "Ignored URLs (simple queries).", "groups": ["web", "accesslog"] },
+    "agent": { "id": "002", "name": "web-01" },
+    "decoder": { "name": "web-accesslog" },
+    "data": { "srcip": "203.0.113.66", "url": "/healthz", "http_user_agent": "UptimeMonitor/3.2" }
+  },
+  "enrichment": {
+    "observable": { "dataType": "ip", "data": "203.0.113.66" },
+    "seen_before": { "count": 0, "top_rules": [] },
+    "misp": { "events": [] },
+    "warninglists": [],
+    "cortex_reports": []
+  },
+  "code_ctx_extra": { "thehive_severity": 2, "response_action_proposed": false }
+}

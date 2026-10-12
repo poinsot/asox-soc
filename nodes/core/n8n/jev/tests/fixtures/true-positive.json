@@ -65,6 +65,14 @@
         }
       }
     },
+    "strictAblated": {
+      "answers": {
+        "verdict": {
+          "type": "choice", "choice": "true_positive", "confidence": 0.8,
+          "probabilities": { "true_positive": 0.84, "benign_true_positive": 0.04, "false_positive": 0.04, "insufficient_evidence": 0.08 }
+        }
+      }
+    },
     "orderCheck": {
       "answers": {
         "verdict": {
