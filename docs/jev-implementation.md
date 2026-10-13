@@ -6,7 +6,7 @@
 >
 > **Audience:** the n8n owner (main implementer), the Cortex + MISP, TheHive, Grafana and Wazuh owners (each owns a part), and the Claude Code sessions that build it.
 >
-> **Related:** PROJECT.md sections 5 (contracts), 6.2 (n8n conventions), 11.3 (backlogs), 13 (Phase 3, ASOX). Code: `nodes/core/n8n/jev/` on branch `n8n` (commits `74aff4e`, `0b4ab17`, `5b59c52`; **not merged into `main`**), described in that folder's `README.md`.
+> **Related:** PROJECT.md sections 5 (contracts), 6.2 (n8n conventions), 11.3 (backlogs), 13 (Phase 3, ASOX). Code: `nodes/core/n8n/jev/` on branch `n8n` (commits `74aff4e`, `0b4ab17`, `5b59c52`, `8033cda`; `policy-0.4.0`; **not merged into `main`**), described in that folder's `README.md`.
 
 ## Changes since v0.1
 
@@ -19,12 +19,12 @@ v0.2 folds in the twelve decisions the n8n owner took while building the stage 0
 - **Manipulation defenses (9):** a strict ablation is the fourth call per alert; no rule is listed for closure until the adversarial set passes with that rule listed.
 - **Question sets (7.4):** drafts until first used in shadow mode, then frozen.
 - **Where the code lives (10, 13):** `nodes/core/n8n/jev/` (`lib/`, `tests/`, `run-tests.sh`), not `tests/jev/` or `scripts/jev-eval.sh`. How the lib code reaches n8n Code nodes is open.
-- **Stage 0 so far:** the offline core exists and passes 69 unit tests with mocked answers. Nothing calls Jev yet; no workflow, credential or contract was built or changed.
+- **Stage 0 so far:** the offline core exists and passes 74 unit tests with mocked answers. Nothing calls Jev yet; no workflow, credential or contract was built or changed.
 - **Cost (14):** recomputed for four calls per alert.
 - **Model (3.2, Q1):** the model id is unverified; a no-waitlist gateway route is noted as a fallback.
 - **Work order and questions (18, 19):** C11 before C16; new open questions for the Wazuh owner (Q4, Q5) and the TheHive owner (Q6).
 
-Corrections of 2026-10-12 to v0.2 (same version): the 6.6 / 8.5 example (MISP level `suspicious`, no intel conflict, decision `advisory`, decoder `web-accesslog`); exact age-bucket boundaries (6.2, G11); what must be built before the first live call (15, R8); the consistency fields of 12.1 come from the decision step; the no-waitlist routes are named (3.2, section 11, Q1); `audit_sample_rate` is stage 3 only.
+Corrections of 2026-10-12 to v0.2 (same version): the 6.6 / 8.5 example (MISP level `suspicious`, no intel conflict, decision `advisory`, decoder `web-accesslog`); exact age-bucket boundaries (6.2, G11); what must be built before the first live call (15, R8); the consistency fields of 12.1 come from the decision step; the no-waitlist routes are named (3.2, section 11, Q1); `audit_sample_rate` is stage 3 only. The 6.6 state and the 8.5 block are the output of the committed fixture on branch `n8n` (commit `8033cda`, `policy-0.4.0`), and 8.5 quotes the gate reasons as the code returns them.
 
 ---
 
@@ -261,9 +261,7 @@ Fields an attacker can influence are moved into `untrusted` and truncated (**[AS
 
 ### 6.6 Example state (the false-positive IP scenario)
 
-The five sections that may be sent (`derived_facts` is not sent), as `buildState` builds them for the scenario of `tests/fixtures/scenario-6.6.json` with two corrections applied: the decoder is `web-accesslog` (Wazuh's decoder for nginx and Apache access logs), and the MISP entry has level `suspicious`, because `MISP_2_1` reports a hit as `suspicious` (`docs/decisions.md` A85).
-
-**Example values to be regenerated from the fixture.** The fixture on branch `n8n` still has decoder `nginx-accesslog`, MISP level `malicious` and an `intel_conflict` answer of 0.62. The values here and in 8.5 were computed on 2026-10-12 with the fixture patched in memory; they are regenerated from the committed fixture once the branch matches.
+The five sections that may be sent (`derived_facts` is not sent), as `buildState` builds them from the committed fixture `tests/fixtures/scenario-6.6.json` (branch `n8n`, commit `8033cda`, `policy-0.4.0`). The decoder is `web-accesslog` (Wazuh's decoder for nginx and Apache access logs), and the MISP entry has level `suspicious`, because `MISP_2_1` reports a hit as `suspicious` (`docs/decisions.md` A85).
 
 ```json
 {
@@ -448,9 +446,9 @@ Starting values are **[ASSUMPTION]**, deliberately strict, and are tuned only fr
 | G11 No hard flags | `related_high_alerts = none`; `misp_match` is `none`, or its threat level is known and, when `high`, its `newest_event_age` is the bucket `more than 30 days ago` (31 days or more, 6.2; `policy.gates.misp_high_threat_old_age_buckets`); `codeCtx.response_action_proposed` is false | — |
 | G12 Class facts *(new)* | No fact has a value in `policy.gates.blocked_fact_classes`: a class fact computed in code says the untrusted input carries prose or attack syntax | `embedded_text`, `attack_pattern` |
 
-Gates only decide whether `auto_close_fp` is allowed. **A failed gate alone gives `advisory`**; `human_review` comes only from the triggers of 8.4. **Any fired trigger blocks `auto_close_fp`**, whatever the gates say. The result lists the failed gates (`gatesFailed`) and why (`gateDetails`).
+Gates only decide whether `auto_close_fp` is allowed. **A failed gate alone gives `advisory`**; `human_review` comes only from the triggers of 8.4. **Any fired trigger blocks `auto_close_fp`**, whatever the gates say. The result lists the failed gates (`gatesFailed`) and why: `gateDetails` is an array of reasons per gate id, every failing reason of each gate, e.g. `{ "G4": ["verdict p 0.90 < 0.95", "benign_pattern_verified no"] }`.
 
-**For the metrics** (12.2, "would-have-closed precision") the result also carries `wouldAutoClose` and `closeGatesFailed`: gates G2–G12 as if the mode were `gated`, with G2 keeping the level cap and `never_auto_rules` but ignoring the `auto_close_rules` membership. In `gated` mode they are the real result and the real gate trace.
+**For the metrics** (12.2, "would-have-closed precision") the result also carries `wouldAutoClose`, `closeGatesFailed` and `closeGateDetails` (an array of reasons per gate id, like `gateDetails`): gates G2–G12 as if the mode were `gated`, with G2 keeping the level cap and `never_auto_rules` but ignoring the `auto_close_rules` membership. In `gated` mode they are the real result and the real gate trace.
 
 **A random sample** (**[ASSUMPTION]** 10%, `policy.audit_sample_rate`) of `auto_close_fp` decisions creates a TheHive review task "Verify Jev auto-closure"; an analyst reopening one counts as a Jev error in the metrics. **`audit_sample_rate` is for stage 3 only:** the value is in `policy.json`, but nothing reads it and nothing samples until stage 3 is proposed and built (17.1).
 
@@ -469,9 +467,11 @@ Gates only decide whether `auto_close_fp` is allowed. **A failed gate alone give
 
 The result lists every trigger that fired, with a detail line; the decision follows the priority of 8.2. The tags returned by the decision step are the signal tags only (`jev:conflict`, `jev:possible-manipulation`, `jev:untrusted-dependent`); the `jev:<decision>` tag of C16 is added by the record step.
 
+**Consistency values.** `decide` also returns `consistency`: `{ ablationDelta, strictAblationDelta, orderAgree }`, what G6 and G7 compared, for the record step (12.1). A delta is the absolute difference between the full run and that ablation in the probability of the full run's verdict option; `orderAgree` is a boolean; each is `null` when its run is missing. They are returned in every evaluating mode, shadow included.
+
 ### 8.5 Explanation without text
 
-`lib-jev-record` (not built) writes the judgment into TheHive as a structured block, built from the per-question answers. It names the trigger that produced the decision and lists the failed closure gates separately. Example for the scenario in 6.6 (values to be regenerated from the fixture, see the note in 6.6):
+`lib-jev-record` (not built) writes the judgment into TheHive as a structured block, built from the per-question answers. It names the trigger that produced the decision and lists the failed closure gates separately. Example for the scenario in 6.6, with the gate reasons as `decide` returns them in `closeGateDetails` for the committed fixture (the strings an analyst will see):
 
 ```
 Jev judgment (triage-v1+pb.f892f56fd693, <JEV_MODEL>, mode: advisory)
@@ -486,7 +486,7 @@ Verdict: benign_true_positive (p 0.90, confidence 0.86)
 - Class facts: request path health_check, user agent claims_monitoring_tool, other text plain
 Decision: advisory
 Triggers: none
-Closure gates failed (would not have closed): G2 rule level 10 ≥ 10; G4 verdict p 0.90 < 0.95, and the pattern is not verified in code; G5 confidence 0.86 < 0.90
+Closure gates failed (would not have closed): G2 rule level 10 >= 10; G4 verdict p 0.90 < 0.95, benign_pattern_verified no; G5 confidence 0.86 < 0.90
 ```
 
 The example shows **intel against context, not intel against intel**. MISP and AbuseIPDB agree with each other: both lean malicious (`suspicious`), so by `triage-v1`'s wording there is no conflict (`intel_conflict` 0.10) and no trigger fires. What disagrees with them is our own context: the asset's role, the known benign pattern and the long history of the same requests. Jev surfaces that benign reading, with its reasons, next to what the intel sources say, and the decision is `advisory`: the analyst sees both and decides. Nothing would have closed in any stage: G4 fails twice over (the probability is below the threshold, and the pattern is prose with no `verify` block), G2 fails on the rule's level and G5 on the confidence. The analyst's resolution is what later tunes the thresholds.
@@ -622,7 +622,7 @@ Every call sends alert data to a third-party service hosted in the United States
 | `jev_verdict`, `jev_verdict_p`, `jev_confidence` | verdict and its probability, confidence |
 | `jev_p_fp` | probability of `false_positive` + `benign_true_positive` |
 | `jev_steering`, `jev_conflict` | Noul values |
-| `jev_ablation_delta`, `jev_strict_ablation_delta`, `jev_order_agree` | consistency results of the plain ablation, the strict ablation and the order check. They come from the decision step's return value, which already compares the runs for G6 and G7; the record step stores them and never recomputes them from the raw answers, so the record cannot disagree with the decision. (Today `decide` returns only a reason string for a failing gate; returning the values is a follow-up in the n8n owner's folder) |
+| `jev_ablation_delta`, `jev_strict_ablation_delta`, `jev_order_agree` | consistency results of the plain ablation, the strict ablation and the order check. They come from the decision step's return value, which already compares the runs for G6 and G7; the record step stores them and never recomputes them from the raw answers, so the record cannot disagree with the decision. |
 | `jev_decision`, `jev_triggers`, `jev_gates_failed` | decision, the triggers that fired and the list of failed gates. In shadow mode `jev_decision` stores `shadowDecision.decision` (with `jev_mode: shadow`), so the dashboard compares like with like across stages |
 | `jev_would_auto_close`, `jev_close_gates_failed` | `wouldAutoClose` and `closeGatesFailed` of 8.3 |
 | `jev_sampled_review`, `jev_review_outcome` | sampling flag; `confirmed` / `reopened` (deferred with stage 3) |
@@ -662,7 +662,7 @@ Added to `contracts-check.sh` when C15 is built, skipped when `JEV_MODE = off` o
 
 Everything lives in the n8n owner's folder `nodes/core/n8n/jev/`, not in `tests/jev/` or `scripts/` as v0.1 had it.
 
-- **Unit tests (built, stage 0):** `nodes/core/n8n/jev/tests/` (`node:test`): config files, state builder, request builder, decision step, and the scenarios end to end with **mocked** answers (the 6.6 scenario, a clear true positive, missing enrichment, the adversarial set, the `/healthz` look-alike). `nodes/core/n8n/jev/run-tests.sh` runs them in the pinned image `node:26.7.0-alpine` (the Node version of `n8nio/n8n:2.40.7`; `docs/decisions.md` A93), with the folder mounted read-only and no network: 69 tests, all passing on 2026-10-12. They are run by hand today; adding them to `scripts/ci-checks.sh` is a request to the integrator (R-27 in `docs/integration-backlog.md`).
+- **Unit tests (built, stage 0):** `nodes/core/n8n/jev/tests/` (`node:test`): config files, state builder, request builder, decision step, and the scenarios end to end with **mocked** answers (the 6.6 scenario, a clear true positive, missing enrichment, the adversarial set, the `/healthz` look-alike). `nodes/core/n8n/jev/run-tests.sh` runs them in the pinned image `node:26.7.0-alpine` (the Node version of `n8nio/n8n:2.40.7`; `docs/decisions.md` A93), with the folder mounted read-only and no network: 74 tests, all passing on 2026-10-12. They are run by hand today; adding them to `scripts/ci-checks.sh` is a request to the integrator (R-27 in `docs/integration-backlog.md`).
 - **Golden set (not built):** labeled states in the same folder, from lab scenarios (X-32) and from resolved alerts exported with personal data removed, each with its expected verdict. Target size before any stage 3 proposal: **[ASSUMPTION]** 200 states, at least 50 false positives.
 - **Adversarial set:** section 9.4; built as fixtures, run with mocked answers today.
 - **Evaluation run (not built):** a script in the same folder (v0.1's `jev-eval.sh`) runs the golden and adversarial sets against the pinned model and reports accuracy, would-have-closed precision, Brier score, the order-flip rate, and any adversarial case that reached `auto_close_fp` (which fails the run). It needs C15.
