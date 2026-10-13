@@ -1,12 +1,13 @@
 {
-  "version": "policy-0.3.0",
-  "status": "draft: proposal docs/jev-implementation.md 8.3 and 8.4, not accepted",
+  "version": "policy-0.4.0",
+  "status": "draft: proposal docs/jev-implementation.md v0.2, 8.3 and 8.4, not accepted",
   "description": "Every threshold that turns a Jev answer into a decision, and the parameters of the state builder. Start values are the doc's [ASSUMPTION] values; change them only with a measurement attached to the pull request (doc 12.3).",
   "stage": 0,
   "auto_close_rules": [],
   "never_auto_rules": [],
   "max_auto_close_level": 10,
   "audit_sample_rate": 0.1,
+  "_audit_sample_rate_comment": "stage 3, unused: nothing reads this value and nothing samples until stage 3 is proposed and built (doc 8.3, 17.1).",
   "decision_priority": [
     "escalate",
     "human_review",
@@ -26,7 +27,7 @@
     ]
   },
   "gates": {
-    "_comment": "De-escalation gates of doc 8.3. All must pass for auto_close_fp. G1 = mode gated; G2 = rule listed in auto_close_rules (and not in never_auto_rules) with level below max_auto_close_level. G4 also needs a benign pattern verified in code (codeCtx.benign_pattern_verified = yes), whatever Jev answers to benign_pattern_match. G12 (added to the doc's list) = no fact has a value in blocked_fact_classes.",
+    "_comment": "De-escalation gates of doc 8.3. All must pass for auto_close_fp. G1 = mode gated; G2 = rule listed in auto_close_rules (and not in never_auto_rules) with level below max_auto_close_level. G4 also needs a benign pattern verified in code (codeCtx.benign_pattern_verified = yes), whatever Jev answers to benign_pattern_match. G12 = no fact has a value in blocked_fact_classes.",
     "asset_criticality_allowed": [
       "low",
       "medium"
@@ -67,6 +68,13 @@
     "misp_events_many_min": 6,
     "max_warninglists": 10,
     "max_benign_patterns": 20,
+    "age_buckets": {
+      "_comment": "Boundaries of the age buckets of doc 6.2 (first_seen, last_seen, misp_match.newest_event_age). Ages are whole elapsed time from the given `now`, and each bucket includes its lower edge: 'less than 24 hours ago' = under day_below_hours; '1–7 days ago' = from there to under week_below_days; '8–30 days ago' = from there to under month_below_days; 'more than 30 days ago' = month_below_days or more. A date up to future_tolerance_minutes in the future counts as now (clock skew); further in the future it is unknown. The bucket labels state these numbers: change a boundary only together with its label in lib/state.js (a unit test compares them).",
+      "day_below_hours": 24,
+      "week_below_days": 8,
+      "month_below_days": 31,
+      "future_tolerance_minutes": 5
+    },
     "networks": {
       "soc_internal": [],
       "documentation": [

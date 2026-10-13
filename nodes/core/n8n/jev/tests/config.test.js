@@ -6,6 +6,13 @@ const h = require('./helpers.js');
 const { policyProblems } = require('../lib/decide.js');
 const { parseCidr } = require('../lib/state.js');
 
+test('the proposal is cited by version', () => {
+  for (const file of ['policy.json', 'questions/triage-v1.json']) {
+    assert.match(h.readJson(file).status, /docs\/jev-implementation\.md v0\.2,/, file);
+  }
+  assert.match(fs.readFileSync(path.join(h.ROOT, 'README.md'), 'utf8'), /`docs\/jev-implementation\.md` \(version 0\.2,/);
+});
+
 test('every config file is JSON with a version', () => {
   for (const file of h.CONFIG_FILES) {
     const parsed = h.readJson(file);
@@ -37,6 +44,10 @@ test('policy: doc 8.3 and 8.4 start values, stage 3 disabled', () => {
   assert.deepEqual(policy.auto_close_rules, []);
   assert.equal(policy.max_auto_close_level, 10);
   assert.equal(policy.audit_sample_rate, 0.1);
+  assert.match(policy._audit_sample_rate_comment, /^stage 3, unused/);
+  for (const file of ['lib/state.js', 'lib/request.js', 'lib/decide.js']) {
+    assert.ok(!fs.readFileSync(path.join(h.ROOT, file), 'utf8').includes('audit_sample_rate'), `${file} reads audit_sample_rate`);
+  }
   assert.deepEqual(policy.decision_priority, ['escalate', 'human_review', 'advisory', 'none']);
   assert.deepEqual(
     [policy.gates.verdict_p_min, policy.gates.confidence_min, policy.gates.ablation_tolerance,

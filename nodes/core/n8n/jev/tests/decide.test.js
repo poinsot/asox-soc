@@ -34,7 +34,8 @@ test('baseline: gated, listed rule, every gate passes -> auto_close_fp', () => {
   assert.deepEqual(result.tags, []);
   assert.equal(result.wouldAutoClose, true);
   assert.deepEqual(result.closeGatesFailed, []);
-  assert.equal(result.policy_version, 'policy-0.3.0');
+  assert.deepEqual([result.gateDetails, result.closeGateDetails], [{}, {}]);
+  assert.equal(result.policy_version, 'policy-0.4.0');
 });
 
 test('policy.json in git: auto_close_fp is unreachable in every mode', () => {
@@ -45,7 +46,7 @@ test('policy.json in git: auto_close_fp is unreachable in every mode', () => {
   const gated = run((b) => { b.policy = h.readJson('policy.json'); });
   assert.equal(gated.decision, 'advisory');
   assert.deepEqual(gated.gatesFailed, ['G2']);
-  assert.equal(gated.gateDetails.G2, 'rule 100100 is not in auto_close_rules');
+  assert.deepEqual(gated.gateDetails.G2, ['rule 100100 is not in auto_close_rules']);
   assert.equal(gated.wouldAutoClose, false, 'in gated mode this is the real result');
 });
 
@@ -104,7 +105,8 @@ test('each gate failing on its own blocks the closure and gives advisory', () =>
     assert.equal(result.decision, 'advisory', label);
     assert.deepEqual(result.triggers, [], label);
     assert.deepEqual(result.tags, [], label);
-    assert.equal(typeof result.gateDetails[gate], 'string', label);
+    assert.deepEqual(Object.keys(result.gateDetails), [gate], label);
+    assert.ok(result.gateDetails[gate].length > 0 && result.gateDetails[gate].every((reason) => typeof reason === 'string'), label);
   });
 });
 
@@ -136,7 +138,7 @@ test('G9 alone in gated mode: advisory, gatesFailed [G9], no triggers', () => {
   assert.equal(result.decision, 'advisory');
   assert.deepEqual(result.gatesFailed, ['G9']);
   assert.deepEqual(result.triggers, []);
-  assert.equal(result.gateDetails.G9, 'intel_conflict 0.35 >= 0.30');
+  assert.deepEqual(result.gateDetails.G9, ['intel_conflict 0.35 >= 0.30']);
 });
 
 test('ablation: a probability shift blocks de-escalation and is not manipulation', () => {
@@ -171,7 +173,7 @@ test('strict ablation decides G6; the tags come from the plain ablation only', (
   let result = run((b) => { b.runs.strictAblated.answers.verdict = h.verdict('benign_true_positive', 0.6, 0.5); });
   assert.equal(result.decision, 'advisory');
   assert.deepEqual(result.gatesFailed, ['G6']);
-  assert.equal(result.gateDetails.G6, 'delta 0.37 > 0.10 in the strict ablation');
+  assert.deepEqual(result.gateDetails.G6, ['delta 0.37 > 0.10 in the strict ablation']);
   assert.deepEqual(result.tags, []);
   assert.deepEqual(result.triggers, []);
 
@@ -182,21 +184,110 @@ test('strict ablation decides G6; the tags come from the plain ablation only', (
 
   result = run((b) => { delete b.runs.strictAblated; });
   assert.deepEqual(result.notes, ['strict-ablation-missing']);
-  assert.equal(result.gateDetails.G6, 'strict ablated run missing');
+  assert.deepEqual(result.gateDetails.G6, ['strict ablated run missing']);
 
-  // Both disagree: one G6 entry (the strict reason), and the tag.
+  // Both disagree: one G6 entry with both reasons, strict first, and the tag.
   result = run((b) => {
     b.runs.ablated.answers.verdict = h.verdict('benign_true_positive', 0.7, 0.6);
     b.runs.strictAblated.answers.verdict = h.verdict('benign_true_positive', 0.6, 0.5);
   });
   assert.deepEqual(result.gatesFailed, ['G6']);
-  assert.match(result.gateDetails.G6, /strict ablation$/);
+  assert.deepEqual(result.gateDetails.G6, ['delta 0.37 > 0.10 in the strict ablation', 'delta 0.27 > 0.10 without untrusted']);
   assert.deepEqual(result.tags, ['jev:untrusted-dependent']);
 
   // The strict ablation agrees and the plain one does not: still no closure.
   result = run((b) => { b.runs.ablated.answers.verdict = h.verdict('benign_true_positive', 0.7, 0.6); });
   assert.deepEqual(result.gatesFailed, ['G6']);
-  assert.equal(result.gateDetails.G6, 'delta 0.27 > 0.10 without untrusted');
+  assert.deepEqual(result.gateDetails.G6, ['delta 0.27 > 0.10 without untrusted']);
+});
+
+test('gateDetails: every failing reason of a gate, in an array per gate id', () => {
+  // G4 fails twice over: the probability and the code check.
+  let result = run((b) => {
+    b.runs.full.answers.verdict = h.verdict('benign_true_positive', 0.94, 0.95);
+    b.ctx.benign_pattern_verified = 'no';
+  });
+  assert.deepEqual(result.gatesFailed, ['G4']);
+  assert.deepEqual(result.gateDetails, { G4: ['verdict p 0.94 < 0.95', 'benign_pattern_verified no'] });
+
+  // G2: every reason the rule is not eligible. The hypothetical trace keeps
+  // the level cap and never_auto_rules only.
+  result = run((b) => {
+    b.mode = 'advisory';
+    b.policy.auto_close_rules = [];
+    b.policy.never_auto_rules = [RULE];
+    b.ctx.rule_eligible_for_auto = 'no';
+    b.ctx.wazuh_rule_level = 12;
+  });
+  assert.deepEqual(result.gatesFailed, ['G1', 'G2']);
+  assert.deepEqual(result.gateDetails.G2, [
+    'rule 100100 is in never_auto_rules', 'rule 100100 is not in auto_close_rules',
+    'rule_eligible_for_auto is not yes', 'rule level 12 >= 10',
+  ]);
+  assert.deepEqual(result.closeGatesFailed, ['G2']);
+  assert.deepEqual(result.closeGateDetails, { G2: ['rule 100100 is in never_auto_rules', 'rule level 12 >= 10'] });
+
+  // G6: a different verdict and the probability shift, for each ablation.
+  result = run((b) => {
+    b.runs.strictAblated.answers.verdict = h.verdict('true_positive', 0.8, 0.8);
+    delete b.runs.ablated;
+  });
+  assert.deepEqual(result.gateDetails.G6, [
+    'verdict true_positive in the strict ablation, benign_true_positive in the full run',
+    'delta 0.90 > 0.10 in the strict ablation',
+    'ablated run missing',
+  ]);
+
+  // G11: each hard flag is its own reason.
+  result = run((b) => {
+    b.facts.related_high_alerts = 'some';
+    b.facts.misp_match = { events: 'few', newest_event_age: '8–30 days ago', threat_level: 'high' };
+    b.ctx.response_action_proposed = true;
+  });
+  assert.deepEqual(result.gatesFailed, ['G11']);
+  assert.deepEqual(result.gateDetails.G11, [
+    'related_high_alerts some', 'misp threat_level high, newest event 8–30 days ago', 'a response action is proposed',
+  ]);
+
+  // Nothing known at all: the order of gatesFailed is the gate order, once each.
+  result = run((b) => { b.facts = {}; b.ctx = {}; });
+  assert.deepEqual(result.gatesFailed, ['G2', 'G3', 'G4', 'G11']);
+  assert.deepEqual(result.gateDetails.G2, ['rule id unknown', 'rule_eligible_for_auto is not yes', 'rule level unknown']);
+  assert.deepEqual(result.gateDetails.G11, ['related_high_alerts unknown', 'misp_match unknown', 'response_action_proposed unknown']);
+});
+
+test('consistency: the values G6 and G7 compared, returned as numbers', () => {
+  // passingRuns: full 0.97, plain ablation 0.96, strict ablation 0.95.
+  let result = run();
+  assert.deepEqual(result.consistency, { ablationDelta: 0.01, strictAblationDelta: 0.02, orderAgree: true });
+
+  // The delta is of the full run's verdict option, also when the verdict differs.
+  result = run((b) => {
+    b.runs.ablated.answers.verdict = { type: 'choice', choice: 'false_positive', confidence: 0.8, probabilities: { true_positive: 0.05, benign_true_positive: 0.4, false_positive: 0.5, insufficient_evidence: 0.05 } };
+    b.runs.orderCheck.answers.verdict = h.verdict('false_positive', 0.6, 0.7);
+  });
+  assert.deepEqual(result.consistency, { ablationDelta: 0.57, strictAblationDelta: 0.02, orderAgree: false });
+  assert.deepEqual(result.gatesFailed, ['G6', 'G7']);
+
+  // Exactly the tolerance: the returned value is the one the gate compared.
+  result = run((b) => {
+    b.runs.full.answers.verdict = h.verdict('benign_true_positive', 0.98, 0.95);
+    b.runs.ablated.answers.verdict = h.verdict('benign_true_positive', 0.88, 0.9);
+    b.runs.strictAblated.answers.verdict = h.verdict('benign_true_positive', 0.88, 0.9);
+  });
+  assert.deepEqual(result.consistency, { ablationDelta: 0.1, strictAblationDelta: 0.1, orderAgree: true });
+  assert.deepEqual(result.gatesFailed, []);
+
+  // A missing run, or one without the option's probability, is null, never 0 or false.
+  result = run((b) => { delete b.runs.ablated; delete b.runs.strictAblated; delete b.runs.orderCheck; });
+  assert.deepEqual(result.consistency, { ablationDelta: null, strictAblationDelta: null, orderAgree: null });
+  result = run((b) => { delete b.runs.strictAblated.answers.verdict.probabilities.benign_true_positive; });
+  assert.equal(result.consistency.strictAblationDelta, null);
+
+  // Kept in every evaluating mode: they are measurements, not actions.
+  for (const mode of ['shadow', 'advisory', 'gated']) {
+    assert.deepEqual(run((b) => { b.mode = mode; }).consistency, { ablationDelta: 0.01, strictAblationDelta: 0.02, orderAgree: true }, mode);
+  }
 });
 
 test('G4: no benign verdict closes without a pattern verified in code', () => {
@@ -206,8 +297,8 @@ test('G4: no benign verdict closes without a pattern verified in code', () => {
     assert.equal(result.decision, 'advisory');
     assert.equal(result.wouldAutoClose, false);
   }
-  assert.equal(run((b) => { b.ctx.benign_pattern_verified = 'no'; }).gateDetails.G4, 'benign_pattern_verified no');
-  assert.equal(run((b) => { delete b.ctx.benign_pattern_verified; }).gateDetails.G4, 'benign_pattern_verified unknown');
+  assert.deepEqual(run((b) => { b.ctx.benign_pattern_verified = 'no'; }).gateDetails.G4, ['benign_pattern_verified no']);
+  assert.deepEqual(run((b) => { delete b.ctx.benign_pattern_verified; }).gateDetails.G4, ['benign_pattern_verified unknown']);
   // Both benign verdicts, and whatever Jev answers to benign_pattern_match.
   for (const choice of ['false_positive', 'benign_true_positive']) {
     for (const match of [0, 0.05, 0.49, 0.5, 0.96, 1, undefined]) {
@@ -230,7 +321,7 @@ test('G4: no benign verdict closes without a pattern verified in code', () => {
 test('G12: a class fact reporting prose or attack syntax blocks closure, with the fact named', () => {
   const result = run((b) => { b.facts.user_agent_class = 'embedded_text'; b.facts.request_path_class = 'attack_pattern'; });
   assert.deepEqual(result.gatesFailed, ['G12']);
-  assert.equal(result.gateDetails.G12, 'request_path_class attack_pattern, user_agent_class embedded_text');
+  assert.deepEqual(result.gateDetails.G12, ['request_path_class attack_pattern', 'user_agent_class embedded_text']);
   assert.equal(result.decision, 'advisory');
   const advisory = run((b) => { b.mode = 'shadow'; b.facts.untrusted_text_class = 'embedded_text'; });
   assert.deepEqual([advisory.wouldAutoClose, advisory.closeGatesFailed], [false, ['G12']]);
@@ -366,7 +457,9 @@ test('mode off: none, nothing evaluated', () => {
   const result = run((b) => { b.mode = 'off'; });
   assert.deepEqual(result, {
     decision: 'none', triggers: [], tags: [], gatesFailed: [], gateDetails: {}, wouldAutoClose: false,
-    closeGatesFailed: [], notes: [], evaluated: false, mode: 'off', policy_version: 'policy-0.3.0',
+    closeGatesFailed: [], closeGateDetails: {},
+    consistency: { ablationDelta: null, strictAblationDelta: null, orderAgree: null },
+    notes: [], evaluated: false, mode: 'off', policy_version: 'policy-0.4.0',
   });
   for (const mode of [undefined, null, '', 'Gated', 'auto', 3]) {
     const unknown = run((b) => { b.mode = mode; });
@@ -398,6 +491,8 @@ test('mode shadow: decision none and no tags; shadowDecision is what advisory re
     assert.notEqual(shadow.shadowDecision.decision, 'auto_close_fp');
     assert.equal(shadow.wouldAutoClose, advisory.wouldAutoClose);
     assert.deepEqual(shadow.closeGatesFailed, advisory.closeGatesFailed);
+    assert.deepEqual(shadow.closeGateDetails, advisory.closeGateDetails);
+    assert.deepEqual(shadow.consistency, advisory.consistency, 'measurements are kept in shadow mode');
     assert.equal(advisory.shadowDecision, undefined);
   }
 });
@@ -427,6 +522,7 @@ test('wouldAutoClose: G2-G12 as if gated, without the auto_close_rules membershi
   // In gated mode the two are the real result and the real trace.
   const gated = run((b) => { b.policy = h.readJson('policy.json'); });
   assert.deepEqual(gated.closeGatesFailed, gated.gatesFailed);
+  assert.deepEqual(gated.closeGateDetails, gated.gateDetails);
   assert.equal(gated.wouldAutoClose, false);
 });
 

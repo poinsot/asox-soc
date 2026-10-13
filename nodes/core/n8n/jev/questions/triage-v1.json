@@ -1,6 +1,6 @@
 {
   "version": "triage-v1",
-  "status": "draft: proposal docs/jev-implementation.md 7.1, not accepted",
+  "status": "draft: proposal docs/jev-implementation.md v0.2, 7.1, not accepted",
   "description": "Triage question set, sent in one call. Keys are what code reads. A draft until it is first used in shadow mode; from then on it is frozen and changing any instruction or criterion creates a new version (triage-v2). The effective version stored with a judgment is this version plus a hash of the playbook catalog (lib/request.js resolveQuestionSet).",
   "order_check": ["verdict"],
   "questions": {

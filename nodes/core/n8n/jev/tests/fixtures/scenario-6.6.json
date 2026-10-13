@@ -1,6 +1,6 @@
 {
   "name": "scenario-6.6",
-  "description": "The false-positive IP scenario of doc 6.6 and 8.5: MISP and AbuseIPDB flag an address that is an external uptime monitor hitting /healthz. The lab has no real public address to use, so the alert carries a documentation address and the fixture's config empties the documentation ranges: the scenario treats it as public, as the doc does.",
+  "description": "The false-positive IP scenario of doc 6.6 and 8.5 (v0.2): MISP and AbuseIPDB both flag an address (suspicious; MISP_2_1 reports a hit as suspicious, docs/decisions.md A85) that is an external uptime monitor hitting /healthz. The two sources agree with each other, so there is no intel conflict and no trigger: the decision is advisory, and nothing would have closed (G2, G4, G5). The lab has no real public address to use, so the alert carries a documentation address and the fixture's config empties the documentation ranges: the scenario treats it as public, as the doc does.",
   "now": "2026-10-12T12:00:00Z",
   "config": {
     "assets": {
@@ -34,7 +34,7 @@
       "mitre": { "id": ["T1595"], "tactic": ["Reconnaissance"] }
     },
     "agent": { "id": "002", "name": "web-01" },
-    "decoder": { "name": "nginx-accesslog" },
+    "decoder": { "name": "web-accesslog" },
     "data": {
       "srcip": "198.51.100.23",
       "url": "/healthz",
@@ -58,7 +58,7 @@
     "cortex_reports": [
       {
         "analyzer": "MISP_2_1",
-        "summary": { "taxonomies": [{ "level": "malicious", "namespace": "MISP", "predicate": "Search", "value": "1 event" }] },
+        "summary": { "taxonomies": [{ "level": "suspicious", "namespace": "MISP", "predicate": "Search", "value": "1 event" }] },
         "full": { "results": [{ "result": [{ "info": "scanning infrastructure, 2025 campaign", "uuid": "not sent" }] }] }
       },
       {
@@ -78,7 +78,7 @@
         },
         "benign_pattern_match": { "type": "noul", "noul": 0.94 },
         "shared_infrastructure": { "type": "noul", "noul": 0.91 },
-        "intel_conflict": { "type": "noul", "noul": 0.62 },
+        "intel_conflict": { "type": "noul", "noul": 0.1 },
         "role_consistency": { "type": "score", "score": 2, "confidence": 0.9, "probabilities": { "0": 0.01, "1": 0.08, "2": 0.91 } },
         "outcome": {
           "type": "choice", "choice": "informational", "confidence": 0.85,

@@ -77,6 +77,54 @@ test('countBucket and ageBucket: the buckets of doc 6.2, at their boundaries', (
   assert.equal(s.ageBucket(now - day, null), 'unknown', 'no clock given');
 });
 
+test('age buckets: the boundaries are explicit in policy.json and each bucket includes its lower edge', () => {
+  const limits = h.readJson('policy.json').state.age_buckets;
+  // The labels state these numbers ("1–7 days", "8–30 days", "more than 30
+  // days"), so a boundary cannot change without its label.
+  assert.deepEqual(
+    [limits.day_below_hours, limits.week_below_days, limits.month_below_days, limits.future_tolerance_minutes],
+    [24, 8, 31, 5],
+  );
+  for (const key of Object.keys(s.AGE_LIMITS)) assert.equal(limits[key], s.AGE_LIMITS[key], `${key}: policy and code default`);
+
+  const now = Date.parse(NOW);
+  const minute = 60 * 1000;
+  const day = 24 * 60 * minute;
+  const age = (ms) => s.ageBucket(now - ms, now, limits);
+  // 7 / 8 days: seven whole days and anything short of eight is "1–7 days ago".
+  assert.equal(age(7 * day), '1–7 days ago');
+  assert.equal(age(7 * day + 23 * 60 * minute), '1–7 days ago', '7 days 23 hours');
+  assert.equal(age(8 * day - 1), '1–7 days ago');
+  assert.equal(age(8 * day), '8–30 days ago');
+  // 30 / 31 days.
+  assert.equal(age(30 * day), '8–30 days ago');
+  assert.equal(age(30 * day + 23 * 60 * minute), '8–30 days ago', '30 days 23 hours');
+  assert.equal(age(31 * day - 1), '8–30 days ago');
+  assert.equal(age(31 * day), 'more than 30 days ago');
+  // 24 hours, and the clock-skew allowance.
+  assert.equal(age(day - 1), 'less than 24 hours ago');
+  assert.equal(age(day), '1–7 days ago');
+  assert.equal(age(-5 * minute), 'less than 24 hours ago', 'exactly the allowance');
+  assert.equal(age(-5 * minute - 1), 'unknown');
+
+  // The same boundaries reach the facts through buildState, from the policy.
+  const facts = (firstSeenDays, mispDays) => {
+    const iso = (days) => new Date(now - days * day).toISOString();
+    return s.buildState({}, {
+      seen_before: { count: 3, first_seen: iso(firstSeenDays), last_seen: iso(0), top_rules: [] },
+      misp: { events: [{ date: iso(mispDays), threat_level_id: 1 }] },
+    }, h.loadConfig(NOW)).facts;
+  };
+  assert.deepEqual([facts(7, 30).first_seen, facts(7, 30).misp_match.newest_event_age], ['1–7 days ago', '8–30 days ago']);
+  assert.deepEqual([facts(8, 31).first_seen, facts(8, 31).misp_match.newest_event_age], ['8–30 days ago', 'more than 30 days ago']);
+
+  // The policy value is what the code reads; a missing or unusable one falls back to the default.
+  assert.equal(s.ageBucket(now - 9 * day, now, { ...limits, week_below_days: 10 }), '1–7 days ago');
+  for (const bad of [undefined, null, {}, { week_below_days: '8' }, { week_below_days: 0 }]) {
+    assert.equal(s.ageBucket(now - 8 * day, now, bad), '8–30 days ago');
+  }
+});
+
 test('request_path_class and user_agent_class: closed sets, prose is flagged', () => {
   const config = h.loadConfig(NOW);
   const pathClasses = config.pathClasses.classes.map((entry) => entry.class).concat(['other', 'unknown']);
@@ -227,7 +275,7 @@ test('intel: summary taxonomies and the selected fields only', () => {
   const fixture = h.loadFixture('scenario-6.6.json');
   const state = s.buildState(fixture.alert, fixture.enrichment, h.configFor(fixture));
   assert.deepEqual(state.intel, [
-    { source: 'MISP', level: 'malicious', taxonomies: ['malicious MISP:Search 1 event'], detail: 'Event: scanning infrastructure, 2025 campaign' },
+    { source: 'MISP', level: 'suspicious', taxonomies: ['suspicious MISP:Search 1 event'], detail: 'Event: scanning infrastructure, 2025 campaign' },
     { source: 'AbuseIPDB', level: 'suspicious', taxonomies: ['suspicious AbuseIPDB:Records 12'], detail: 'usage type: data center / web hosting; ISP: large cloud provider' },
   ]);
   assert.ok(!JSON.stringify(state).includes('not sent'), 'unselected report fields are dropped');

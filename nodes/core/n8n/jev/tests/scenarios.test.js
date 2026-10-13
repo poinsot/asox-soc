@@ -32,7 +32,7 @@ test('doc 6.6 scenario: the state matches the example', () => {
     rule_groups: ['web', 'threat-intel'],
     mitre_tactics: ['Reconnaissance'],
     agent_name: 'web-01',
-    decoder: 'nginx-accesslog',
+    decoder: 'web-accesslog',
   });
   assert.deepEqual(state.facts, {
     observable_type: 'ip',
@@ -49,7 +49,13 @@ test('doc 6.6 scenario: the state matches the example', () => {
     user_agent_class: 'claims_monitoring_tool',
     untrusted_text_class: 'plain',
   });
-  assert.deepEqual(state.intel.map((entry) => [entry.source, entry.level]), [['MISP', 'malicious'], ['AbuseIPDB', 'suspicious']]);
+  assert.deepEqual(state.intel, [
+    { source: 'MISP', level: 'suspicious', taxonomies: ['suspicious MISP:Search 1 event'], detail: 'Event: scanning infrastructure, 2025 campaign' },
+    { source: 'AbuseIPDB', level: 'suspicious', taxonomies: ['suspicious AbuseIPDB:Records 12'], detail: 'usage type: data center / web hosting; ISP: large cloud provider' },
+  ]);
+  assert.deepEqual(state.context.known_benign_patterns, [
+    'Uptime checks from the external monitoring service against /healthz every minute, from cloud provider IP ranges',
+  ]);
   assert.equal(state.context.asset_role, 'public web server, nginx, serves the marketing site; monitored by an external uptime service');
   assert.deepEqual(state.untrusted, {
     rule_description: 'Repeated HTTP requests from IP flagged by threat intel',
@@ -60,49 +66,74 @@ test('doc 6.6 scenario: the state matches the example', () => {
   assert.ok(!JSON.stringify(state).includes('198.51.100.23'));
 });
 
-test('doc 6.6 scenario: human_review, G9 failed, not possible-manipulation', () => {
+test('doc 6.6 scenario: advisory, no trigger; the failed closure gates are listed separately', () => {
+  // Intel against context, not intel against intel: MISP and AbuseIPDB agree
+  // with each other, so nothing fires. Failed gates alone give advisory.
   const fixture = h.loadFixture('scenario-6.6.json');
+  const { result, ctx } = pipeline(fixture, fixture.runs, 'advisory');
+  assert.equal(result.decision, 'advisory');
+  assert.deepEqual(result.triggers, []);
+  assert.deepEqual(result.tags, []);
+  assert.deepEqual(result.notes, []);
+  assert.deepEqual(result.gatesFailed, ['G1', 'G2', 'G4', 'G5']);
+  assert.deepEqual(result.closeGatesFailed, ['G2', 'G4', 'G5']);
+  assert.equal(result.wouldAutoClose, false);
+  // G4 fails twice over: the probability, and a pattern that is prose only.
+  assert.equal(ctx.benign_pattern_verified, 'no');
+  assert.deepEqual(result.closeGateDetails, {
+    G2: ['rule level 10 >= 10'],
+    G4: ['verdict p 0.90 < 0.95', 'benign_pattern_verified no'],
+    G5: ['confidence 0.86 < 0.90'],
+  });
+  assert.deepEqual(result.gateDetails.G2, [
+    'rule 100210 is not in auto_close_rules', 'rule_eligible_for_auto is not yes', 'rule level 10 >= 10',
+  ]);
+  assert.deepEqual(result.consistency, { ablationDelta: 0.02, strictAblationDelta: 0.06, orderAgree: true });
+});
+
+test('doc 6.6 scenario with conflicting intel: human_review comes from the trigger, not from G9', () => {
+  const fixture = h.loadFixture('scenario-6.6.json');
+  fixture.runs.full.answers.intel_conflict.noul = 0.62;
   const { result } = pipeline(fixture, fixture.runs, 'advisory');
   assert.equal(result.decision, 'human_review');
-  assert.ok(result.gatesFailed.includes('G9'));
-  assert.equal(result.gateDetails.G9, 'intel_conflict 0.62 >= 0.30');
-  assert.ok(!result.tags.includes('jev:possible-manipulation'));
-  assert.deepEqual(result.tags, ['jev:conflict']);
-  // human_review comes from the 8.4 trigger; the gates are listed separately.
   assert.deepEqual(result.triggers.map((trigger) => trigger.id), ['intel_conflict']);
+  assert.deepEqual(result.tags, ['jev:conflict']);
   assert.deepEqual(result.gatesFailed, ['G1', 'G2', 'G4', 'G5', 'G9']);
-  assert.deepEqual(result.closeGatesFailed, ['G2', 'G4', 'G5', 'G9']);
-  assert.equal(result.wouldAutoClose, false);
-  assert.ok(!result.gatesFailed.includes('G6'), 'ablation agreed');
-  assert.ok(!result.gatesFailed.includes('G7'), 'order check agreed');
+  assert.deepEqual(result.gateDetails.G9, ['intel_conflict 0.62 >= 0.30']);
 });
 
 test('doc 6.6 scenario: a large ablation delta alone is still not manipulation', () => {
-  // Doc 9.2 as written would tag this possible-manipulation: without the raw
-  // text Jev is much less sure the alert is benign. The refinement tags it
-  // untrusted-dependent and only blocks de-escalation.
+  // Without the raw text Jev is much less sure the alert is benign. That
+  // tags the judgment untrusted-dependent and blocks de-escalation (doc 9.2);
+  // it fires no trigger.
   const fixture = h.loadFixture('scenario-6.6.json');
   fixture.runs.ablated.answers.verdict.probabilities = { true_positive: 0.2, benign_true_positive: 0.55, false_positive: 0.15, insufficient_evidence: 0.1 };
   const { result } = pipeline(fixture, fixture.runs, 'advisory');
-  assert.equal(result.decision, 'human_review');
-  assert.ok(result.gatesFailed.includes('G6') && result.gatesFailed.includes('G9'));
-  assert.deepEqual([...result.tags].sort(), ['jev:conflict', 'jev:untrusted-dependent']);
+  assert.equal(result.decision, 'advisory');
+  assert.deepEqual(result.triggers, []);
+  assert.deepEqual(result.gatesFailed, ['G1', 'G2', 'G4', 'G5', 'G6']);
+  assert.deepEqual(result.gateDetails.G6, ['delta 0.35 > 0.10 without untrusted']);
+  assert.equal(result.consistency.ablationDelta, 0.35);
+  assert.deepEqual(result.tags, ['jev:untrusted-dependent']);
 });
 
 test('doc 6.6 scenario in every mode', () => {
   const fixture = h.loadFixture('scenario-6.6.json');
-  const expected = { off: 'none', shadow: 'none', advisory: 'human_review', gated: 'human_review' };
+  const expected = { off: 'none', shadow: 'none', advisory: 'advisory', gated: 'advisory' };
   for (const mode of MODES) {
     const { result } = pipeline(fixture, fixture.runs, mode);
     assert.equal(result.decision, expected[mode], mode);
+    assert.equal(result.wouldAutoClose, false, mode);
   }
   const shadow = pipeline(fixture, fixture.runs, 'shadow').result;
   assert.deepEqual(shadow.tags, []);
-  assert.equal(shadow.shadowDecision.decision, 'human_review');
-  assert.deepEqual(shadow.shadowDecision.tags, ['jev:conflict']);
-  // Even with the rule listed, in gated mode: the trigger and the gates hold.
+  assert.equal(shadow.shadowDecision.decision, 'advisory');
+  assert.deepEqual(shadow.shadowDecision.triggers, []);
+  assert.deepEqual(shadow.closeGatesFailed, ['G2', 'G4', 'G5']);
+  // Even with the rule listed, in gated mode: the gates hold.
   const listed = pipeline(fixture, fixture.runs, 'gated', h.eligiblePolicy(['100210'])).result;
-  assert.equal(listed.decision, 'human_review');
+  assert.equal(listed.decision, 'advisory');
+  assert.deepEqual(listed.gatesFailed, ['G2', 'G4', 'G5']);
 });
 
 test('clear true positive: escalate', () => {
@@ -336,7 +367,7 @@ test('/healthz look-alike, rule listed, mode gated: no closure without a verifie
   let result = pipeline(lookalike(), steered(), 'gated', policy()).result;
   assert.equal(result.decision, 'advisory');
   assert.deepEqual(result.gatesFailed, ['G4']);
-  assert.equal(result.gateDetails.G4, 'benign_pattern_verified no');
+  assert.deepEqual(result.gateDetails.G4, ['benign_pattern_verified no']);
   assert.deepEqual(result.triggers, []);
   assert.equal(result.wouldAutoClose, false);
 

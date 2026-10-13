@@ -1,4 +1,5 @@
-// Jev decision step (docs/jev-implementation.md 8.2-8.4, 9.2, 9.3). Stage 0, draft.
+// Jev decision step (docs/jev-implementation.md v0.2, 8.2-8.4, 9.2, 9.3).
+// Stage 0, draft.
 //
 // decide(runs, facts, policy, mode, codeCtx) -> result
 //   runs     { full, ablated, strictAblated, orderCheck }: Jev's answers for
@@ -16,18 +17,25 @@
 //   decision          none | advisory | escalate | human_review | auto_close_fp
 //   triggers          the 8.4 triggers that fired, [{ id, decision, detail }]
 //   tags              jev:conflict, jev:possible-manipulation, jev:untrusted-dependent
-//   gatesFailed       failed de-escalation gates of 8.3 plus G12,
-//                     ["G1", "G9", ...]
-//   gateDetails       { G9: "intel_conflict 0.62 >= 0.30", ... }
+//   gatesFailed       failed de-escalation gates of 8.3, ["G1", "G4", ...]
+//   gateDetails       every failing reason of each failed gate:
+//                     { G4: ["verdict p 0.90 < 0.95", "benign_pattern_verified no"], ... }
 //   wouldAutoClose    metrics only outside gated mode: would the alert have
 //   closeGatesFailed  been closed? G2-G12 as if the mode were gated, and G2
-//                     without the auto_close_rules membership. In gated mode
+//   closeGateDetails  without the auto_close_rules membership. In gated mode
 //                     they are the real result and the real gate trace.
+//   consistency       what G6 and G7 compared, as values (doc 12.1), so the
+//                     record step stores them and never recomputes them:
+//                     { ablationDelta, strictAblationDelta, orderAgree }.
+//                     A delta is |p in the full run - p in the ablated run|
+//                     of the full run's verdict option, rounded to 6
+//                     decimals; orderAgree is a boolean. null = the run or
+//                     the probability is missing.
 //   notes             things the record should say that are not tags
 //   shadowDecision    shadow mode only: { decision, triggers, tags,
 //                     gatesFailed } as advisory mode would have returned them
 //
-// Rules decided for stage 0 (README, "Decisions on the doc's open points"):
+// Rules decided for stage 0 (README, "Decisions folded into v0.2"):
 // - The decision is the first entry of policy.decision_priority among the
 //   decisions of the fired triggers, or `advisory` when none fired.
 // - Gates only gate auto_close_fp. A failed gate alone gives `advisory`.
@@ -49,8 +57,6 @@
 
 const MODES = ['off', 'shadow', 'advisory', 'gated'];
 const UNKNOWN = 'unknown';
-// Tolerance for comparing sums and differences of probabilities.
-const EPSILON = 1e-9;
 const REQUIRED_NUMBERS = {
   gates: ['verdict_p_min', 'confidence_min', 'ablation_tolerance', 'steering_max', 'intel_conflict_max'],
   escalation: [
@@ -74,6 +80,7 @@ function isProbability(value) {
 }
 
 function fmt(value) {
+  if (value === undefined) return UNKNOWN;
   return typeof value === 'number' ? value.toFixed(2) : String(value);
 }
 
@@ -149,6 +156,19 @@ function readScoreEv(answers, key) {
   return Math.abs(total - 1) <= 0.01 ? expected : null;
 }
 
+// A run without attacker-controlled input against the full run. Computed
+// once: G6 reads it and the result returns the deltas, so the gate and the
+// record cannot disagree. Rounding removes float noise at the tolerance.
+function compareRuns(verdict, other) {
+  if (!other) return { choice: null, sameVerdict: null, delta: null };
+  const otherP = other.probabilities[verdict.choice];
+  return {
+    choice: other.choice,
+    sameVerdict: other.choice === verdict.choice,
+    delta: isProbability(otherP) ? Math.round(Math.abs(verdict.p - otherP) * 1e6) / 1e6 : null,
+  };
+}
+
 function verdictClass(policy, choice) {
   for (const name of ['malicious', 'benign', 'insufficient']) {
     if (policy.verdict_classes[name].indexOf(choice) !== -1) return name;
@@ -210,14 +230,15 @@ function evaluateTriggers(read, policy, ctx, out) {
 
 // ------------------------------------------------------------------- gates
 
-// Returns [{ id, reason }] for every failed gate, G1 first. `hypothetical`
-// answers "would it have closed?": G1 is not checked and G2 ignores the
-// auto_close_rules membership (the list is empty until stage 3).
+// Returns [{ id, reason }], one entry per failing reason, in gate order: a
+// gate with two reasons to fail appears twice (gateTrace groups them).
+// `hypothetical` answers "would it have closed?": G1 is not checked and G2
+// ignores the auto_close_rules membership (the list is empty until stage 3).
 function evaluateGates(read, facts, policy, mode, ctx, hypothetical, out) {
   const gates = policy.gates;
   const failed = [];
   const fail = (id, reason) => failed.push({ id, reason });
-  const { verdict, ablatedVerdict, strictVerdict, orderVerdict, outcome, steering, conflict } = read;
+  const { verdict, ablatedVerdict, strictVerdict, outcome, steering, conflict } = read;
 
   if (!hypothetical && mode !== 'gated') fail('G1', `mode ${mode}`);
 
@@ -226,17 +247,15 @@ function evaluateGates(read, facts, policy, mode, ctx, hypothetical, out) {
   const known = typeof ruleId === 'string' && ruleId !== '' && ruleId !== UNKNOWN;
   if (!known) {
     fail('G2', 'rule id unknown');
-  } else if (policy.never_auto_rules.map(String).indexOf(ruleId) !== -1) {
-    fail('G2', `rule ${ruleId} is in never_auto_rules`);
-  } else if (!hypothetical && policy.auto_close_rules.map(String).indexOf(ruleId) === -1) {
-    fail('G2', `rule ${ruleId} is not in auto_close_rules`);
-  } else if (!hypothetical && ctx.rule_eligible_for_auto !== 'yes') {
-    fail('G2', 'rule_eligible_for_auto is not yes');
-  } else if (!Number.isInteger(level)) {
-    fail('G2', 'rule level unknown');
-  } else if (level >= policy.max_auto_close_level) {
-    fail('G2', `rule level ${level} >= ${policy.max_auto_close_level}`);
+  } else {
+    if (policy.never_auto_rules.map(String).indexOf(ruleId) !== -1) fail('G2', `rule ${ruleId} is in never_auto_rules`);
+    if (!hypothetical && policy.auto_close_rules.map(String).indexOf(ruleId) === -1) {
+      fail('G2', `rule ${ruleId} is not in auto_close_rules`);
+    }
   }
+  if (!hypothetical && ctx.rule_eligible_for_auto !== 'yes') fail('G2', 'rule_eligible_for_auto is not yes');
+  if (!Number.isInteger(level)) fail('G2', 'rule level unknown');
+  else if (level >= policy.max_auto_close_level) fail('G2', `rule level ${level} >= ${policy.max_auto_close_level}`);
 
   if (gates.asset_criticality_allowed.indexOf(facts.asset_criticality) === -1) {
     fail('G3', `asset_criticality ${fmt(facts.asset_criticality)}`);
@@ -246,10 +265,11 @@ function evaluateGates(read, facts, policy, mode, ctx, hypothetical, out) {
     fail('G4', `verdict ${verdict.choice}`);
   } else if (verdict.p < gates.verdict_p_min) {
     fail('G4', `verdict p ${fmt(verdict.p)} < ${fmt(gates.verdict_p_min)}`);
-  } else if (ctx.benign_pattern_verified !== 'yes') {
+  }
+  if (ctx.benign_pattern_verified !== 'yes') {
     // Jev's word is never enough to close on: code must have confirmed a
     // known benign pattern for this alert, whatever Jev says it matched.
-    fail('G4', `benign_pattern_verified ${fmt(ctx.benign_pattern_verified === undefined ? UNKNOWN : ctx.benign_pattern_verified)}`);
+    fail('G4', `benign_pattern_verified ${fmt(ctx.benign_pattern_verified)}`);
   }
 
   if (verdict.confidence === null) {
@@ -259,33 +279,31 @@ function evaluateGates(read, facts, policy, mode, ctx, hypothetical, out) {
   }
 
   // Why a run without attacker-controlled input disagrees with the full
-  // run, or null when it agrees within the tolerance.
-  const disagreement = (other, label) => {
-    const otherP = other.probabilities[verdict.choice];
-    const delta = isProbability(otherP) ? Math.abs(verdict.p - otherP) : null;
-    if (other.choice !== verdict.choice) return `verdict ${other.choice} ${label}, ${verdict.choice} in the full run`;
-    if (delta === null) return `probability missing ${label}`;
-    if (delta > gates.ablation_tolerance + EPSILON) return `delta ${fmt(delta)} > ${fmt(gates.ablation_tolerance)} ${label}`;
-    return null;
+  // run; empty when it agrees within the tolerance.
+  const disagreements = (compared, label) => {
+    const reasons = [];
+    if (!compared.sameVerdict) reasons.push(`verdict ${compared.choice} ${label}, ${verdict.choice} in the full run`);
+    if (compared.delta === null) reasons.push(`probability missing ${label}`);
+    else if (compared.delta > gates.ablation_tolerance) reasons.push(`delta ${fmt(compared.delta)} > ${fmt(gates.ablation_tolerance)} ${label}`);
+    return reasons;
   };
   const note = (text) => { if (out && out.notes.indexOf(text) === -1) out.notes.push(text); };
-  const strictReason = strictVerdict ? disagreement(strictVerdict, 'in the strict ablation') : null;
-  const plainReason = ablatedVerdict ? disagreement(ablatedVerdict, 'without untrusted') : null;
+  const strictReasons = strictVerdict ? disagreements(read.strict, 'in the strict ablation') : ['strict ablated run missing'];
+  const plainReasons = ablatedVerdict ? disagreements(read.plain, 'without untrusted') : ['ablated run missing'];
   // The judgment depends on attacker-writable text. That blocks
   // de-escalation and is worth showing; it is not, alone, manipulation.
-  if (plainReason && out && out.tags.indexOf('jev:untrusted-dependent') === -1) out.tags.push('jev:untrusted-dependent');
+  if (ablatedVerdict && plainReasons.length > 0 && out && out.tags.indexOf('jev:untrusted-dependent') === -1) {
+    out.tags.push('jev:untrusted-dependent');
+  }
   if (!strictVerdict) note('strict-ablation-missing');
   if (!ablatedVerdict) note('ablation-missing');
-  if (!strictVerdict) fail('G6', 'strict ablated run missing');
-  else if (strictReason) fail('G6', strictReason);
-  else if (!ablatedVerdict) fail('G6', 'ablated run missing');
-  else if (plainReason) fail('G6', plainReason);
+  for (const reason of strictReasons.concat(plainReasons)) fail('G6', reason);
 
-  if (!orderVerdict) {
+  if (read.orderAgree === null) {
     fail('G7', 'order-check run missing');
-    if (out && out.notes.indexOf('order-check-missing') === -1) out.notes.push('order-check-missing');
-  } else if (orderVerdict.choice !== verdict.choice) {
-    fail('G7', `verdict ${orderVerdict.choice} with options reversed`);
+    note('order-check-missing');
+  } else if (!read.orderAgree) {
+    fail('G7', `verdict ${read.orderVerdict.choice} with options reversed`);
   }
 
   if (steering === null) fail('G8', 'steering missing');
@@ -298,27 +316,43 @@ function evaluateGates(read, facts, policy, mode, ctx, hypothetical, out) {
   else if (gates.blocked_outcomes.indexOf(outcome.choice) !== -1) fail('G10', `outcome ${outcome.choice}`);
 
   const misp = facts.misp_match;
-  if (facts.related_high_alerts !== 'none') {
-    fail('G11', `related_high_alerts ${fmt(facts.related_high_alerts)}`);
-  } else if (misp !== 'none' && !isObject(misp)) {
+  if (facts.related_high_alerts !== 'none') fail('G11', `related_high_alerts ${fmt(facts.related_high_alerts)}`);
+  if (misp !== 'none' && !isObject(misp)) {
     fail('G11', `misp_match ${fmt(misp)}`);
   } else if (isObject(misp) && ['low', 'medium', 'high'].indexOf(misp.threat_level) === -1) {
     fail('G11', `misp threat_level ${fmt(misp.threat_level)}`);
   } else if (isObject(misp) && misp.threat_level === 'high'
       && gates.misp_high_threat_old_age_buckets.indexOf(misp.newest_event_age) === -1) {
     fail('G11', `misp threat_level high, newest event ${fmt(misp.newest_event_age)}`);
-  } else if (ctx.response_action_proposed !== false) {
+  }
+  if (ctx.response_action_proposed !== false) {
     fail('G11', ctx.response_action_proposed === true
       ? 'a response action is proposed' : 'response_action_proposed unknown');
   }
 
-  // G12 (not in the doc's list): a class fact computed in code says the
-  // untrusted input carries prose or attack syntax.
-  const flagged = Object.keys(facts)
-    .filter((name) => typeof facts[name] === 'string' && gates.blocked_fact_classes.indexOf(facts[name]) !== -1);
-  if (flagged.length > 0) fail('G12', flagged.map((name) => `${name} ${facts[name]}`).join(', '));
+  // G12: a class fact computed in code says the untrusted input carries
+  // prose or attack syntax.
+  for (const name of Object.keys(facts)) {
+    if (typeof facts[name] === 'string' && gates.blocked_fact_classes.indexOf(facts[name]) !== -1) {
+      fail('G12', `${name} ${facts[name]}`);
+    }
+  }
 
   return failed;
+}
+
+// { ids: ["G2", "G4"], details: { G2: [reason, ...], G4: [...] } }
+function gateTrace(failed) {
+  const ids = [];
+  const details = {};
+  for (const { id, reason } of failed) {
+    if (!details[id]) {
+      ids.push(id);
+      details[id] = [];
+    }
+    details[id].push(reason);
+  }
+  return { ids, details };
 }
 
 // ------------------------------------------------------------- entry point
@@ -332,6 +366,8 @@ function emptyResult(mode, policy, note) {
     gateDetails: {},
     wouldAutoClose: false,
     closeGatesFailed: [],
+    closeGateDetails: {},
+    consistency: { ablationDelta: null, strictAblationDelta: null, orderAgree: null },
     notes: note ? [note] : [],
     evaluated: false,
     mode,
@@ -362,11 +398,14 @@ function decide(runs, facts, policy, mode, codeCtx) {
     conflict: readNoul(full, 'intel_conflict'),
     severityEv: readScoreEv(full, 'severity'),
   };
+  read.plain = compareRuns(verdict, read.ablatedVerdict);
+  read.strict = compareRuns(verdict, read.strictVerdict);
+  read.orderAgree = read.orderVerdict ? read.orderVerdict.choice === verdict.choice : null;
 
   const out = { triggers: [], tags: [], notes: [] };
   evaluateTriggers(read, policy, ctx, out);
-  const realGates = evaluateGates(read, f, policy, mode, ctx, false, out);
-  const closeGates = mode === 'gated' ? realGates : evaluateGates(read, f, policy, mode, ctx, true, null);
+  const realGates = gateTrace(evaluateGates(read, f, policy, mode, ctx, false, out));
+  const closeGates = mode === 'gated' ? realGates : gateTrace(evaluateGates(read, f, policy, mode, ctx, true, null));
 
   // What stage 2 does with the triggers; `advisory` when none fired.
   const fired = out.triggers.map((trigger) => trigger.decision);
@@ -374,15 +413,21 @@ function decide(runs, facts, policy, mode, codeCtx) {
     .find((candidate) => candidate === 'advisory' || fired.indexOf(candidate) !== -1);
 
   const noTriggers = out.triggers.length === 0;
-  const gatesFailed = realGates.map((gate) => gate.id);
+  const gatesFailed = realGates.ids;
   const result = {
     decision: advisoryDecision,
     triggers: out.triggers,
     tags: out.tags,
     gatesFailed,
-    gateDetails: Object.fromEntries(realGates.map((gate) => [gate.id, gate.reason])),
-    wouldAutoClose: noTriggers && closeGates.length === 0,
-    closeGatesFailed: closeGates.map((gate) => gate.id),
+    gateDetails: realGates.details,
+    wouldAutoClose: noTriggers && closeGates.ids.length === 0,
+    closeGatesFailed: closeGates.ids,
+    closeGateDetails: closeGates.details,
+    consistency: {
+      ablationDelta: read.plain.delta,
+      strictAblationDelta: read.strict.delta,
+      orderAgree: read.orderAgree,
+    },
     notes: out.notes,
     evaluated: true,
     mode,

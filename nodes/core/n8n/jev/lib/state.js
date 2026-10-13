@@ -1,4 +1,4 @@
-// Jev state builder (docs/jev-implementation.md section 6). Stage 0, draft.
+// Jev state builder (docs/jev-implementation.md v0.2, section 6). Stage 0, draft.
 //
 // buildState(alert, enrichment, config) -> state
 //   alert       raw Wazuh alert, as received over C1
@@ -57,9 +57,12 @@ const CRITICALITIES = ['low', 'medium', 'high', 'protected'];
 const INTEL_LEVELS = ['info', 'safe', 'suspicious', 'malicious'];
 // MISP threat_level_id: 1 high, 2 medium, 3 low, 4 undefined.
 const MISP_THREAT_LEVELS = { 1: 'high', 2: 'medium', 3: 'low' };
-const HOUR_MS = 3600 * 1000;
+const MINUTE_MS = 60 * 1000;
+const HOUR_MS = 60 * MINUTE_MS;
 const DAY_MS = 24 * HOUR_MS;
-const CLOCK_SKEW_MS = 5 * 60 * 1000;
+// Age bucket boundaries of doc 6.2, used when policy.state.age_buckets does
+// not give one. The AGE labels state these numbers, so the two change together.
+const AGE_LIMITS = { day_below_hours: 24, week_below_days: 8, month_below_days: 31, future_tolerance_minutes: 5 };
 
 function isObject(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -226,17 +229,22 @@ function toMillis(value) {
   return Number.isNaN(millis) ? null : millis;
 }
 
-function ageBucket(value, nowMs) {
+// Each bucket includes its lower edge: an age of exactly 8 days is
+// "8–30 days ago". `limits` is policy.state.age_buckets.
+function ageBucket(value, nowMs, limits) {
   const then = toMillis(value);
   if (then === null || nowMs === null) return UNKNOWN;
+  const l = isObject(limits) ? limits : {};
+  const limit = (key) => positiveInt(l[key], AGE_LIMITS[key]);
   let age = nowMs - then;
   if (age < 0) {
-    if (age < -CLOCK_SKEW_MS) return UNKNOWN;
+    // A date slightly in the future is clock skew and counts as now.
+    if (age < -limit('future_tolerance_minutes') * MINUTE_MS) return UNKNOWN;
     age = 0;
   }
-  if (age < DAY_MS) return AGE.day;
-  if (age < 8 * DAY_MS) return AGE.week;
-  if (age < 31 * DAY_MS) return AGE.month;
+  if (age < limit('day_below_hours') * HOUR_MS) return AGE.day;
+  if (age < limit('week_below_days') * DAY_MS) return AGE.week;
+  if (age < limit('month_below_days') * DAY_MS) return AGE.month;
   return AGE.older;
 }
 
@@ -282,8 +290,8 @@ function seenBeforeFacts(seen, policyState, nowMs) {
     facts.first_seen = AGE.never;
     facts.last_seen = AGE.never;
   } else if (facts.seen_before !== UNKNOWN) {
-    facts.first_seen = ageBucket(seen.first_seen, nowMs);
-    facts.last_seen = ageBucket(seen.last_seen, nowMs);
+    facts.first_seen = ageBucket(seen.first_seen, nowMs, policyState.age_buckets);
+    facts.last_seen = ageBucket(seen.last_seen, nowMs, policyState.age_buckets);
   }
   if (Array.isArray(seen.top_rules)) {
     const minLevel = positiveInt(policyState.related_high_alert_level, 10);
@@ -313,7 +321,7 @@ function mispMatch(misp, policyState, nowMs) {
   return {
     events: misp.events.length >= manyMin ? 'many' : 'few',
     // An undated event could be the newest one, so its age stays unknown.
-    newest_event_age: allDated ? ageBucket(newest, nowMs) : UNKNOWN,
+    newest_event_age: allDated ? ageBucket(newest, nowMs, policyState.age_buckets) : UNKNOWN,
     // "high" is certain as soon as one event says so; otherwise an event
     // without a level could be the worst one.
     threat_level: worst === 1 || (allLevelled && worst !== null) ? MISP_THREAT_LEVELS[worst] : UNKNOWN,
@@ -567,8 +575,8 @@ function buildState(alert, enrichment, config) {
   };
 }
 
-// Values the decision needs and Jev must never see (doc 6.2 marks
-// rule_eligible_for_auto "used by code only"). `config` is the one given to
+// Values the decision needs and Jev must never see (doc 6.2, "Code-only
+// values"). `config` is the one given to
 // buildState; `extra` carries what only the playbook knows: thehive_severity
 // (1-4) and response_action_proposed. The key names differ from every key of
 // the state on purpose, so a test can prove none of them reaches a request
@@ -603,6 +611,7 @@ const jevState = {
   ipScope,
   direction,
   ageBucket,
+  AGE_LIMITS,
   countBucket,
   classify,
   requestPathClass,
