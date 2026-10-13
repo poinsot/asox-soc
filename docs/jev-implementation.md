@@ -24,6 +24,8 @@ v0.2 folds in the twelve decisions the n8n owner took while building the stage 0
 - **Model (3.2, Q1):** the model id is unverified; a no-waitlist gateway route is noted as a fallback.
 - **Work order and questions (18, 19):** C11 before C16; new open questions for the Wazuh owner (Q4, Q5) and the TheHive owner (Q6).
 
+Corrections of 2026-10-12 to v0.2 (same version): the 6.6 / 8.5 example (MISP level `suspicious`, no intel conflict, decision `advisory`, decoder `web-accesslog`); exact age-bucket boundaries (6.2, G11); what must be built before the first live call (15, R8); the consistency fields of 12.1 come from the decision step; the no-waitlist routes are named (3.2, section 11, Q1); `audit_sample_rate` is stage 3 only.
+
 ---
 
 ## 1. Summary
@@ -94,7 +96,7 @@ The closure principle follows from it: **Jev is a veto on top of a code rule, ne
 | Calibration holds across groups, not for each individual answer | No single answer is trusted alone for de-escalation: gates, consistency checks and sampled review (section 8.3) |
 | Hosted proprietary service, early access | Jev being unreachable never blocks the pipeline (section 10.4); data sent is minimized and filtered by TLP (section 11) |
 
-**Not verified yet (Q1).** The **model id**: our sources list `jev-1.13.0` and the alias `jev-latest`; v0.1 wrote `jev-1.13`, and whether the API accepts that short form is unknown. No model name is written in code (the request builder takes it as a parameter and refuses to build a request without one), so the id is checked against the API when C15 is built. The **endpoint and the auth scheme** are configuration (`TYPESAFE_API_URL`, the n8n credential), not constants of this design. **Fallback route:** if early access through TypeSafe's waitlist does not arrive, Jev can also be reached without a waitlist through a third-party API gateway. That changes configuration only (URL, credential, the model id as the gateway names it), but it puts a second company in the path of alert data: an additional data processor, to be assessed under section 11 before it is used.
+**Not verified yet (Q1).** The **model id**: our sources list `jev-1.13.0` and the alias `jev-latest`; v0.1 wrote `jev-1.13`, and whether the API accepts that short form is unknown. No model name is written in code (the request builder takes it as a parameter and refuses to build a request without one), so the id is checked against the API when C15 is built. The **endpoint and the auth scheme** are configuration (`TYPESAFE_API_URL`, the n8n credential), not constants of this design. **Fallback routes:** if early access through TypeSafe's waitlist does not arrive, Jev can also be reached without a waitlist through **Vercel AI Gateway** (model `typesafe-ai/jev`) or **Cloudflare Workers AI** (model `typesafe/jev`). Either changes configuration only (URL, credential, the model id as that route names it, and how a version is pinned there: to check), but it puts a second company in the path of alert data: an additional data processor, to be assessed under section 11 before it is used.
 
 ---
 
@@ -176,7 +178,7 @@ sequenceDiagram
 
 **Ordering rules:**
 
-1. **Hard rules run before Jev and cannot be overridden by it.** Protected hosts, allowlists and TLP:RED short-circuit the judgment in the playbook (not built). Rules in the policy's `never_auto_rules` can never be closed automatically, whatever Jev answers (gate G2).
+1. **Hard rules run before Jev and cannot be overridden by it.** Protected hosts, allowlists and TLP:RED short-circuit the judgment in the playbook. These pre-checks are not built, and they are a precondition for the first live call (section 15, stage 1). Rules in the policy's `never_auto_rules` can never be closed automatically, whatever Jev answers (gate G2).
 2. **Enrichment runs before Jev**, because Jev judges evidence and has nothing to judge without it.
 3. **The decision is made in code** (`lib-jev-decide`), from Jev's answers plus the policy file and the code-only values. Jev never returns "close" or "block"; it returns probabilities that code turns into a decision.
 
@@ -218,7 +220,7 @@ Every fact below can also be `unknown`.
 | `ip_scope` | CIDR match (IPv4 and IPv6) against the SOC's own ranges, documentation ranges and private ranges (policy file), in that order | `soc_internal`, `documentation`, `private`, else `public` |
 | `direction` | src/dst vs. our ranges | `inbound`, `outbound`, `internal` |
 | `seen_before` | C13 lookup count | `never`, `1–5 times`, `6–50 times`, `more than 50 times` |
-| `first_seen` / `last_seen` | C13 first and last seen | `less than 24 hours ago`, `1–7 days ago`, `8–30 days ago`, `more than 30 days ago`, `never` |
+| `first_seen` / `last_seen` | C13 first and last seen | `less than 24 hours ago`, `1–7 days ago`, `8–30 days ago`, `more than 30 days ago`, `never` (boundaries below) |
 | `related_high_alerts` | C13 top rules, level ≥ 10 within the window | `none`, `some` |
 | `misp_match` | MISP analyzer (C7) | `none`, or `{events: few/many, newest_event_age: <bucket>, threat_level: low/medium/high}`; each part can be `unknown` (an undated event makes the age unknown) |
 | `warninglists` | C10 `checkValue` | list of warninglist **names** (e.g. "List of known public DNS resolvers") |
@@ -226,6 +228,8 @@ Every fact below can also be `unknown`.
 | `request_path_class` | the request URL (an untrusted field), classified in code against `path-classes.json` | a class name from that file: `embedded_text`, `attack_pattern`, `health_check`, `sensitive_file`, `admin_interface`, `authentication`, `script_or_executable`, `static_asset`, `api`, `site_root`, else `other` |
 | `user_agent_class` | the HTTP user agent (untrusted), against `user-agent-classes.json` | `empty`, `embedded_text`, `attack_pattern`, `known_scanner_tool`, `claims_monitoring_tool`, `claims_crawler`, `http_library_or_cli`, `claims_browser`, else `other` |
 | `untrusted_text_class` | the untrusted fields with no class of their own (user names, commands, file names, the log line, the rule description), against `text-classes.json` | `embedded_text`, else `plain` |
+
+**Age buckets, exact boundaries.** Ages are measured in whole elapsed time from the given `now`, and each bucket includes its lower edge: `less than 24 hours ago` = under 24 hours; `1–7 days ago` = 24 hours to under 8 days; `8–30 days ago` = 8 days to under 31 days; `more than 30 days ago` = 31 days or more. A date up to 5 minutes in the future counts as now (clock skew); further in the future it is `unknown`. `never` is used only when `seen_before` is `never`. The same buckets apply to `misp_match.newest_event_age`, and gate G11 names a bucket, not a number of days.
 
 **Facts derived from untrusted fields.** The last three facts are computed from attacker-writable input, but their values come from a closed list of class names, never from the input itself, so they stay in `facts` while the raw values stay in `untrusted`. A value that carries prose is classified `embedded_text` before any ordinary class, and user-agent classes are named `claims_…` because a user agent is whatever the client chose to send. An attacker can still *choose* a class (request `/healthz` with a monitoring user agent), so these facts are listed once, in `DERIVED_FACTS` (`lib/state.js`): the state carries the list as `derived_facts`, the request builder removes those facts for the strict ablation (9.2) and never sends the list, and a unit test fails if a `*_class` fact is missing from it. The class files are first drafts and will miss paraphrases: the class facts are a second line behind the ablations, not a detector.
 
@@ -257,7 +261,9 @@ Fields an attacker can influence are moved into `untrusted` and truncated (**[AS
 
 ### 6.6 Example state (the false-positive IP scenario)
 
-As built by `buildState` from the fixture `tests/fixtures/scenario-6.6.json` (the five sections that may be sent; `derived_facts` is not sent):
+The five sections that may be sent (`derived_facts` is not sent), as `buildState` builds them for the scenario of `tests/fixtures/scenario-6.6.json` with two corrections applied: the decoder is `web-accesslog` (Wazuh's decoder for nginx and Apache access logs), and the MISP entry has level `suspicious`, because `MISP_2_1` reports a hit as `suspicious` (`docs/decisions.md` A85).
+
+**Example values to be regenerated from the fixture.** The fixture on branch `n8n` still has decoder `nginx-accesslog`, MISP level `malicious` and an `intel_conflict` answer of 0.62. The values here and in 8.5 were computed on 2026-10-12 with the fixture patched in memory; they are regenerated from the committed fixture once the branch matches.
 
 ```json
 {
@@ -267,7 +273,7 @@ As built by `buildState` from the fixture `tests/fixtures/scenario-6.6.json` (th
     "rule_groups": ["web", "threat-intel"],
     "mitre_tactics": ["Reconnaissance"],
     "agent_name": "web-01",
-    "decoder": "nginx-accesslog"
+    "decoder": "web-accesslog"
   },
   "facts": {
     "observable_type": "ip",
@@ -285,7 +291,7 @@ As built by `buildState` from the fixture `tests/fixtures/scenario-6.6.json` (th
     "untrusted_text_class": "plain"
   },
   "intel": [
-    { "source": "MISP", "level": "malicious", "taxonomies": ["malicious MISP:Search 1 event"], "detail": "Event: scanning infrastructure, 2025 campaign" },
+    { "source": "MISP", "level": "suspicious", "taxonomies": ["suspicious MISP:Search 1 event"], "detail": "Event: scanning infrastructure, 2025 campaign" },
     { "source": "AbuseIPDB", "level": "suspicious", "taxonomies": ["suspicious AbuseIPDB:Records 12"], "detail": "usage type: data center / web hosting; ISP: large cloud provider" }
   ],
   "context": {
@@ -439,14 +445,14 @@ Starting values are **[ASSUMPTION]**, deliberately strict, and are tuned only fr
 | G8 No steering | `steering` below threshold | < 0.20 |
 | G9 No conflict | `intel_conflict` below threshold | < 0.30 |
 | G10 Outcome | `outcome` is not `attempt_succeeded` | — |
-| G11 No hard flags | `related_high_alerts = none`; `misp_match` is `none`, or its threat level is known and, when `high`, its newest event is more than 30 days old; `codeCtx.response_action_proposed` is false | — |
+| G11 No hard flags | `related_high_alerts = none`; `misp_match` is `none`, or its threat level is known and, when `high`, its `newest_event_age` is the bucket `more than 30 days ago` (31 days or more, 6.2; `policy.gates.misp_high_threat_old_age_buckets`); `codeCtx.response_action_proposed` is false | — |
 | G12 Class facts *(new)* | No fact has a value in `policy.gates.blocked_fact_classes`: a class fact computed in code says the untrusted input carries prose or attack syntax | `embedded_text`, `attack_pattern` |
 
 Gates only decide whether `auto_close_fp` is allowed. **A failed gate alone gives `advisory`**; `human_review` comes only from the triggers of 8.4. **Any fired trigger blocks `auto_close_fp`**, whatever the gates say. The result lists the failed gates (`gatesFailed`) and why (`gateDetails`).
 
 **For the metrics** (12.2, "would-have-closed precision") the result also carries `wouldAutoClose` and `closeGatesFailed`: gates G2–G12 as if the mode were `gated`, with G2 keeping the level cap and `never_auto_rules` but ignoring the `auto_close_rules` membership. In `gated` mode they are the real result and the real gate trace.
 
-**A random sample** (**[ASSUMPTION]** 10%, `policy.audit_sample_rate`) of `auto_close_fp` decisions creates a TheHive review task "Verify Jev auto-closure"; an analyst reopening one counts as a Jev error in the metrics. (Part of the deferred stage 3; not built.)
+**A random sample** (**[ASSUMPTION]** 10%, `policy.audit_sample_rate`) of `auto_close_fp` decisions creates a TheHive review task "Verify Jev auto-closure"; an analyst reopening one counts as a Jev error in the metrics. **`audit_sample_rate` is for stage 3 only:** the value is in `policy.json`, but nothing reads it and nothing samples until stage 3 is proposed and built (17.1).
 
 ### 8.4 Escalation rules (cheap, available from stage 2)
 
@@ -465,7 +471,7 @@ The result lists every trigger that fired, with a detail line; the decision foll
 
 ### 8.5 Explanation without text
 
-`lib-jev-record` (not built) writes the judgment into TheHive as a structured block, built from the per-question answers. It names the trigger that produced the decision and lists the failed closure gates separately. Example for the scenario in 6.6, with the values the decision step returns for that fixture:
+`lib-jev-record` (not built) writes the judgment into TheHive as a structured block, built from the per-question answers. It names the trigger that produced the decision and lists the failed closure gates separately. Example for the scenario in 6.6 (values to be regenerated from the fixture, see the note in 6.6):
 
 ```
 Jev judgment (triage-v1+pb.f892f56fd693, <JEV_MODEL>, mode: advisory)
@@ -473,17 +479,17 @@ Verdict: benign_true_positive (p 0.90, confidence 0.86)
 - Matches known benign pattern: yes (0.94) — "Uptime checks from the external monitoring service…"
   verified in code: no (the pattern has no verify block)
 - Shared infrastructure: yes (0.91)
-- Intel sources disagree: yes (0.62)
+- Intel sources disagree: no (0.10)
 - Activity fits asset role: 1.9 / 2
 - Outcome: informational (0.88)
 - Steering text detected: no (0.02); ablation agreed; strict ablation agreed; order check agreed
 - Class facts: request path health_check, user agent claims_monitoring_tool, other text plain
-Decision: human_review
-Trigger: intel_conflict 0.62 ≥ 0.50 (tag jev:conflict)
-Closure gates failed (would not have closed): G2 rule level 10 ≥ 10; G4 verdict p 0.90 < 0.95; G5 confidence 0.86 < 0.90; G9 intel conflict 0.62 ≥ 0.30
+Decision: advisory
+Triggers: none
+Closure gates failed (would not have closed): G2 rule level 10 ≥ 10; G4 verdict p 0.90 < 0.95, and the pattern is not verified in code; G5 confidence 0.86 < 0.90
 ```
 
-In this example Jev correctly sees the benign pattern, but the alert still goes to an analyst because the `intel_conflict` trigger of 8.4 fired (0.62 ≥ 0.50): MISP and AbuseIPDB disagree. The failed gates are a separate matter: they say the alert would not have been closed even in a gated stage, and on their own they would have left the decision at `advisory`. That is the intended behavior in early stages: Jev surfaces the reasons, the analyst decides, and the resolution trains the thresholds.
+The example shows **intel against context, not intel against intel**. MISP and AbuseIPDB agree with each other: both lean malicious (`suspicious`), so by `triage-v1`'s wording there is no conflict (`intel_conflict` 0.10) and no trigger fires. What disagrees with them is our own context: the asset's role, the known benign pattern and the long history of the same requests. Jev surfaces that benign reading, with its reasons, next to what the intel sources say, and the decision is `advisory`: the analyst sees both and decides. Nothing would have closed in any stage: G4 fails twice over (the probability is below the threshold, and the pattern is prose with no `verify` block), G2 fails on the rule's level and G5 on the confidence. The analyst's resolution is what later tunes the thresholds.
 
 ---
 
@@ -560,13 +566,13 @@ The three lib files are plain JavaScript with no `require`, no clock, no randomn
 
 | Name | Where | Value |
 |---|---|---|
-| `TYPESAFE_API_URL` | n8n environment (`nodes/core/.env`) | API base URL (TypeSafe's, or the fallback gateway's, 3.2) |
+| `TYPESAFE_API_URL` | n8n environment (`nodes/core/.env`) | API base URL (TypeSafe's, or a fallback route's: Vercel AI Gateway or Cloudflare Workers AI, 3.2) |
 | `JEV_MODEL` | n8n environment | An exact model version, pinned; the id is unverified (`jev-1.13.0` in our sources, Q1) |
 | `JEV_MODE` | n8n environment | `off` \| `shadow` \| `advisory` \| `gated` (default `off`; `gated` is not used in this proposal) |
 | `JEV_TIMEOUT_MS` | n8n environment | `2000` **[ASSUMPTION]** |
 | `TYPESAFE_API_KEY` | `nodes/core/.env`, turned into the n8n credential "TypeSafe API (n8n)" by `bootstrap.sh core`; never in n8n's environment (D37) | Per account; see D53. The auth header is part of the credential (Q1) |
 | `policy.json`, `questions/*.json`, `assets.json`, `benign-patterns.json`, `ip-lists/*.json`, `intel-fields.json`, `untrusted-fields.json`, `path-classes.json`, `user-agent-classes.json`, `text-classes.json`, `playbooks.json` | `nodes/core/n8n/jev/` (git) | Read by the workflows at run time (how: 10.1, open). Each has a `version` and a `status` |
-| The SOC's own subnets for `ip_scope` | **[OPEN]** a variable the playbook passes into `policy.state.networks.soc_internal` | Not an address in a committed file; the list is empty today, so SOC containers classify as `private` |
+| `SOC_INTERNAL_CIDRS`: the SOC's own subnets for `ip_scope` | **[OPEN]** n8n environment, rendered by `render-env.sh` (request R-28 in `docs/integration-backlog.md`); the playbook passes it into `policy.state.networks.soc_internal` | Not an address in a committed file; the list is empty today, so SOC containers classify as `private` |
 
 **New `.env.example` marker `__external__`** (D53): the value comes from an outside account, so `render-env.sh` neither generates nor copies it, keeps a pasted value, and warns when it is empty while `JEV_MODE` is not `off`.
 
@@ -584,7 +590,7 @@ The decision record's ID is the Wazuh alert ID (as in C11). If a record already 
 | 4xx (bad request), or a request that cannot be built (no model, empty playbook catalog, broken question set) | `jev_status = error`, decision `none`, error logged with the question-set version (a question set is broken) |
 | The full run's answers are missing or malformed, or `policy.json` fails validation | Decision `none`, with a note saying why |
 | An ablated or order-check run is missing | The decision still comes from the triggers; the gates that need the run have failed, so nothing closes |
-| Observable is TLP:RED, or PAP forbids external use | Jev not called, `jev_status = skipped_tlp` (not built: the state builder does not check TLP today) |
+| Observable is TLP:RED, or PAP forbids external use | Jev not called, `jev_status = skipped_tlp` (not built: the state builder does not check TLP today; required before the first live call, section 15) |
 | `JEV_MODE = off` | Not called, `jev_status = off` |
 
 **Jev failing never blocks, delays beyond the timeout, or closes an alert.** The fail-safe direction is always "analyst sees it".
@@ -593,14 +599,14 @@ The decision record's ID is the Wazuh alert ID (as in C11). If a record already 
 
 ## 11. Data protection
 
-Every call sends alert data to a third-party service hosted in the United States. Rules:
+Every call sends alert data to a third-party service hosted in the United States. That starts with stage 1: shadow mode hides Jev from analysts, but it already sends real alert data. Points 2 and 3 are therefore built before the first live call (section 15). Rules:
 
 1. **Minimize.** The judgment does not need raw IPs: `facts` carries their categories. `alert`, `facts`, `intel` and `context` never hold the raw observable value (it can still appear inside an untrusted field such as `full_log`), and `intel` carries summaries, not full reports.
-2. **TLP/PAP.** TLP:RED observables never leave the platform; the same policy the Cortex + MISP owner defines for online analyzers applies to Jev (the TLP/PAP item in that backlog). Not built in stage 0.
-3. **Personal data.** Usernames are replaced by a role category where possible (`admin account`, `service account`, `standard user`); hostnames stay (needed for asset context, and they are lab names in this project). Not built in stage 0: the state builder sends user names in `untrusted` as they are, which must change before real data is used.
+2. **TLP/PAP.** TLP:RED observables never leave the platform; the same policy the Cortex + MISP owner defines for online analyzers applies to Jev (the TLP/PAP item in that backlog). Not built in stage 0; a precondition for stage 1.
+3. **Personal data.** Usernames are replaced by a role category where possible (`admin account`, `service account`, `standard user`); hostnames stay (needed for asset context, and they are lab names in this project). Not built in stage 0: the state builder sends user names in `untrusted` as they are. A precondition for stage 1.
 4. **Retention.** TypeSafe states it does not train on user data; zero data retention is only offered to enterprise customers. **[OPEN]** Review the Data Processing Agreement before using real (non-lab) data.
 5. **Credentials.** The API key lives only in `nodes/core/.env` and the n8n credential. It never appears in workflows, exports or logs (CI's secret scan covers `TYPESAFE_API_KEY`).
-6. **Gateway route.** Reaching Jev through the no-waitlist gateway of 3.2 adds a second data processor: every state passes through the gateway company as well as TypeSafe. Its terms (retention, training, location) get the same review as point 4, and the route is recorded in the decision that accepts C15. Lab data only until then.
+6. **Gateway routes.** Reaching Jev through one of the no-waitlist routes of 3.2, **Vercel AI Gateway** (`typesafe-ai/jev`) or **Cloudflare Workers AI** (`typesafe/jev`), adds a second data processor: every state passes through Vercel or Cloudflare as well as, or instead of, TypeSafe's own service (which of the two, and where the model runs, is part of the review). Its terms (retention, training, location) get the same review as point 4, and the route is recorded in the decision that accepts C15. Lab data only until then.
 
 ---
 
@@ -616,7 +622,7 @@ Every call sends alert data to a third-party service hosted in the United States
 | `jev_verdict`, `jev_verdict_p`, `jev_confidence` | verdict and its probability, confidence |
 | `jev_p_fp` | probability of `false_positive` + `benign_true_positive` |
 | `jev_steering`, `jev_conflict` | Noul values |
-| `jev_ablation_delta`, `jev_strict_ablation_delta`, `jev_order_agree` | consistency results of the plain ablation, the strict ablation and the order check |
+| `jev_ablation_delta`, `jev_strict_ablation_delta`, `jev_order_agree` | consistency results of the plain ablation, the strict ablation and the order check. They come from the decision step's return value, which already compares the runs for G6 and G7; the record step stores them and never recomputes them from the raw answers, so the record cannot disagree with the decision. (Today `decide` returns only a reason string for a failing gate; returning the values is a follow-up in the n8n owner's folder) |
 | `jev_decision`, `jev_triggers`, `jev_gates_failed` | decision, the triggers that fired and the list of failed gates. In shadow mode `jev_decision` stores `shadowDecision.decision` (with `jev_mode: shadow`), so the dashboard compares like with like across stages |
 | `jev_would_auto_close`, `jev_close_gates_failed` | `wouldAutoClose` and `closeGatesFailed` of 8.3 |
 | `jev_sampled_review`, `jev_review_outcome` | sampling flag; `confirmed` / `reopened` (deferred with stage 3) |
@@ -656,7 +662,7 @@ Added to `contracts-check.sh` when C15 is built, skipped when `JEV_MODE = off` o
 
 Everything lives in the n8n owner's folder `nodes/core/n8n/jev/`, not in `tests/jev/` or `scripts/` as v0.1 had it.
 
-- **Unit tests (built, stage 0):** `nodes/core/n8n/jev/tests/` (`node:test`): config files, state builder, request builder, decision step, and the scenarios end to end with **mocked** answers (the 6.6 scenario, a clear true positive, missing enrichment, the adversarial set, the `/healthz` look-alike). `nodes/core/n8n/jev/run-tests.sh` runs them in the pinned image `node:26.7.0-alpine` (the Node version of `n8nio/n8n:2.40.7`; `docs/decisions.md` A93), with the folder mounted read-only and no network: 69 tests, all passing on 2026-10-12. They are run by hand today; adding them to `scripts/ci-checks.sh` is a request to the integrator.
+- **Unit tests (built, stage 0):** `nodes/core/n8n/jev/tests/` (`node:test`): config files, state builder, request builder, decision step, and the scenarios end to end with **mocked** answers (the 6.6 scenario, a clear true positive, missing enrichment, the adversarial set, the `/healthz` look-alike). `nodes/core/n8n/jev/run-tests.sh` runs them in the pinned image `node:26.7.0-alpine` (the Node version of `n8nio/n8n:2.40.7`; `docs/decisions.md` A93), with the folder mounted read-only and no network: 69 tests, all passing on 2026-10-12. They are run by hand today; adding them to `scripts/ci-checks.sh` is a request to the integrator (R-27 in `docs/integration-backlog.md`).
 - **Golden set (not built):** labeled states in the same folder, from lab scenarios (X-32) and from resolved alerts exported with personal data removed, each with its expected verdict. Target size before any stage 3 proposal: **[ASSUMPTION]** 200 states, at least 50 false positives.
 - **Adversarial set:** section 9.4; built as fixtures, run with mocked answers today.
 - **Evaluation run (not built):** a script in the same folder (v0.1's `jev-eval.sh`) runs the golden and adversarial sets against the pinned model and reports accuracy, would-have-closed precision, Brier score, the order-flip rate, and any adversarial case that reached `auto_close_fp` (which fails the run). It needs C15.
@@ -689,10 +695,18 @@ Stages 0–2 are proposed. Stage 3 is designed and deferred (17.1).
 
 | Stage | `JEV_MODE` | What happens | Exit criteria (all) **[ASSUMPTION]** |
 |---|---|---|---|
-| 0 Build | `off` | **Done (2026-10-12, branch `n8n`):** the offline core (state, requests, decision, configuration drafts, unit tests with mocked answers); nothing calls Jev. **Still to build:** C15 and C16, the sub-workflows, the golden set, `chk-jev-api` | Contract checks pass; owners' acknowledgement of C15, C16 |
-| 1 Shadow | `shadow` | Jev judges every eligible alert; the decision step returns `none`; the result goes only to `asox-metrics`; analysts don't see it (avoids biasing their resolutions). First use freezes the question set (7.4) | ≥ 2 weeks and ≥ 200 resolved alerts; calibration curve close to the diagonal; safety counter = 0 |
+| 0 Build | `off` | **Done (2026-10-12, branch `n8n`):** the offline core (state, requests, decision, configuration drafts, unit tests with mocked answers); nothing calls Jev. **Still to build:** C15 and C16, the sub-workflows, the golden set, `chk-jev-api`, and the three preconditions for the first live call (below) | Contract checks pass; owners' acknowledgement of C15, C16; the three preconditions built and tested |
+| 1 Shadow | `shadow` | **The first live call.** Jev judges every eligible alert; the decision step returns `none`; the result goes only to `asox-metrics`; analysts don't see it (avoids biasing their resolutions). First use freezes the question set (7.4) | ≥ 2 weeks and ≥ 200 resolved alerts; calibration curve close to the diagonal; safety counter = 0 |
 | 2 Advisory | `advisory` | Judgment and reasons visible in TheHive; escalations, `human_review`, `veto_action` and routing active; no auto-closure | ≥ 2 weeks; analysts' review of the advisory block (useful / not useful). Would-have-closed precision is recorded for a later stage 3 proposal |
 | 3 Gated *(deferred, not proposed)* | `gated` | Auto-closure for rules in `policy.auto_close_rules` only, for alerts with a code-verified benign pattern, with sampled review | Not part of this proposal. Needs its own proposal with D54, the precondition of 9.4, and would-have-closed precision ≥ 0.98 on the rules to be listed. Once running: any reopened auto-closure triggers a review of that rule's eligibility; two in one week returns the rule to advisory |
+
+**Preconditions for stage 1 (before the first live call).** Shadow mode changes nothing an analyst sees, but it sends real alert data to a service in the United States, so what protects that data cannot wait for a later stage. All three are built and tested with `JEV_MODE = off` first; none exists in stage 0's code:
+
+1. **Hard pre-checks in the playbook** (4.2, rule 1): protected hosts, allowlists and TLP:RED short-circuit before the state is built, so Jev is not called for them.
+2. **The TLP/PAP filter** (10.4, section 11 point 2): an observable that is TLP:RED, or whose PAP forbids external use, gives `jev_status = skipped_tlp` and no call.
+3. **User-name role replacement** (section 11 point 3): user names leave the platform as a role category, not as they are.
+
+`chk-jev-api` (13.1) uses a fixed fixture state, not alert data, so it may run before them.
 
 Moving a stage is a pull request changing `JEV_MODE` and `policy.json`, approved at a checkpoint.
 
@@ -700,7 +714,7 @@ Moving a stage is a pull request changing `JEV_MODE` and `policy.json`, approved
 
 ## 16. Integration contracts
 
-Proposed rows for PROJECT.md section 5, in the same format. Each needs the named owners' acknowledgement (tracked in `docs/integration-backlog.md`).
+Proposed rows for PROJECT.md section 5, in the same format. Each needs the named owners' acknowledgement (tracked in `docs/integration-backlog.md`: X-40 for C15, X-41 for C16, X-42 for the C11 acknowledgement C16 waits for).
 
 | # | From → To | Interface | Check (`contracts-check.sh`) | Owners |
 |---|---|---|---|---|
@@ -773,12 +787,13 @@ In dependency order. **C11 comes before C16:** the Jev decision record is extra 
 | R5 | Data protection with real data | [OPEN] DPA review before any non-lab deployment (section 11); a gateway route adds a second processor |
 | R6 | Asset inventory and benign patterns go stale | Patterns versioned with owners; [OPEN] replace `assets.json` with the asset-lookup analyzer |
 | R7 | `benign-patterns.json` and `ip-lists/` become an attack surface (someone adds a pattern or a range that hides an attack) | Pull-request review by a second owner; patterns never written automatically |
-| Q1 | [OPEN] Model id (our sources list `jev-1.13.0` and the alias `jev-latest`; unverified), exact base URL, auth header and response fields (the Score answer shape is assumed). Endpoint and auth are configuration. Fallback: the no-waitlist gateway route, which adds a data processor (3.2, section 11) | Confirm against the API reference when building C15 |
+| R8 | Shadow mode is the first live call: real alert data goes to a US service before any analyst sees a Jev result, and stage 0's code has no pre-checks, no TLP/PAP filter and sends user names as they are | The three preconditions of section 15 (hard pre-checks in the playbook, TLP/PAP filter, user-name role replacement) are built and tested before `JEV_MODE` leaves `off`; lab data only until the DPA review (R5) |
+| Q1 | [OPEN] Model id (our sources list `jev-1.13.0` and the alias `jev-latest`; unverified), exact base URL, auth header and response fields (the Score answer shape is assumed). Endpoint and auth are configuration. Fallback, no waitlist: Vercel AI Gateway (`typesafe-ai/jev`) or Cloudflare Workers AI (`typesafe/jev`); either adds a data processor (3.2, section 11), and how a model version is pinned there is unknown | Confirm against the API reference when building C15 |
 | Q2 | [OPEN] TheHive 5.7 status used for automatic closure (e.g. a closed-stage "FalsePositive" status) | TheHive owner confirms; only needed for the deferred stage 3 |
 | Q3 | [OPEN] Should shadow mode run on all alerts, or only rules that could become eligible? | Start with all; decide by token use |
-| Q4 | [OPEN] **Wazuh owner:** which rules, built-in and custom, interpolate decoded fields into their description (`$(srcuser)`-style substitutions)? | Until answered every description is sent in `untrusted`; rules confirmed static go into `static_description_rules` (6.5) |
-| Q5 | [OPEN] **Wazuh owner:** per log source, which decoder field holds the connection's source address as the server or proxy saw it (never a forwarded header such as `X-Forwarded-For`, which the client writes)? | Needed before any real `verify` list is added (6.4); if only a forwarded header is available, the pattern cannot be verified |
-| Q6 | [OPEN] **TheHive owner:** is 3 (high) the right TheHive severity below which Jev's severity may escalate (`severity_thehive_below: 3`)? It depends on the severity mapping on his backlog | TheHive owner confirms with the mapping (8.4) |
+| Q4 | [OPEN] **Wazuh owner** (register X-37)**:** which rules, built-in and custom, interpolate decoded fields into their description (`$(srcuser)`-style substitutions)? | Until answered every description is sent in `untrusted`; rules confirmed static go into `static_description_rules` (6.5) |
+| Q5 | [OPEN] **Wazuh owner** (register X-38)**:** per log source (starting with `web-accesslog`, Wazuh's decoder for nginx and Apache access logs), which decoder field holds the connection's source address as the server or proxy saw it (never a forwarded header such as `X-Forwarded-For`, which the client writes)? | Needed before any real `verify` list is added (6.4); if only a forwarded header is available, the pattern cannot be verified |
+| Q6 | [OPEN] **TheHive owner** (register X-39)**:** is 3 (high) the right TheHive severity below which Jev's severity may escalate (`severity_thehive_below: 3`)? It depends on the severity mapping on his backlog | TheHive owner confirms with the mapping (8.4) |
 | Q7 | [OPEN] How the lib code and JSON configuration reach n8n Code nodes: inlined at export, or the folder mounted into the container (10.1) | n8n owner decides before `lib-jev-state`; a mount needs a compose change |
 
 ---
@@ -789,4 +804,5 @@ In dependency order. **C11 comes before C16:** the Jev decision record is extra 
 2. Circulate this document (v0.2); collect acknowledgements for C15 and C16 (C17 and the C9 amendment can wait for their phases; nothing in 17.1 is asked).
 3. Send Q4 and Q5 to the Wazuh owner and Q6 to the TheHive owner; decide Q7.
 4. Finish stage 0: C11 first, then C15, `lib-jev-state`, `lib-jev-judge`, `chk-jev-api`, the C16 fields, and the first 50 golden cases from lab scenarios.
-5. Start shadow mode and the Grafana "Jev" dashboard; review the calibration curve at the next checkpoint.
+5. Build and test the three preconditions for the first live call (section 15): hard pre-checks, the TLP/PAP filter, user-name role replacement.
+6. Start shadow mode and the Grafana "Jev" dashboard; review the calibration curve at the next checkpoint.
