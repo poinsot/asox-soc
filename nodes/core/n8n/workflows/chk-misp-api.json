@@ -5,7 +5,7 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## chk-misp-api (contract check C10)\n**Trigger:** POST /webhook/chk-misp-api from scripts/contracts-check.sh, header `X-ASOX-Token` required; no request body.\n**Actions taken:** with the \"MISP API (n8n)\" credential, checks 8.8.8.8 against MISP's warninglists (`POST /warninglists/checkValue`) and tries to add an event (`POST /events/add`), which MISP must refuse with 403 (Read Only role). Always answers HTTP 200 with `status`, `matches` and `write_status`.\n**Systems changed:** none (an event would be created only if n8n's MISP user were wrongly allowed to write; info \"C10 write check: must be refused\").\n**Approval:** not applicable.\n**Owner:** n8n (check maintained with the integrator).",
+        "content": "## chk-misp-api (contract check C10)\n**Trigger:** POST /webhook/chk-misp-api from scripts/contracts-check.sh, header `X-ASOX-Token` required.\n**Inputs:** none (no request body).\n**Actions taken:** with the \"MISP API (n8n)\" credential, checks 8.8.8.8 against MISP's warninglists (`POST /warninglists/checkValue`) and tries to add an event (`POST /events/add`), which MISP must refuse with 403 (Read Only role). Always answers HTTP 200 with `status`, `matches` and `write_status`.\n**Systems changed:** none (an event would be created only if n8n's MISP user were wrongly allowed to write; info \"C10 write check: must be refused\").\n**Approval:** not applicable.\n**Owner:** n8n (check maintained with the integrator).",
         "height": 360,
         "width": 520
       },
