@@ -6,7 +6,8 @@
 #   core : Wazuh API user n8n-api with a read-only role (C2);
 #          indexer user grafana-ro, read-only on wazuh-alerts-* (C8);
 #          n8n recreated if its .env changed (docker compose up --wait),
-#          n8n owner, n8n credentials (incl. TheHive and Cortex, C3/C6),
+#          n8n owner, n8n credentials (incl. TheHive, Cortex and MISP,
+#          C3/C6/C10),
 #          and the workflows from nodes/core/n8n/workflows/ that n8n
 #          doesn't have yet
 #   cases: Cortex indexes, superadmin, SOC organization, org admin and the
@@ -16,7 +17,9 @@
 #          to n8n (C4); the MISP analyzer (C7) once intel has created its
 #          MISP key
 #   intel: MISP admin API key, read-only user for Cortex with its key (C7),
-#          and the seed event (nodes/intel/misp/seed/seed-event.json)
+#          the seed event (nodes/intel/misp/seed/seed-event.json), then
+#          nodes/intel/misp/misp-config.sh apply: warninglists with the size
+#          cap, feeds, and the read-only user for n8n with its key (C10)
 set -euo pipefail
 # shellcheck source=scripts/lib/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
@@ -180,30 +183,6 @@ bootstrap_indexer() {
   fi
 }
 
-# n8n credentials, with fixed IDs so that exported workflows (which reference
-# credentials by ID and name) work on every machine. Values come from .env.
-# The webhook token has two forms: header X-ASOX-Token (Wazuh, scripts) and
-# "Authorization: Bearer" (TheHive's webhooks can't send other headers, C4).
-N8N_CREDENTIALS='"ASOX webhook token", "ASOX webhook token (Bearer)", "Wazuh API (n8n-api)", "TheHive API (n8n)", "Cortex API (n8n)"'
-n8n_credentials_json() {
-  jq -nc \
-    --arg token "$(core_env N8N_WEBHOOK_TOKEN)" \
-    --arg wuser "$(core_env WAZUH_N8N_API_USER)" --arg wpass "$(core_env WAZUH_N8N_API_PASSWORD)" \
-    --arg thkey "$(core_env THEHIVE_N8N_API_KEY)" --arg thurl "$(core_env THEHIVE_URL)" \
-    --arg cxkey "$(core_env CORTEX_N8N_API_KEY)" --arg cxurl "$(core_env CORTEX_URL)" '[
-    {id: "asoxWebhookToken", name: "ASOX webhook token", type: "httpHeaderAuth",
-     data: {name: "X-ASOX-Token", value: $token}},
-    {id: "asoxWebhookBear1", name: "ASOX webhook token (Bearer)", type: "httpHeaderAuth",
-     data: {name: "Authorization", value: ("Bearer " + $token)}},
-    {id: "asoxWazuhApiRo01", name: "Wazuh API (n8n-api)", type: "httpBasicAuth",
-     data: {user: $wuser, password: $wpass}},
-    {id: "asoxTheHiveApi01", name: "TheHive API (n8n)", type: "theHiveProjectApi",
-     data: {ApiKey: $thkey, url: $thurl, allowUnauthorizedCerts: false}},
-    {id: "asoxCortexApi001", name: "Cortex API (n8n)", type: "cortexApi",
-     data: {cortexApiKey: $cxkey, host: $cxurl}}
-  ]'
-}
-
 bootstrap_n8n() {
   local body out
   # Apply the freshly rendered .env (e.g. THEHIVE_ENABLED, R-18): Compose
@@ -242,17 +221,19 @@ bootstrap_n8n() {
     fi
   fi
 
-  # Credential data goes through stdin, never to a file on the host.
-  if n8n_credentials_json | n8n_cli -- import:credentials --input=/dev/stdin >/dev/null 2>&1; then
-    pass "n8n: credentials $N8N_CREDENTIALS"
+  # Created, or updated to the values in nodes/core/.env (lib/n8n.sh).
+  if n8n_import_credentials; then
+    pass "n8n: credentials $N8N_CREDENTIALS created or updated from nodes/core/.env"
   else
     fail "n8n: credential import failed"; return
   fi
-  # TheHive and Cortex keys come from the cases node (__from:cases__).
+  # TheHive and Cortex keys come from the cases node (__from:cases__), the
+  # MISP key from the intel node (__from:intel__).
   local k
   for k in THEHIVE_N8N_API_KEY CORTEX_N8N_API_KEY; do
     [[ -n $(core_env "$k") ]] || skip "n8n: $k is empty, so its credential can't log in yet (C3, C6): bootstrap cases, then scripts/render-env.sh && scripts/bootstrap.sh core (distributed mode: paste it from the cases machine's nodes/cases/.env)"
   done
+  [[ -n $(core_env MISP_N8N_API_KEY) ]] || skip "n8n: MISP_N8N_API_KEY is empty, so its credential can't log in yet (C10): bootstrap intel, then scripts/render-env.sh && scripts/bootstrap.sh core (distributed mode: paste it from the intel machine's nodes/intel/.env)"
 
   # Only workflows n8n doesn't have: never overwrite a teammate's UI work
   # (scripts/n8n-import.sh does that on request).
@@ -636,11 +617,31 @@ bootstrap_misp_seed() {
   pass "MISP: seed event $id published (\"$info\")"
 }
 
+# Warninglists (size cap, R-14), feeds and n8n's Read Only user (C10) are the
+# MISP owner's configuration as code: nodes/intel/misp/misp-config.json,
+# applied by their own idempotent script (R-22). Its PASS/FAIL/SKIP lines are
+# shown as they come; its closing summary is dropped (this script prints one).
+MISP_CONFIG_SCRIPT="$REPO_ROOT/nodes/intel/misp/misp-config.sh"
+bootstrap_misp_config() {
+  if [[ ! -f $MISP_CONFIG_SCRIPT ]]; then
+    fail "MISP: nodes/intel/misp/misp-config.sh not found"
+    return 1
+  fi
+  if bash "$MISP_CONFIG_SCRIPT" apply 2>&1 \
+       | sed -e '/^$/d' -e '/^All checks passed\.$/d' -e '/^[0-9]* check(s) failed\.$/d'; then
+    pass "MISP: nodes/intel/misp/misp-config.sh apply (warninglists, feeds, n8n user)"
+  else
+    fail "MISP: nodes/intel/misp/misp-config.sh apply failed (its FAIL or ERROR lines are above)"
+    return 1
+  fi
+}
+
 bootstrap_intel() {
   echo "== bootstrap intel"
   bootstrap_misp_admin_key || return
   bootstrap_misp_cortex_user || return
   bootstrap_misp_seed
+  bootstrap_misp_config
 }
 
 # ---------------------------------------------------------------- main ---
