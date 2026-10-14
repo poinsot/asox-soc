@@ -66,6 +66,12 @@ Based on PROJECT.md (v2.1), docs/decisions.md, docs/handoff.md, CHECKLIST.md, CO
 | GRAF-2.3 | Escaneo de red / DDoS panels | P2 | M | Wazuh + Snort or OPNsense (Phase 2, not built yet) |
 | GRAF-2.4 | Full simulacro timeline (ataque → detección → alerta → respuesta → caso), one row per stage. **Note:** for playbooks that require analyst approval (D-N5, task-based in TheHive), the "respuesta" stage includes human wait time — split "MTTR automatizado" from "MTTR con aprobación" or the metric misrepresents n8n's own speed | P2 | M | n8n, TheHive (needs GRAF-0.4) |
 
+**Status (2026-10-14):** GRAF-2.1 and GRAF-2.2 built and checked with all six lab scenarios (one run each, two of `ssh-bruteforce`):
+- `provisioning/dashboards/attack-scenarios.json` ("Attack Scenarios", uid `asox-attack-scenarios`): one stat + sparkline per scenario on the rule IDs it fires, detections over time by scenario, runs per scenario and recent runs (time, scenario, run ID, agent) from the markers. No `$min_level`: each panel is fixed to its rules.
+- Annotation "Inicio de ataque (lab)" (`rule.id:100101`, text `data.scenario`, tags `data.run_id`) on this dashboard and on SOC Status. Answer to Wazuh in `docs/replies-2026-10.md` (A3).
+- The detection panels count every alert of those rules, real or lab: the runs table and the markers say which ones came from a run.
+- `new-user` fired 5902, 100211 and **40501 (level 15)**, not 5901 as `trigger.sh` says. Raised with Wazuh (replies, A3).
+
 ## E3: Dashboard "Desempeño y cumplimiento" — Nivel 2/3
 
 | ID | Item | P | Size | Meets with |
