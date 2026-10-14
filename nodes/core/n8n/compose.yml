@@ -51,6 +51,12 @@ services:
       CORTEX_URL: ${CORTEX_URL}
       # C10 (warninglist check). The key is in the credential "MISP API (n8n)".
       MISP_URL: ${MISP_URL}
+      # C11 and C13: the Wazuh indexer, addressed by its certificate name
+      # (D32). The user is in the credential "Wazuh indexer (n8n-indexer)".
+      WAZUH_INDEXER_URL: ${WAZUH_INDEXER_URL}
+      # Node.js trusts the indexer's root CA (PROJECT.md 4.1, D25), so calls to
+      # it verify the certificate; a file path, not a secret (D37).
+      NODE_EXTRA_CA_CERTS: /etc/n8n/certs/wazuh-root-ca.pem
       # C1 threshold, also applied by recv-wazuh-alert (non-secret; lib-config
       # holds 7 only as a fallback).
       WAZUH_ALERT_MIN_LEVEL: ${WAZUH_ALERT_MIN_LEVEL:-7}
@@ -73,6 +79,7 @@ services:
       - n8n_postgres_password
     volumes:
       - n8n-data:/home/node/.n8n
+      - ../certs/root-ca.pem:/etc/n8n/certs/wazuh-root-ca.pem:ro
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:5678/healthz/readiness | grep -q ok"]
       interval: 15s
