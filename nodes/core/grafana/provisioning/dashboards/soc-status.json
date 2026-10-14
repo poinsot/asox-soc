@@ -12,6 +12,20 @@
         "iconColor": "rgba(0, 211, 255, 1)",
         "name": "Annotations & Alerts",
         "type": "dashboard"
+      },
+      {
+        "datasource": {
+          "type": "grafana-opensearch-datasource",
+          "uid": "wazuh-indexer"
+        },
+        "enable": true,
+        "hide": false,
+        "iconColor": "red",
+        "name": "Inicio de ataque (lab)",
+        "query": "rule.id:100101",
+        "timeField": "timestamp",
+        "textField": "data.scenario",
+        "tagsField": "data.run_id"
       }
     ]
   },
