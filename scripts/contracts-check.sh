@@ -4,8 +4,8 @@
 # the nodes the checked contracts need running (full mode for C1-C8, C10;
 # core for C11).
 #
-# Usage: scripts/contracts-check.sh [--only C3,C4]
-# One PASS/FAIL line per contract; exit code 1 if any contract fails.
+# Usage: scripts/contracts-check.sh [--only C3,C4,E2E]
+# One PASS/FAIL line per contract (and for E2E); exit code 1 if any contract fails.
 # C3/C4 create a test alert in TheHive (source contract-check) and delete it;
 # C1 deletes the TheHive alert n8n makes from its test alert (source asox-test).
 # C10 prints SKIP (not a failure) when, in single-host mode, the intel node
@@ -15,6 +15,10 @@
 # C11 writes a test document (outcome contract-check) to asox-metrics through
 # n8n and deletes it; it prints SKIP while its check workflow chk-metrics is
 # neither in n8n nor in the repo (N8N-2.9).
+# E2E (after the contracts, not a contract; R-02) sends an sshd brute-force
+# alert on the MISP seed IOC to n8n and expects the TheHive alert, the MISP
+# verdict tag, the writeback and the asox-metrics document; it deletes what
+# it created and prints SKIP unless core, cases and intel all run.
 set -euo pipefail
 # shellcheck source=scripts/lib/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
@@ -30,17 +34,17 @@ usage() { print_usage "$0"; }
 ONLY=""
 while (( $# > 0 )); do
   case $1 in
-    --only) ONLY=${2:?--only needs a list, e.g. C3,C4}; shift ;;
+    --only) ONLY=${2:?--only needs a list, e.g. C3,C4 or E2E}; shift ;;
     -h|--help) usage; exit 0 ;;
     *) usage >&2; exit 2 ;;
   esac
   shift
 done
-ALL_CONTRACTS=(C1 C2 C3 C4 C5 C6 C7 C8 C10 C11)
+ALL_CONTRACTS=(C1 C2 C3 C4 C5 C6 C7 C8 C10 C11 E2E)
 if [[ -n $ONLY ]]; then
   IFS=',' read -r -a CONTRACTS <<<"${ONLY^^}"
   for c in "${CONTRACTS[@]}"; do
-    [[ " ${ALL_CONTRACTS[*]} " == *" $c "* ]] || die "unknown contract: $c (C1-C8, C10, C11)"
+    [[ " ${ALL_CONTRACTS[*]} " == *" $c "* ]] || die "unknown check: $c (C1-C8, C10, C11, E2E)"
   done
 else
   CONTRACTS=("${ALL_CONTRACTS[@]}")
@@ -473,8 +477,148 @@ check_C11() {
   fi
 }
 
+# ------------------------------------------------------------ end to end ---
+# E2E (R-02; not a contract): the 5763 sshd brute-force fixture, with a fresh
+# id, the time now and data.srcip = the MISP seed IOC, POSTed to n8n's C1
+# webhook through the published port. Then, within E2E_TIMEOUT: (a) exactly
+# one TheHive alert with that sourceRef, source wazuh, caseTemplate
+# ssh-bruteforce; (b) the IOC observable tagged with n8n's verdict for a MISP
+# hit; (c) one writeback comment by n8n with "metrics: ok"; (d) the alert's
+# asox-metrics document, read as grafana-ro (C11's reader). Not the 100100
+# test rule: n8n writes no metrics for test alerts by design. Cleanup (the
+# TheHive alert, the asox-metrics document) always runs, also on FAIL and on
+# exit. SKIP unless core, cases and intel all run (single-host mode, R-29).
+E2E_FIXTURE="$REPO_ROOT/nodes/core/n8n/fixtures/wazuh/5763-sshd-bruteforce.json"
+E2E_TIMEOUT=${E2E_TIMEOUT:-120}
+E2E_RULE=5763
+E2E_SOURCE=wazuh
+E2E_TEMPLATE=ssh-bruteforce
+E2E_VERDICT_TAG='asox:verdict=suspicious'   # n8n README: MISP_2_1's verdict for a hit
+E2E_N8N_USER=n8n@asox.local
+E2E_METRICS_FIELDS='["alert_id", "rule_id", "playbook", "t_event", "t_alert", "thehive_alert_id"]'
+E2E_ID="" E2E_IOC="" E2E_MISSING="" E2E_TH_ID=""
+
+e2e_thehive() { c1_thehive "$(core_env THEHIVE_N8N_API_KEY)" "$@"; }
+# TheHive alerts with sourceRef <id>, as a JSON array (empty on any error).
+e2e_alerts() {
+  local r
+  r=$(e2e_thehive POST /api/v1/query "$(jq -nc --arg r "$1" \
+    '{query: [{_name: "listAlert"}, {_name: "filter", _field: "sourceRef", _value: $r}]}')")
+  [[ $(http_code "$r") == 200 ]] && http_body "$r" | jq -c 'if type == "array" then . else [] end' 2>/dev/null || echo '[]'
+}
+# <alert _id> <observables|comments>: that list of the alert, as a JSON array.
+e2e_alert_list() {
+  local r
+  r=$(e2e_thehive POST /api/v1/query "$(jq -nc --arg a "$1" --arg l "$2" '{query: [{_name: "getAlert", idOrName: $a}, {_name: $l}]}')")
+  [[ $(http_code "$r") == 200 ]] && http_body "$r" | jq -c 'if type == "array" then . else [] end' 2>/dev/null || echo '[]'
+}
+
+# One look at a-d for alert <id>. Sets E2E_MISSING to what doesn't hold yet
+# ("; "-separated) and E2E_TH_ID; returns 0 when everything holds.
+e2e_state() {
+  local id=$1 alerts n obs comments wb doc
+  local -a miss=()
+  E2E_TH_ID=""
+  alerts=$(e2e_alerts "$id")
+  n=$(jq 'length' <<<"$alerts")
+  if (( n == 1 )) && jq -e --arg s "$E2E_SOURCE" --arg t "$E2E_TEMPLATE" \
+      '.[0].source == $s and .[0].caseTemplate == $t' >/dev/null <<<"$alerts"; then
+    E2E_TH_ID=$(jq -r '.[0]._id' <<<"$alerts")
+  else
+    miss+=("a: $n TheHive alert(s) with sourceRef $id$( (( n > 0 )) && jq -r '" (" + ([.[] | "\(._id) source \(.source) caseTemplate \(.caseTemplate)"] | join(", ")) + ")"' <<<"$alerts")")
+  fi
+  if [[ -n $E2E_TH_ID ]]; then
+    obs=$(e2e_alert_list "$E2E_TH_ID" observables)
+    jq -e --arg v "$E2E_IOC" --arg t "$E2E_VERDICT_TAG" \
+        'any(.[]; .data == $v and ((.tags // []) | index($t) != null))' >/dev/null <<<"$obs" \
+      || miss+=("b: observable $E2E_IOC not tagged $E2E_VERDICT_TAG (tags: $(jq -r --arg v "$E2E_IOC" '[.[] | select(.data == $v) | .tags[]?] | join(", ") | if . == "" then "none" else . end' <<<"$obs"))")
+    comments=$(e2e_alert_list "$E2E_TH_ID" comments)
+    wb=$(jq -c --arg u "$E2E_N8N_USER" --arg p "[asox-n8n writeback] wazuh-alert-id=$id" \
+      '[.[] | select(.createdBy == $u and (.message == $p or (.message | startswith($p + "\n"))))]' <<<"$comments")
+    if [[ $(jq 'length' <<<"$wb") != 1 ]]; then
+      miss+=("c: $(jq 'length' <<<"$wb") writeback comment(s) by $E2E_N8N_USER")
+    elif ! jq -e '.[0].message | test("(^|\n)[-* ]*metrics: ok *(\n|$)")' >/dev/null <<<"$wb"; then
+      miss+=("c: writeback has no \"metrics: ok\" line ($(jq -r '[.[0].message | split("\n")[] | select(test("metrics:"))] | first // "no metrics line"' <<<"$wb"))")
+    fi
+  else
+    miss+=("b, c: no TheHive alert to look at")
+  fi
+  doc=$(c11_gro GET "/$ASOX_METRICS_INDEX/_doc/$id")
+  if [[ $(http_code "$doc") != 200 ]]; then
+    miss+=("d: no $ASOX_METRICS_INDEX document $id (HTTP $(http_code "$doc"))")
+  elif ! http_body "$doc" | jq -e --arg id "$id" --arg r "$E2E_RULE" --arg th "$E2E_TH_ID" --argjson f "$E2E_METRICS_FIELDS" \
+      '._source as $s | all($f[]; $s[.] != null) and $s.alert_id == $id and $s.rule_id == $r
+       and ($th == "" or $s.thehive_alert_id == $th)' >/dev/null; then
+    miss+=("d: $ASOX_METRICS_INDEX document $id incomplete: $(http_body "$doc" | jq -c --argjson f "$E2E_METRICS_FIELDS" '._source | with_entries(select(.key as $k | $f | index($k)))' | cut -c1-200)")
+  fi
+  E2E_MISSING=$(IFS=';'; printf '%s' "${miss[*]}" | sed 's/;/; /g')
+  (( ${#miss[@]} == 0 ))
+}
+
+# n8n's parked lib-error executions mentioning <id>: "<execution> (<class>)".
+e2e_parked() {
+  local wf
+  wf=$(n8n_workflow_id_by_name lib-error)
+  [[ -n $wf ]] || return 0
+  n8n_api GET "/executions?workflowId=$wf&status=error&limit=50&includeData=true" \
+    | jq -r --arg a "$1" '[.data[]? | select(tostring | contains($a))
+        | "\(.id) (\(.data.resultData.error.message // "" | capture("parked: (?<c>[^ ]+)").c // "unknown"))"] | join(", ")' 2>/dev/null || true
+}
+
+# Delete what the run left: every TheHive alert with sourceRef E2E_ID and
+# its asox-metrics document. Prints what was deleted.
+e2e_cleanup() {
+  [[ -n $E2E_ID ]] || return 0
+  local id=$E2E_ID th r deleted=()
+  E2E_ID=""
+  for th in $(e2e_alerts "$id" | jq -r '.[]._id'); do
+    r=$(e2e_thehive DELETE "/api/v1/alert/$th")
+    if [[ $(http_code "$r") == 204 ]]; then deleted+=("TheHive alert $th")
+    else warn "E2E cleanup: deleting TheHive alert $th returned HTTP $(http_code "$r"); delete it by hand"; fi
+  done
+  r=$(indexer_api DELETE "/$ASOX_METRICS_INDEX/_doc/$id" | jq -r '.result // empty' 2>/dev/null || true)
+  [[ $r == deleted ]] && deleted+=("$ASOX_METRICS_INDEX document $id")
+  if (( ${#deleted[@]} > 0 )); then
+    info "E2E cleanup: deleted $(IFS=';'; printf '%s' "${deleted[*]}" | sed 's/;/, /g') (alert $id)"
+  else
+    info "E2E cleanup: nothing to delete for alert $id"
+  fi
+}
+
+check_E2E() {
+  local c="E2E Wazuh alert -> n8n -> TheHive + MISP + metrics" n absent=() body code start deadline parked
+  for n in core cases intel; do node_absent "$n" && absent+=("$n"); done
+  if (( ${#absent[@]} > 0 )); then
+    skip "$c: not checked: node(s) ${absent[*]} not running (needs core, cases and intel)"
+    return
+  fi
+  [[ -f $E2E_FIXTURE ]] || { fail "$c: fixture $E2E_FIXTURE not found"; return; }
+  E2E_IOC=$(jq -r '.Event.Attribute[0].value // empty' "$SEED_FILE" 2>/dev/null || true)
+  [[ -n $E2E_IOC ]] || { fail "$c: no seed IOC in $SEED_FILE"; return; }
+  E2E_ID="$(date +%s).$$$(printf '%05d' "$RANDOM")"   # a Wazuh alert id's shape, kept a string
+  body=$(jq -c --arg id "$E2E_ID" --arg ts "$(date -u +%Y-%m-%dT%H:%M:%S.%3N+0000)" --arg ip "$E2E_IOC" \
+    '.id = $id | .timestamp = $ts | .data.srcip = $ip' "$E2E_FIXTURE")
+  start=$SECONDS
+  code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 -X POST "$N8N_URL/webhook/wazuh-alert" \
+    -H 'Content-Type: application/json' -H "X-ASOX-Token: $(core_env N8N_WEBHOOK_TOKEN)" --data-binary "$body" || true)
+  if [[ $code != 200 ]]; then
+    fail "$c: POST of alert $E2E_ID to $N8N_URL/webhook/wazuh-alert returned HTTP $code"
+    e2e_cleanup
+    return
+  fi
+  deadline=$(( start + E2E_TIMEOUT ))
+  until e2e_state "$E2E_ID" || (( SECONDS >= deadline )); do sleep 3; done
+  if [[ -z $E2E_MISSING ]]; then
+    pass "$c: alert $E2E_ID (rule $E2E_RULE, srcip $E2E_IOC) became TheHive alert $E2E_TH_ID ($E2E_SOURCE, $E2E_TEMPLATE), $E2E_IOC tagged $E2E_VERDICT_TAG, one writeback by $E2E_N8N_USER with metrics: ok, $ASOX_METRICS_INDEX document complete; $(( SECONDS - start ))s"
+  else
+    parked=$(e2e_parked "$E2E_ID")
+    fail "$c: alert $E2E_ID not complete within ${E2E_TIMEOUT}s: $E2E_MISSING${parked:+; parked in lib-error: $parked}"
+  fi
+  e2e_cleanup
+}
+
 # Never leave a test object behind, even if the script stops early.
-trap 'thehive_test_alert_delete; c11_doc_delete' EXIT
+trap 'thehive_test_alert_delete; c11_doc_delete; e2e_cleanup' EXIT
 
 check_C8() {
   local auth health body resp
@@ -498,7 +642,7 @@ check_C8() {
   fi
 }
 
-if [[ ! -f $CORE_ENV && " ${CONTRACTS[*]} " =~ \ C([123468]|1[01])\  ]]; then
+if [[ ! -f $CORE_ENV && " ${CONTRACTS[*]} " =~ \ (C([123468]|1[01])|E2E)\  ]]; then
   die "nodes/core/.env not found; run this on the core machine after scripts/soc.sh init"
 fi
 echo "== Integration contracts (${CONTRACTS[*]})"
