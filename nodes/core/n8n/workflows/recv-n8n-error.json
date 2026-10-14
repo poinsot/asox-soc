@@ -5,7 +5,7 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## recv-n8n-error (global error workflow, N8N-6.1)\n**Trigger:** n8n's Error Trigger: this is the error workflow (`settings.errorWorkflow`) of the entry workflows recv-wazuh-alert and pb-generic. A library's unhandled error reaches it through its waiting caller (n8n would otherwise report it twice).\n**Inputs:** n8n's error item `{execution: {id, error, lastNodeExecuted, mode}, workflow: {id, name}}`.\n**Actions taken:** hands the error to lib-error without waiting; lib-error classifies it and parks it.\n**Systems changed:** none here.\n**Approval:** not applicable.\n**Owner:** n8n.\nKept out of lib-error on purpose: a workflow containing an Error Trigger is its own error workflow, so lib-error's deliberate \"Stop and Error\" would start a second, duplicate park.",
+        "content": "## recv-n8n-error (global error workflow, N8N-6.1)\n**Trigger:** n8n's Error Trigger: this is the error workflow (`settings.errorWorkflow`) of the entry workflows recv-wazuh-alert, recv-thehive-event and pb-generic (no other workflow sets it). A library's unhandled error reaches it through its waiting caller (n8n would otherwise report it twice).\n**Inputs:** n8n's error item `{execution: {id, error, lastNodeExecuted, mode}, workflow: {id, name}}`.\n**Actions taken:** hands the error to lib-error without waiting; lib-error classifies it and parks it.\n**Systems changed:** none here.\n**Approval:** not applicable.\n**Owner:** n8n.\nKept out of lib-error on purpose: a workflow containing an Error Trigger is its own error workflow, so lib-error's deliberate \"Stop and Error\" would start a second, duplicate park.\nA crashed execution (`WorkflowCrashedError`) is recorded here and not parked (N8N-1.4): the alert queue requeues its alert at start-up.",
         "height": 320,
         "width": 520
       },
@@ -46,14 +46,79 @@
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.2,
       "position": [
+        500,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "b9c979f3-86ec-51b1-9195-9040e6734a40",
+              "leftValue": "={{ $json.execution?.error?.name === 'WorkflowCrashedError' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "01a1f23e-08ae-5fac-b253-2d3b325dcb28",
+      "name": "Crashed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
         260,
         0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// n8n stopped while this execution ran (crash or restart). Not parked: the\n// item carries no Wazuh alert id, and the alert queue (N8N-1.4) already\n// requeues the alert's row at start-up (recv-n8n-start), where the repair\n// path completes it. One record here instead of one park per crashed\n// sub-execution. With N8N_EVENTBUS_RECOVERY_MODE=simple (compose.yml) n8n\n// doesn't call error workflows for crashes at all; this is the fallback.\nconst j = $input.first().json;\nreturn [{ json: { status: `crash recorded, not parked: ${j.workflow?.name} execution ${j.execution?.id} (${j.execution?.error?.message})`,\n  workflow: j.workflow?.name ?? null, execution_id: j.execution?.id ?? null } }];\n"
+      },
+      "id": "84859cde-c975-5d52-bf48-4cb0190ab237",
+      "name": "Crash recorded, not parked",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        500,
+        -120
       ]
     }
   ],
   "connections": {
     "Error in a SOAR workflow": {
       "main": [
+        [
+          {
+            "node": "Crashed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Crashed?": {
+      "main": [
+        [
+          {
+            "node": "Crash recorded, not parked",
+            "type": "main",
+            "index": 0
+          }
+        ],
         [
           {
             "node": "Park (lib-error)",

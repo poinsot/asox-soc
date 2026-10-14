@@ -1,0 +1,294 @@
+{
+  "id": "asoxLibThTagObs",
+  "name": "lib-thehive-tag-observable",
+  "active": true,
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## lib-thehive-tag-observable (N8N-2.4)\n**Trigger:** called by lib-enrich-observable through Execute Workflow (one item: one observable), waiting for the result.\n**Inputs:** `{observable_id, dataType, data, add_tags: [tag], ioc: bool, thehive_http}`.\n**Actions taken:** `PATCH /api/v1/observable/<id>` with `addTags` (added to the observable's tags, never replacing them) and `ioc: true` only when `ioc` is true (never set back to false). TheHive API (n8n) credential; lib-config's `thehive_http` timeout, retried after a connection error, timeout or 5xx, never after a 4xx (N8N-6.2). The PATCH is idempotent, so a retried call can't double anything.\n**Result:** `{kind: 'tag_result', ok, class, attempts, message}`; classes `thehive_unreachable` (after the last call), `thehive_4xx`, `thehive_error`. Never parks: the playbook's writeback reports it.\n**Systems changed:** TheHive (tags and the IOC flag of one observable).\n**Approval:** not needed (no system changes outside TheHive).\n**Owner:** n8n.\nSuccessful executions are not saved (N8N-6.5).",
+        "height": 360,
+        "width": 600
+      },
+      "id": "bbc3b509-1026-52bf-987e-80ae8999cd31",
+      "name": "About this workflow",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -40,
+        -420
+      ]
+    },
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "id": "3246442d-091a-5f4f-983e-d6331b9475dc",
+      "name": "Called by a workflow",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $env.THEHIVE_URL }}/api/v1/observable/{{ encodeURIComponent($('Called by a workflow').first().json.observable_id) }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "theHiveProjectApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify(Object.assign({ addTags: $('Called by a workflow').first().json.add_tags }, $('Called by a workflow').first().json.ioc === true ? { ioc: true } : {})) }}",
+        "options": {
+          "timeout": "={{ $('Called by a workflow').first().json.thehive_http.timeout_ms }}",
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "d88511c5-bb66-51c5-bbf5-3b316425b712",
+      "name": "Update TheHive observable",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        260,
+        0
+      ],
+      "credentials": {
+        "theHiveProjectApi": {
+          "id": "asoxTheHiveApi01",
+          "name": "TheHive API (n8n)"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Retry policy for TheHive calls (N8N-6.2; lib-config thehive_http): a\n// connection error, a timeout or HTTP 5xx -> wait and call again; anything\n// else (2xx, and 4xx, which a retry never fixes) -> passed on. A transient\n// failure on the last call is passed on as an error with the number of calls.\nconst r = $input.first().json;\nconst policy = $('Called by a workflow').first().json.thehive_http;\nconst NODE = 'Update TheHive observable';\nconst attempt = $runIndex + 1; // this node runs once per call\nconst status = typeof r.statusCode === 'number' ? r.statusCode : null;\nconst thrown = r.error !== undefined && status === null; // HTTP node error output\nconst NETWORK = /ECONNREFUSED|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|ECONNRESET|EHOSTUNREACH|ENETUNREACH|ECONNABORTED|timeout|timed out|socket hang up|connection cannot be established/i;\nconst transient = thrown ? NETWORK.test(JSON.stringify(r)) : status >= 500;\nconst calls = policy.retry_waits_s.length + 1;\nif (transient && attempt < calls) {\n  return [{ json: { decision: 'retry', stage: NODE, attempt, wait_s: policy.retry_waits_s[attempt - 1],\n    reason: thrown ? 'connection error or timeout' : `HTTP ${status}` } }];\n}\nif (thrown || transient) {\n  const e = r.error;\n  const detail = thrown\n    ? (typeof e === 'string' ? e : [e?.message, e?.description].filter(Boolean).join(': ') || JSON.stringify(r))\n    : `HTTP ${status}: ${typeof r.body === 'string' ? r.body : JSON.stringify(r.body)}`;\n  return [{ json: { decision: 'error', stage: NODE, node: NODE, attempts: attempt, retry_exhausted: transient,\n    http_status: status, error_code: e?.code ?? e?.cause?.code ?? null,\n    message: `${detail}`.slice(0, 1000) + (transient ? ` (${attempt} calls)` : '') } }];\n}\nreturn [{ json: { ...r, decision: 'response', attempts: attempt } }];\n"
+      },
+      "id": "792f1b9a-ea27-5fc9-8645-191e0baf6f5b",
+      "name": "Assess: Update TheHive observable",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        520,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "2dc98942-d87c-5d5e-bfa2-c8899bc21133",
+              "leftValue": "={{ $json.decision === 'retry' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "8f038198-4a21-5ed7-9d4f-d037634d361d",
+      "name": "Retry: Update TheHive observable?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        780,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "resume": "timeInterval",
+        "amount": "={{ $json.wait_s }}",
+        "unit": "seconds"
+      },
+      "id": "1a5ee440-54b1-5804-b0fc-05b92606311f",
+      "name": "Wait before retry: Update TheHive observable",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        780,
+        -200
+      ],
+      "webhookId": "8b884956-ad69-5ae4-85a8-ba72e80c5898"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "9f95433a-79d6-5cd5-bb21-fcd937936170",
+              "leftValue": "={{ $json.decision === 'response' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "90709e7b-18a1-5abd-aa89-a9b1c6c892ad",
+      "name": "Answered: Update TheHive observable?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1040,
+        60
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const r = $input.first().json;\nconst i = $('Called by a workflow').first().json;\nconst ok = r.statusCode >= 200 && r.statusCode < 300;\nreturn [{ json: { kind: 'tag_result', observable_id: i.observable_id, dataType: i.dataType, data: i.data, ok,\n  class: ok ? null : (r.statusCode >= 400 && r.statusCode < 500 ? 'thehive_4xx' : 'thehive_error'),\n  attempts: r.attempts, http_status: r.statusCode ?? null,\n  message: ok ? null : `HTTP ${r.statusCode}: ${typeof r.body === 'string' ? r.body : JSON.stringify(r.body)}`.slice(0, 500) } }];\n"
+      },
+      "id": "9a6ae8c3-4075-5eaa-8867-6c717f9fc8f8",
+      "name": "Interpret update",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1300,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const x = $input.first().json;\nconst i = $('Called by a workflow').first().json;\nreturn [{ json: { kind: 'tag_result', observable_id: i.observable_id, dataType: i.dataType, data: i.data, ok: false,\n  class: x.retry_exhausted ? 'thehive_unreachable' : 'thehive_error', attempts: x.attempts ?? null,\n  http_status: x.http_status ?? null, message: x.message ?? null } }];\n"
+      },
+      "id": "5194795a-43ba-5207-8521-5ecd1ff248d4",
+      "name": "Failed result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1300,
+        200
+      ]
+    }
+  ],
+  "connections": {
+    "Called by a workflow": {
+      "main": [
+        [
+          {
+            "node": "Update TheHive observable",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update TheHive observable": {
+      "main": [
+        [
+          {
+            "node": "Assess: Update TheHive observable",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Assess: Update TheHive observable",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Assess: Update TheHive observable": {
+      "main": [
+        [
+          {
+            "node": "Retry: Update TheHive observable?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Retry: Update TheHive observable?": {
+      "main": [
+        [
+          {
+            "node": "Wait before retry: Update TheHive observable",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Answered: Update TheHive observable?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait before retry: Update TheHive observable": {
+      "main": [
+        [
+          {
+            "node": "Update TheHive observable",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Answered: Update TheHive observable?": {
+      "main": [
+        [
+          {
+            "node": "Interpret update",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Failed result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataSuccessExecution": "none",
+    "saveDataErrorExecution": "all",
+    "saveManualExecutions": true
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "nodeGroups": [],
+  "tags": [],
+  "pinData": {}
+}

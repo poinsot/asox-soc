@@ -1,0 +1,50 @@
+{
+  "timestamp": "2026-10-09T20:38:28.627+0000",
+  "rule": {
+    "level": 10,
+    "description": "ASOX: user svc-backup added to privileged group sudo",
+    "id": "100211",
+    "mitre": {
+      "id": [
+        "T1098"
+      ],
+      "tactic": [
+        "Persistence"
+      ],
+      "technique": [
+        "Account Manipulation"
+      ]
+    },
+    "firedtimes": 2,
+    "mail": true,
+    "groups": [
+      "asox",
+      "linux",
+      "adduser",
+      "account_changed"
+    ]
+  },
+  "agent": {
+    "id": "001",
+    "name": "lab-agent",
+    "ip": "172.18.0.7"
+  },
+  "manager": {
+    "name": "wazuh-manager"
+  },
+  "id": "1791578308.18560",
+  "full_log": "Oct  9 13:38:27 lab-agent usermod[22749]: add 'svc-backup' to group 'sudo' asox_run=673e2efe-9a0a-4639-ba14-808d3afff367",
+  "predecoder": {
+    "program_name": "usermod",
+    "timestamp": "Oct  9 13:38:27",
+    "hostname": "lab-agent"
+  },
+  "decoder": {
+    "name": "asox-usermod"
+  },
+  "data": {
+    "dstuser": "svc-backup",
+    "group": "sudo"
+  },
+  "location": "/var/log/asox-lab/test.log"
+}

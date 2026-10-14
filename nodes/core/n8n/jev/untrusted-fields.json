@@ -1,0 +1,50 @@
+{
+  "version": "untrusted-fields-2",
+  "status": "draft: pending Wazuh owner",
+  "description": "Wazuh alert fields an attacker can influence (doc 6.5). Each is copied into state.untrusted under `key`, in this order, cut to max_chars_per_field and to max_chars_total over all values. A field is taken when it is in `default` or in the list of the alert's decoder.name. Fields listed nowhere are not sent to Jev at all: state.alert only carries a fixed set of rule and agent fields. The rule description is untrusted too, because a Wazuh rule can interpolate decoded fields into it; for a rule listed in static_description_rules it is sent in state.alert instead.",
+  "max_chars_total": 2000,
+  "max_chars_per_field": 500,
+  "default": [
+    {
+      "path": "rule.description",
+      "key": "rule_description"
+    },
+    {
+      "path": "data.url",
+      "key": "request_url"
+    },
+    {
+      "path": "data.http_user_agent",
+      "key": "user_agent"
+    },
+    {
+      "path": "data.srcuser",
+      "key": "source_user"
+    },
+    {
+      "path": "data.dstuser",
+      "key": "target_user"
+    },
+    {
+      "path": "data.command",
+      "key": "command"
+    },
+    {
+      "path": "syscheck.path",
+      "key": "file_path"
+    },
+    {
+      "path": "full_log",
+      "key": "full_log"
+    }
+  ],
+  "decoders": {
+    "web-accesslog": [
+      {
+        "path": "data.http_referer",
+        "key": "referer"
+      }
+    ]
+  },
+  "static_description_rules": []
+}

@@ -85,16 +85,17 @@ post() {
 
 # --fresh-id: "<epoch>.<pid><counter>", the shape of a Wazuh alert id, unique
 # per file within the run and across runs.
-TMP_DIR="" FRESH_COUNT=0
+# Runs in this shell (not in $(...)), so the counter and TMP_DIR persist:
+# the copy's path is returned in FRESH_FILE.
+TMP_DIR="" FRESH_COUNT=0 FRESH_FILE=""
 cleanup() { [[ -n $TMP_DIR ]] && rm -rf "$TMP_DIR"; return 0; }
 trap cleanup EXIT
 with_fresh_id() {
-  local file=$1 out
+  local file=$1
   [[ -n $TMP_DIR ]] || TMP_DIR=$(mktemp -d)
   FRESH_COUNT=$(( FRESH_COUNT + 1 ))
-  out="$TMP_DIR/$FRESH_COUNT.json"
-  jq --arg id "$(date +%s).$$$(printf '%04d' "$FRESH_COUNT")" 'if has("id") then .id = $id else . end' "$file" > "$out"
-  printf '%s' "$out"
+  FRESH_FILE="$TMP_DIR/$FRESH_COUNT.json"
+  jq --arg id "$(date +%s).$$$(printf '%04d' "$FRESH_COUNT")" 'if has("id") then .id = $id else . end' "$file" > "$FRESH_FILE"
 }
 
 expected=200 note=""
@@ -108,7 +109,7 @@ for file in "${files[@]}"; do
     continue
   fi
   if [[ $kind == wazuh ]]; then
-    (( FRESH_ID )) && file=$(with_fresh_id "$file")
+    if (( FRESH_ID )); then with_fresh_id "$file"; file=$FRESH_FILE; fi
     path=wazuh-alert name=X-ASOX-Token prefix="" ref="alert $(jq -r '.id // "(no id)"' "$file")"
   else
     path=thehive-event name=Authorization prefix="Bearer " ref="$(jq -r '"\(.action) \(.objectType) \(.objectId)"' "$file")"
