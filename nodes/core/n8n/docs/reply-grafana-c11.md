@@ -36,7 +36,9 @@ Also good to know when you build GRAF-3.1:
 | `resolution`, `t_closed` | route `case-status` | C4 case update with `stage: Closed` |
 | `severity` | a new route for updates carrying `severity` (today they end in "Recorded, no handler") | C4 alert or case update |
 
-Case events carry no `sourceRef`; n8n gets the case's alerts from TheHive (n8n's account can read them) and updates each one's document, so `n8n-indexer` keeps **write-only** rights on `asox-metrics` (R-16 unchanged).
+Case events carry no `sourceRef`; n8n gets the case's alerts from TheHive (n8n's account can read them) and updates each one's document.
+
+**Corrected 2026-10-14 (after R-16 was built, `docs/decisions.md` A98):** `n8n-indexer` is not write-only. Its role `asox_n8n_indexer` has `read` on `asox-metrics` besides index, update and delete of documents by ID (still no index creation, mapping change or `delete_by_query`). N8N-2.9 uses that read to set the first-time times (`t_ack`, `t_case`, `t_contained`, `t_closed`) only when the document doesn't have them yet, and `chk-metrics` uses it to check a document before deleting it. Nothing changes for Grafana.
 
 ## Dates
 

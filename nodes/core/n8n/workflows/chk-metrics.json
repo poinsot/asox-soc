@@ -1,0 +1,441 @@
+{
+  "id": "asoxChkMetrics01",
+  "name": "chk-metrics",
+  "active": true,
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## chk-metrics (contract check C11)\n**Trigger:** POST /webhook/chk-metrics from scripts/contracts-check.sh, header `X-ASOX-Token` required (credential \"ASOX webhook token\"; 403 without it).\n**Inputs:** `{\"step\": \"write\", \"id\": \"contract-check-...\"}` or `{\"step\": \"delete\", \"id\": \"contract-check-...\"}`. Any other step, or an id not starting with `contract-check-` (letters, digits, `.`, `_`, `:`, `-`; max 128), is answered HTTP 400 without calling the indexer.\n**Actions taken:** with the \"Wazuh indexer (n8n-indexer)\" credential, certificate verified (root CA via NODE_EXTRA_CA_CERTS): *write* upserts `asox-metrics` document `<id>` (`alert_id` = id, `outcome: contract-check`, `t_event` = `t_alert` = now; template fields only, strict mapping) and answers `{status, id}`; *delete* reads the document and deletes it only if its `outcome` is `contract-check`, answers `{deleted_status}`. Indexer statuses are passed through; a connection or certificate error answers `status` / `deleted_status` null with `error`.\n**Systems changed:** Wazuh indexer, `asox-metrics` test document only (removed by the check).\n**Approval:** not applicable.\n**Owner:** n8n (check maintained with the integrator). No error workflow: nothing parks.",
+        "height": 440,
+        "width": 560
+      },
+      "id": "74929f66-8fdd-55ab-8eb7-dfd90a751ab5",
+      "name": "About this workflow",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -40,
+        -500
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "chk-metrics",
+        "authentication": "headerAuth",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "bf9e4890-6d4f-5c1d-af45-a9f1bdcffee4",
+      "name": "Contract check request",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "763d986e-248a-5728-b4be-b90097da462c",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "asoxWebhookToken",
+          "name": "ASOX webhook token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Validate the request. Only contract-check documents can be written or\n// deleted, so this check can never touch a real alert's document.\nconst body = $input.first().json.body ?? {};\nconst step = body.step;\nconst id = typeof body.id === 'string' ? body.id : '';\nlet error = null;\nif (step !== 'write' && step !== 'delete') error = 'step must be \"write\" or \"delete\"';\nelse if (!/^contract-check-[A-Za-z0-9._:-]{1,113}$/.test(id)) error = 'id must start with \"contract-check-\" (letters, digits, . _ : -; max 128)';\nreturn [{ json: { step, id, error, now: new Date().toISOString() } }];\n"
+      },
+      "id": "cff7c526-fd19-5964-8685-f6b0e708f5ee",
+      "name": "Check input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "21f66de6-d75a-529f-ac93-b0d0cb938d40",
+              "leftValue": "={{ $json.error === null }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "92b2dd49-7d2b-55be-9908-dbe2d009842b",
+      "name": "Valid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        480,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { \"status\": null, \"deleted_status\": null, \"error\": $json.error } }}",
+        "options": {
+          "responseCode": 400
+        }
+      },
+      "id": "7dffb8d1-ec2f-5fdb-841d-47b11c14f2f5",
+      "name": "Report invalid",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        720,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "0188d5a9-86d5-51a9-bc0d-65757e11a352",
+              "leftValue": "={{ $json.step === 'write' }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "9715295d-0de4-5b47-9eed-160abea94f92",
+      "name": "Write?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        720,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "={{ $env.WAZUH_INDEXER_URL }}/asox-metrics/_doc/{{ encodeURIComponent($('Check input').item.json.id) }}?refresh=wait_for",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 10000
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ alert_id: $json.id, outcome: 'contract-check', t_event: $json.now, t_alert: $json.now }) }}"
+      },
+      "id": "6398bf0f-ad77-538b-8abc-ae2a4de124c0",
+      "name": "Write document",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        960,
+        -200
+      ],
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "asoxIndexerN8n01",
+          "name": "Wazuh indexer (n8n-indexer)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { \"status\": $json.statusCode ?? null, \"id\": $('Check input').item.json.id, \"result\": $json.body?.result ?? null, \"error\": ($json.error ? (typeof $json.error === 'string' ? $json.error : ($json.error.message ?? JSON.stringify($json.error))) : null) } }}",
+        "options": {}
+      },
+      "id": "05b8b640-c0a5-5046-967c-6f2a01dd9386",
+      "name": "Report written",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1200,
+        -200
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.WAZUH_INDEXER_URL }}/asox-metrics/_doc/{{ encodeURIComponent($('Check input').item.json.id) }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 10000
+        }
+      },
+      "id": "1dbdd839-bc0a-5fa5-9fd5-5b6f2439a098",
+      "name": "Find document",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        960,
+        40
+      ],
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "asoxIndexerN8n01",
+          "name": "Wazuh indexer (n8n-indexer)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "b5e48159-97c6-56fd-9d23-52dbd69f3abd",
+              "leftValue": "={{ $json.statusCode === 200 && $json.body?._source?.outcome === 'contract-check' }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "62d4395d-b0dc-550d-bc82-5b8a268b5ab3",
+      "name": "Contract-check document?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1200,
+        40
+      ]
+    },
+    {
+      "parameters": {
+        "method": "DELETE",
+        "url": "={{ $env.WAZUH_INDEXER_URL }}/asox-metrics/_doc/{{ encodeURIComponent($('Check input').item.json.id) }}?refresh=wait_for",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 10000
+        }
+      },
+      "id": "e999f667-797c-56e2-8c93-9cf146d01e39",
+      "name": "Delete document",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1440,
+        -40
+      ],
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "asoxIndexerN8n01",
+          "name": "Wazuh indexer (n8n-indexer)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { \"deleted_status\": $json.statusCode ?? null, \"error\": ($json.error ? (typeof $json.error === 'string' ? $json.error : ($json.error.message ?? JSON.stringify($json.error))) : null) } }}",
+        "options": {}
+      },
+      "id": "99228a2c-7d79-5ed9-98cd-db221b89b91b",
+      "name": "Report deleted",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1680,
+        -40
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { \"deleted_status\": null, \"error\": \"not found or not a contract-check document (HTTP \" + ($('Find document').item.json.statusCode ?? 'none') + \")\" + ((e => e ? ': ' + e : '')(($('Find document').item.json.error ? (typeof $('Find document').item.json.error === 'string' ? $('Find document').item.json.error : ($('Find document').item.json.error.message ?? JSON.stringify($('Find document').item.json.error))) : null))) } }}",
+        "options": {}
+      },
+      "id": "7916ff36-5755-517e-a2e8-c17c4b0d8fce",
+      "name": "Report refused",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1440,
+        140
+      ]
+    }
+  ],
+  "connections": {
+    "Contract check request": {
+      "main": [
+        [
+          {
+            "node": "Check input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check input": {
+      "main": [
+        [
+          {
+            "node": "Valid?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Valid?": {
+      "main": [
+        [
+          {
+            "node": "Write?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Report invalid",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write?": {
+      "main": [
+        [
+          {
+            "node": "Write document",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Find document",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write document": {
+      "main": [
+        [
+          {
+            "node": "Report written",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find document": {
+      "main": [
+        [
+          {
+            "node": "Contract-check document?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Contract-check document?": {
+      "main": [
+        [
+          {
+            "node": "Delete document",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Report refused",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Delete document": {
+      "main": [
+        [
+          {
+            "node": "Report deleted",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataSuccessExecution": "all",
+    "saveDataErrorExecution": "all",
+    "saveManualExecutions": true
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "nodeGroups": [],
+  "tags": [],
+  "pinData": {}
+}
