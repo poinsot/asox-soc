@@ -23,4 +23,4 @@ log {"timestamp":"2026-10-08T20:00:00.000000+0000","flow_id":1,"in_iface":"eth0"
 
 case IDS alert from a MISP indicator (C14 list loaded) or a plain ET SCAN
 expect rule=101010|108010
-log {"timestamp":"2026-10-10T20:00:00.000000+0000","flow_id":1,"in_iface":"eth0","event_type":"alert","src_ip":"203.0.113.66","src_port":51000,"dest_ip":"172.20.0.2","dest_port":22,"proto":"TCP","alert":{"action":"allowed","gid":1,"signature_id":2009582,"rev":3,"signature":"ET SCAN NMAP -sS window 1024","category":"Attempted Information Leak","severity":2}}
+log {"timestamp":"2026-10-10T20:00:00.000000+0000","flow_id":1,"in_iface":"eth0","event_type":"alert","src_ip":"101.99.75.184","src_port":51000,"dest_ip":"172.20.0.2","dest_port":22,"proto":"TCP","alert":{"action":"allowed","gid":1,"signature_id":2009582,"rev":3,"signature":"ET SCAN NMAP -sS window 1024","category":"Attempted Information Leak","severity":2}}

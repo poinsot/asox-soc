@@ -21,7 +21,7 @@ list: the last good lists stay. Rules: rules/1080-misp-ioc.xml.
 
 Environment (from nodes/core/.env through compose.yml; R-08):
   WAZUH_MISP_URL            e.g. https://misp-nginx:8443 (empty: C14 off)
-  WAZUH_MISP_API_KEY        a Read Only MISP user's key
+  WAZUH_MISP_API_KEY        a Read Only MISP user's key (core's MISP_WAZUH_API_KEY)
   WAZUH_MISP_SYNC_INTERVAL  seconds between syncs (default 3600)
   API_USERNAME, API_PASSWORD  the manager's admin API user (already set)
 
@@ -44,7 +44,7 @@ LISTS = {
     "misp-hash": ("md5", "sha1", "sha256"),
 }
 MAX_ENTRIES = 200000          # per list; MISP's large feeds belong in warninglists
-PAGE_SIZE = 10000
+PAGE_SIZE = 5000            # Diego, C14 reply: keeps misp-core under its 900m
 TIMEOUT = 60
 API = "https://localhost:55000"
 
