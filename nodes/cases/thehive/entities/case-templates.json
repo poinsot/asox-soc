@@ -274,6 +274,107 @@
     ]
   },
   {
+    "name": "login-bruteforce",
+    "displayName": "Login brute force (non-SSH)",
+    "titlePrefix": "[LOGIN]",
+    "description": "Many failed logins against a service that isn't SSH: a firewall or router admin login (e.g. OPNsense / pfSense web GUI, rule 103011), a web application, a VPN. Wazuh MITRE T1110 without the `sshd` group. Main risk: a later successful login, which would give admin access to a network device. Triage procedure: nodes/cases/thehive/docs/TRIAGE.md.",
+    "severity": 3,
+    "tlp": 2,
+    "pap": 2,
+    "flag": false,
+    "tags": [
+      "attack.t1110",
+      "brute-force",
+      "login",
+      "wazuh"
+    ],
+    "tasks": [
+      {
+        "title": "Confirm the attack",
+        "group": "Triage",
+        "description": "From the alert: which service (firewall GUI, web app, VPN), source IP, targeted user name(s), number of failed attempts and time window. For syslog alerts the device is the host in the title (predecoder.hostname), not a Wazuh agent.",
+        "order": 0,
+        "mandatory": false
+      },
+      {
+        "title": "Check for a successful login",
+        "group": "Triage",
+        "description": "Search Wazuh for a successful login on the same service from the same source after the attack. If there is one: raise the severity to Critical; on a firewall or router, treat the device's configuration as possibly changed.",
+        "order": 1,
+        "mandatory": false
+      },
+      {
+        "title": "Check the source IP",
+        "group": "Investigation",
+        "description": "Run the Cortex analyzers (MISP) on the source IP observable and note any warninglist tag (common, not safe). Is the admin interface reachable from where the source is? Record the result in the case summary.",
+        "order": 2,
+        "mandatory": false
+      },
+      {
+        "title": "Check exposure of the service",
+        "group": "Investigation",
+        "description": "Should this login page be reachable from the source's network at all? Recommend restricting admin interfaces to the management network, and lockout / MFA where possible.",
+        "order": 3,
+        "mandatory": false
+      },
+      {
+        "title": "Block the source IP",
+        "group": "Response",
+        "description": "Request the IP block through n8n (analyst approval; active response arrives with C9 in Phase 2) and set containment-action to ip-blocked. If the target is the firewall itself, block on the firewall.",
+        "order": 4,
+        "mandatory": false
+      },
+      {
+        "title": "Document and close",
+        "group": "Closure",
+        "description": "Write the summary (service, source, accounts, outcome, action taken), set the resolution status and close the case.",
+        "order": 5,
+        "mandatory": false
+      }
+    ],
+    "customFields": [
+      {
+        "name": "wazuh-alert-id",
+        "order": 0
+      },
+      {
+        "name": "wazuh-rule-id",
+        "order": 1
+      },
+      {
+        "name": "wazuh-rule-level",
+        "order": 2
+      },
+      {
+        "name": "wazuh-agent-name",
+        "order": 3
+      },
+      {
+        "name": "mitre-technique",
+        "value": "T1110",
+        "order": 4
+      },
+      {
+        "name": "asset-criticality",
+        "order": 5
+      },
+      {
+        "name": "containment-action",
+        "value": "none",
+        "order": 6
+      },
+      {
+        "name": "playbook",
+        "value": "pb-ssh-bruteforce",
+        "order": 7
+      },
+      {
+        "name": "n8n-execution-id",
+        "order": 8
+      }
+    ]
+  },
+  {
     "name": "malware-detection",
     "displayName": "Malware detection",
     "titlePrefix": "[MALWARE]",

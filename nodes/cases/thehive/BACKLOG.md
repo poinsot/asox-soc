@@ -86,7 +86,7 @@ Everything built in the UI reaches git, and alerts can be tested without Wazuh.
   - Done when: `thehive-test-alert.sh [SCENARIO...|all] [--critical-asset] [--promote]` creates realistic Wazuh-style alerts through n8n's own account, one scenario per template (ssh, malware, ids, generic, login, sudo, newuser, ioc, portscan); `--promote` turns each into a case as n8n would; `--cleanup` deletes test alerts and test cases; `shellcheck` clean.
   - Files: `nodes/cases/thehive/scripts/thehive-test-alert.sh`
 - [ ] **T1.3** Run the starter configuration on the real instance · P1, X-03, X-15
-  - Done when: `thehive-import.sh` creates 9 fields, 1 observable type, 9 templates; `thehive-test-alert.sh all --promote` creates 9 alerts and promotes each **with n8n's key** (`POST /api/v1/alert/<id>/case`, D-N4's auto-promotion: X-15), each case getting its template's tasks; `thehive-export.sh` then shows no diff. Tell Inigo, so X-03 and X-15 can be marked provided.
+  - Done when: `thehive-import.sh` creates 9 fields, 1 observable type, 10 templates; `thehive-test-alert.sh all --promote` creates 10 alerts and promotes each **with n8n's key** (`POST /api/v1/alert/<id>/case`, D-N4's auto-promotion: X-15), each case getting its template's tasks; `thehive-export.sh` then shows no diff. Tell Inigo, so X-03 and X-15 can be marked provided.
   - Status (2026-10-06): **done on the build instance**: Inigo ran `thehive-import.sh` (after `backup.sh cases --with-secrets`): 9 fields, 9 templates, `user-account`; `caseTemplate` and custom fields now kept on n8n's alerts. Left: the same run on your own machine, then tick.
   - Earlier (2026-09-30): Inigo measured that the **build instance** had no `entities/` loaded (templates and fields silently dropped, `user-account` alerts refused). Run `thehive-import.sh` there too, before 2026-10-20. n8n's account promoting an alert (HTTP 201) is already confirmed by him.
 ## M2 · Data model and alert format v1 (target: 2026-10-20)
@@ -111,7 +111,8 @@ The data every other component relies on, agreed and merged at checkpoint 1 (mil
   - With: Inigo, Daniel (W2.1), Diego (X-08)
 - [ ] **T2.6** Agree the template routing (by 2026-10-20) · P1, X-04
   - Done when: `docs/ALERT-FORMAT.md` §3 matches Daniel's rule-ID plan and rule groups (W1.3, W2.5), including Suricata's `suricata` / `ids` groups (D49), and Inigo's routing map (D-N2, data in an n8n `lib-` workflow) sets `caseTemplate` from it.
-  - Status (2026-10-13): §3 matches n8n's table of 2026-10-09 (adds rule 5404 and `T1136` clauses; `ioc-match` / `network-scan` proposed in n8n until their rules exist).
+  - Status (2026-10-14): proposal for Inigo's question on rule 103011 (OPNsense login brute force): `ssh-bruteforce` requires `sshd`, new `login-bruteforce` template and row for other T1110 alerts; to agree in the checkpoint PR.
+  - Earlier (2026-10-13): §3 matches n8n's table of 2026-10-09 (adds rule 5404 and `T1136` clauses; `ioc-match` / `network-scan` proposed in n8n until their rules exist).
   - Earlier (2026-10-08): §3 rewritten from Daniel's live alerts (answers A1–A6) and rules of 2026-10-08: `ioc-match` first (`misp_ioc`, 108xxx), `suspicious-login` before `ssh-bruteforce` on rule IDs 40112 / 100200, `privilege-escalation` on `T1548`, `account-change` on `adduser` only, `network-scan` on `pfsense` + `T1046` (103xxx). Left: Inigo's `lib-config` rows match it; Daniel's W4.3 / C14 rule IDs when built.
   - With: Inigo (router), Daniel (rule groups)
 - [ ] **T2.7** Checkpoint 1 pull request (by 2026-10-20) · P1, C3, C4, C5
@@ -136,7 +137,8 @@ Analysts can work every alert type from queue to closed case.
 - [ ] **T3.5** Templates for the new detections · P2, X-12
   - Done when: A template (or a documented choice of `wazuh-generic`) for each detection Daniel adds: login success after failures, sudo failure / privilege escalation, new user, IOC match (W6.4), pfSense port scan (W4.3). Exported, and routed in ALERT-FORMAT.md §3.
   - Files: `nodes/cases/thehive/entities/case-templates.json`, `nodes/cases/thehive/docs/ALERT-FORMAT.md`
-  - Status (2026-10-08): 5 templates written, loaded on the build instance, and routed in §3 with Daniel's confirmed groups and rules (all rows active). Descriptions name the real rules (40112, 100200, 5404, 5901/5902, 100211/100212; ranges 103xxx, 108xxx). Left: import + export on your machine; `ioc-match` and `network-scan` get real rules with C14 and W4.3.
+  - Status (2026-10-14): + `login-bruteforce` (non-SSH brute force, 103011), proposed; `fwlogin` test scenario.
+  - Earlier (2026-10-08): 5 templates written, loaded on the build instance, and routed in §3 with Daniel's confirmed groups and rules (all rows active). Descriptions name the real rules (40112, 100200, 5404, 5901/5902, 100211/100212; ranges 103xxx, 108xxx). Left: import + export on your machine; `ioc-match` and `network-scan` get real rules with C14 and W4.3.
   - With: Daniel (W2.2, W4.3, W6.4)
 - [ ] **T3.6** Adapt `ids-network-alert` to Suricata · P2, X-34
   - Done when: ALERT-FORMAT.md §3 routes `suricata` / `ids` (done 2026-09-30); the template's description and tasks name Suricata (rule 86601, `data.alert.signature`, `data.alert.severity`, `data.src_ip`, `data.dest_ip`, `data.dest_port`), exported; the `ids` test alert uses rule 86601 and those fields.

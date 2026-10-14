@@ -52,7 +52,8 @@ Checked against live alerts (Wazuh 4.14.8, lab scenarios) and Daniel's rule-ID p
 |---|---|---|
 | `ioc-match` | `rule.groups` has `misp_ioc` | 108xxx (C14, W6.4); above every other row, so an IOC match wins |
 | `suspicious-login` | `rule.id` is `40112` or `100200` (rule IDs only: every normal SSH login, 5715, also carries `T1078`) | 40112 failures then success (level 12), 100200 SSH login as root (level 10) |
-| `ssh-bruteforce` | `rule.groups` has `sshd` and one of `authentication_failures`, `authentication_failed`, `invalid_login`; or `rule.mitre.id` has `T1110` | 5712, 5763 (level 10) |
+| `ssh-bruteforce` | `rule.groups` has `sshd` and either one of `authentication_failures`, `authentication_failed`, `invalid_login`, or `rule.mitre.id` `T1110` (**`sshd` now required**: proposed 2026-10-14) | 5712, 5763 (level 10) |
+| `login-bruteforce` *(proposed 2026-10-14)* | `rule.mitre.id` has `T1110` (any other service: firewall / router admin GUI, web app, VPN) | 103011 OPNsense / pfSense GUI login brute force |
 | `malware-detection` | `rule.groups` has one of `virustotal`, `rootcheck`, `yara`, `clamd`, `malware` | |
 | `ids-network-alert` | `rule.groups` has `suricata` or `ids` (Suricata network IDS, D49; built-in rule 86601 "Suricata: Alert - …", fields `data.alert.signature`, `data.alert.severity`, `data.src_ip`, `data.dest_ip`, `data.dest_port`) | 86601, 101xxx (M3) |
 | `privilege-escalation` | `rule.id` is `5404`, or `rule.mitre.id` has `T1548` (sudo failures carry only `syslog,sudo`, no `authentication_*` group) | 5404, three wrong sudo passwords (T1548.003, level 10) |
@@ -61,6 +62,8 @@ Checked against live alerts (Wazuh 4.14.8, lab scenarios) and Daniel's rule-ID p
 | `wazuh-generic` | everything else, including single pfSense blocks (`firewall_drop` without `recon`) | |
 
 **MITRE technique:** read `rule.mitre.id` (an array); when it is absent, fall back to `rule.mitre_techniques` (what SCA alerts carry). "Has `T1110`" is a prefix match: it also matches sub-techniques such as `T1110.001`. Some rules have no technique (5901, the test rule 100100, the marker 100101), so no row relies on MITRE alone where that would miss them.
+
+**Why `login-bruteforce` (proposed, to agree with Inigo and Daniel in TheHive's checkpoint PR):** rule 103011 (OPNsense login brute force) carries `T1110` but isn't SSH; with the old `ssh-bruteforce` row it got SSH-specific tasks (rule 5715, `sshd` settings). Requiring `sshd` in `ssh-bruteforce` and adding a generic row right after it keeps every SSH alert where it was (all sshd rules carry `sshd`) and gives other brute force a fitting template. Until n8n adds the row, 103011 would go to `wazuh-generic` once `ssh-bruteforce` requires `sshd`, so both changes go live together.
 
 **Active rows (answer B).** The first seven rows are active in n8n since 2026-10-09. `ioc-match` and `network-scan` stay *proposed* in n8n's table until Daniel's rules exist (C14; W4.3, M4): until then nothing matches them anyway, and a proposed match goes to `wazuh-generic`. The route n8n wanted is recorded even while only `pb-generic` runs (answer C: the `playbook` field says the playbook that actually ran).
 

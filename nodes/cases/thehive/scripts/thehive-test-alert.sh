@@ -8,8 +8,8 @@
 # Usage: nodes/cases/thehive/scripts/thehive-test-alert.sh [SCENARIO...] [--critical-asset] [--promote]
 #        nodes/cases/thehive/scripts/thehive-test-alert.sh --cleanup
 #   SCENARIO          ssh, malware, ids, generic (the 4 base templates), login,
-#                     sudo, newuser, ioc, portscan (templates for the Wazuh
-#                     detections in progress), or all (default: ssh)
+#                     sudo, newuser, ioc, portscan, fwlogin (templates for the
+#                     Wazuh detections in progress), or all (default: ssh)
 #   --critical-asset  mark the host as critical (severity +1, as in the mapping)
 #   --promote         also promote each alert to a case with n8n's account, as
 #                     n8n's auto-promotion will (D-N4), and check the case got
@@ -23,7 +23,7 @@ set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 TEST_SOURCE=asox-test
-SCENARIOS=(ssh malware ids generic login sudo newuser ioc portscan)
+SCENARIOS=(ssh malware ids generic login sudo newuser ioc portscan fwlogin)
 
 CLEANUP=0 PROMOTE=0 CRITICALITY=medium
 wanted=()
@@ -34,7 +34,7 @@ for a in "$@"; do
     --critical-asset) CRITICALITY=critical ;;
     --promote) PROMOTE=1 ;;
     all) wanted+=("${SCENARIOS[@]}") ;;
-    ssh|malware|ids|generic|login|sudo|newuser|ioc|portscan) wanted+=("$a") ;;
+    ssh|malware|ids|generic|login|sudo|newuser|ioc|portscan|fwlogin) wanted+=("$a") ;;
     *) die "unknown argument: $a (scenarios: ${SCENARIOS[*]} all; options: --critical-asset --promote --cleanup)" ;;
   esac
 done
@@ -124,6 +124,10 @@ scenario() {
           "IOC match: source IP found in MISP list misp-ip." \
           lab-agent "" \
           '[{"dataType":"ip","data":"203.0.113.66","tags":["src"],"message":"Seed IOC published in MISP","ioc":true},{"dataType":"hostname","data":"lab-agent","tags":["agent"]}]' ;;
+    fwlogin) printf '%s\n' login-bruteforce 103011 10 \
+          "OPNsense: multiple failed web GUI logins from the same source." \
+          opnsense T1110 \
+          '[{"dataType":"ip","data":"198.51.100.40","tags":["src"]},{"dataType":"user-account","data":"root","tags":["target"]},{"dataType":"ip","data":"10.99.0.1","tags":["agent"],"message":"location (syslog sender)"},{"dataType":"hostname","data":"opnsense","tags":["agent"],"message":"predecoder.hostname (syslog alert, agent 000)"}]' ;;
     portscan) printf '%s\n' network-scan 103010 10 \
           "pfSense: multiple blocked connections from the same source (port scan)." \
           pfsense T1046 \
