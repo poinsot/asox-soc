@@ -1,0 +1,59 @@
+{
+  "version": "path-classes-1",
+  "status": "draft",
+  "description": "Classes for facts.request_path_class, computed in code from the request URL (an untrusted field). The path (before ? or #) is percent-decoded once, lowercased and cut to max_input_chars, then tested against each class in order; the first class with a matching pattern wins. Patterns are JavaScript regular expressions without flags. `embedded_text` comes first so that a path carrying prose is never reported as an ordinary class.",
+  "max_input_chars": 1024,
+  "default_class": "other",
+  "classes": [
+    {
+      "class": "embedded_text",
+      "description": "Contains whitespace or words aimed at a reader rather than a server",
+      "patterns": ["\\s", "ignore|instruction|classif|false[ _+-]?positive|benign|authori[sz]ed|whitelist|allowlist|system[ _+-]?prompt"]
+    },
+    {
+      "class": "attack_pattern",
+      "description": "Traversal, injection or probing syntax",
+      "patterns": ["\\.\\./|\\.\\.\\\\", "\\x00", "<script|javascript:", "union[^a-z]+select|select[^a-z]+.*from", "/etc/passwd|/etc/shadow|/proc/self", "[;|`]|\\$\\(|\\$\\{"]
+    },
+    {
+      "class": "health_check",
+      "description": "Conventional health or status endpoint",
+      "patterns": ["^/(healthz?|health-?check|ping|status|ready|readyz|live|livez)/?$"]
+    },
+    {
+      "class": "sensitive_file",
+      "description": "Configuration, credential, repository or backup file",
+      "patterns": ["/\\.(env|git|svn|aws|ssh|htpasswd|htaccess)", "wp-config|\\.(sql|bak|old|backup|swp|pem|key)$"]
+    },
+    {
+      "class": "admin_interface",
+      "description": "Administration or management interface",
+      "patterns": ["^/(admin|administrator|wp-admin|phpmyadmin|pma|manager|console|actuator)(/|$)"]
+    },
+    {
+      "class": "authentication",
+      "description": "Login or authentication endpoint",
+      "patterns": ["(^|/)(login|signin|sign-in|logout|auth|oauth|sso|wp-login\\.php)(/|$)"]
+    },
+    {
+      "class": "script_or_executable",
+      "description": "Server-side script or executable",
+      "patterns": ["\\.(php[0-9]?|asp|aspx|jsp|cgi|pl|sh|exe|dll)$", "^/cgi-bin/"]
+    },
+    {
+      "class": "static_asset",
+      "description": "Static file",
+      "patterns": ["\\.(css|js|png|jpe?g|gif|svg|ico|woff2?|ttf|map|txt|xml)$"]
+    },
+    {
+      "class": "api",
+      "description": "API endpoint",
+      "patterns": ["^/(api|graphql|rest|v[0-9]+)(/|$)"]
+    },
+    {
+      "class": "site_root",
+      "description": "The root path",
+      "patterns": ["^/?$"]
+    }
+  ]
+}

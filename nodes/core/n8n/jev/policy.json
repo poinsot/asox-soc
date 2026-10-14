@@ -1,0 +1,99 @@
+{
+  "version": "policy-0.4.0",
+  "status": "draft: proposal docs/jev-implementation.md v0.2, 8.3 and 8.4, not accepted",
+  "description": "Every threshold that turns a Jev answer into a decision, and the parameters of the state builder. Start values are the doc's [ASSUMPTION] values; change them only with a measurement attached to the pull request (doc 12.3).",
+  "stage": 0,
+  "auto_close_rules": [],
+  "never_auto_rules": [],
+  "max_auto_close_level": 10,
+  "audit_sample_rate": 0.1,
+  "_audit_sample_rate_comment": "stage 3, unused: nothing reads this value and nothing samples until stage 3 is proposed and built (doc 8.3, 17.1).",
+  "decision_priority": [
+    "escalate",
+    "human_review",
+    "advisory",
+    "none"
+  ],
+  "verdict_classes": {
+    "malicious": [
+      "true_positive"
+    ],
+    "benign": [
+      "false_positive",
+      "benign_true_positive"
+    ],
+    "insufficient": [
+      "insufficient_evidence"
+    ]
+  },
+  "gates": {
+    "_comment": "De-escalation gates of doc 8.3. All must pass for auto_close_fp. G1 = mode gated; G2 = rule listed in auto_close_rules (and not in never_auto_rules) with level below max_auto_close_level. G4 also needs a benign pattern verified in code (codeCtx.benign_pattern_verified = yes), whatever Jev answers to benign_pattern_match. G12 = no fact has a value in blocked_fact_classes.",
+    "asset_criticality_allowed": [
+      "low",
+      "medium"
+    ],
+    "verdict_p_min": 0.95,
+    "confidence_min": 0.9,
+    "ablation_tolerance": 0.1,
+    "steering_max": 0.2,
+    "intel_conflict_max": 0.3,
+    "blocked_outcomes": [
+      "attempt_succeeded"
+    ],
+    "misp_high_threat_old_age_buckets": [
+      "more than 30 days ago"
+    ],
+    "blocked_fact_classes": [
+      "embedded_text",
+      "attack_pattern"
+    ]
+  },
+  "escalation": {
+    "_comment": "Triggers of doc 8.4. Severity scales: Jev 0 negligible, 1 low, 2 medium, 3 high; TheHive 1 low, 2 medium, 3 high, 4 critical. The severity trigger fires when Jev's expected value >= severity_ev_min and the TheHive severity is below severity_thehive_below.",
+    "true_positive_p_min": 0.8,
+    "true_positive_level_below": 10,
+    "outcome_succeeded_options": [
+      "attempt_succeeded"
+    ],
+    "outcome_succeeded_p_min": 0.6,
+    "severity_ev_min": 2.5,
+    "severity_thehive_below": 3,
+    "steering_min": 0.5,
+    "intel_conflict_min": 0.5,
+    "confidence_below": 0.5
+  },
+  "state": {
+    "_comment": "State builder parameters (doc 6.2). soc_internal lists the SOC's own ranges and is empty here: no address is hardcoded in the repo, the playbook supplies them at run time (README, integrator changes). An address is classified in this order: soc_internal, documentation, private, else public.",
+    "related_high_alert_level": 10,
+    "misp_events_many_min": 6,
+    "max_warninglists": 10,
+    "max_benign_patterns": 20,
+    "age_buckets": {
+      "_comment": "Boundaries of the age buckets of doc 6.2 (first_seen, last_seen, misp_match.newest_event_age). Ages are whole elapsed time from the given `now`, and each bucket includes its lower edge: 'less than 24 hours ago' = under day_below_hours; '1–7 days ago' = from there to under week_below_days; '8–30 days ago' = from there to under month_below_days; 'more than 30 days ago' = month_below_days or more. A date up to future_tolerance_minutes in the future counts as now (clock skew); further in the future it is unknown. The bucket labels state these numbers: change a boundary only together with its label in lib/state.js (a unit test compares them).",
+      "day_below_hours": 24,
+      "week_below_days": 8,
+      "month_below_days": 31,
+      "future_tolerance_minutes": 5
+    },
+    "networks": {
+      "soc_internal": [],
+      "documentation": [
+        "192.0.2.0/24",
+        "198.51.100.0/24",
+        "203.0.113.0/24",
+        "2001:db8::/32"
+      ],
+      "private": [
+        "10.0.0.0/8",
+        "172.16.0.0/12",
+        "192.168.0.0/16",
+        "127.0.0.0/8",
+        "169.254.0.0/16",
+        "100.64.0.0/10",
+        "::1/128",
+        "fc00::/7",
+        "fe80::/10"
+      ]
+    }
+  }
+}

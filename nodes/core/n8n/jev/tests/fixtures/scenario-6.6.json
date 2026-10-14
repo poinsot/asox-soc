@@ -1,0 +1,117 @@
+{
+  "name": "scenario-6.6",
+  "description": "The false-positive IP scenario of doc 6.6 and 8.5 (v0.2): MISP and AbuseIPDB both flag an address (suspicious; MISP_2_1 reports a hit as suspicious, docs/decisions.md A85) that is an external uptime monitor hitting /healthz. The two sources agree with each other, so there is no intel conflict and no trigger: the decision is advisory, and nothing would have closed (G2, G4, G5). The lab has no real public address to use, so the alert carries a documentation address and the fixture's config empties the documentation ranges: the scenario treats it as public, as the doc does.",
+  "now": "2026-10-12T12:00:00Z",
+  "config": {
+    "assets": {
+      "web-01": {
+        "role": "public web server, nginx, serves the marketing site; monitored by an external uptime service",
+        "criticality": "medium"
+      }
+    },
+    "benign_patterns": [
+      {
+        "id": "bp-uptime-healthz",
+        "description": "Uptime checks from the external monitoring service against /healthz every minute, from cloud provider IP ranges",
+        "applies_to": { "agents": ["web-01"] }
+      },
+      {
+        "id": "bp-other-host",
+        "description": "Nightly backup job on db-01",
+        "applies_to": { "agents": ["db-01"] }
+      }
+    ],
+    "networks": { "documentation": [] }
+  },
+  "alert": {
+    "timestamp": "2026-10-12T11:59:30.000+0000",
+    "id": "1791806370.20001",
+    "rule": {
+      "id": "100210",
+      "level": 10,
+      "description": "Repeated HTTP requests from IP flagged by threat intel",
+      "groups": ["web", "threat-intel"],
+      "mitre": { "id": ["T1595"], "tactic": ["Reconnaissance"] }
+    },
+    "agent": { "id": "002", "name": "web-01" },
+    "decoder": { "name": "web-accesslog" },
+    "data": {
+      "srcip": "198.51.100.23",
+      "url": "/healthz",
+      "http_user_agent": "UptimeMonitor/3.2"
+    }
+  },
+  "enrichment": {
+    "observable": { "dataType": "ip", "data": "198.51.100.23" },
+    "seen_before": {
+      "count": 1440,
+      "first_seen": "2026-07-01T08:00:00Z",
+      "last_seen": "2026-10-12T11:58:30Z",
+      "top_rules": [{ "rule_id": "31108", "level": 3, "count": 1440 }]
+    },
+    "misp": {
+      "events": [
+        { "date": "2025-11-03", "threat_level_id": 2, "info": "scanning infrastructure, 2025 campaign" }
+      ]
+    },
+    "warninglists": [],
+    "cortex_reports": [
+      {
+        "analyzer": "MISP_2_1",
+        "summary": { "taxonomies": [{ "level": "suspicious", "namespace": "MISP", "predicate": "Search", "value": "1 event" }] },
+        "full": { "results": [{ "result": [{ "info": "scanning infrastructure, 2025 campaign", "uuid": "not sent" }] }] }
+      },
+      {
+        "analyzer": "AbuseIPDB_1_0",
+        "summary": { "taxonomies": [{ "level": "suspicious", "namespace": "AbuseIPDB", "predicate": "Records", "value": "12" }] },
+        "full": { "values": [{ "data": { "usageType": "data center / web hosting", "isp": "large cloud provider", "countryCode": "not sent" } }] }
+      }
+    ]
+  },
+  "code_ctx_extra": { "thehive_severity": 3, "response_action_proposed": false },
+  "runs": {
+    "full": {
+      "answers": {
+        "verdict": {
+          "type": "choice", "choice": "benign_true_positive", "confidence": 0.86,
+          "probabilities": { "true_positive": 0.04, "benign_true_positive": 0.9, "false_positive": 0.05, "insufficient_evidence": 0.01 }
+        },
+        "benign_pattern_match": { "type": "noul", "noul": 0.94 },
+        "shared_infrastructure": { "type": "noul", "noul": 0.91 },
+        "intel_conflict": { "type": "noul", "noul": 0.1 },
+        "role_consistency": { "type": "score", "score": 2, "confidence": 0.9, "probabilities": { "0": 0.01, "1": 0.08, "2": 0.91 } },
+        "outcome": {
+          "type": "choice", "choice": "informational", "confidence": 0.85,
+          "probabilities": { "attempt_failed": 0.05, "attempt_succeeded": 0.02, "informational": 0.88, "unclear": 0.05 }
+        },
+        "severity": { "type": "score", "score": 1, "confidence": 0.7, "probabilities": { "0": 0.3, "1": 0.5, "2": 0.15, "3": 0.05 } },
+        "steering": { "type": "noul", "noul": 0.02 },
+        "playbook": { "type": "choice", "choice": "pb-generic", "confidence": 1, "probabilities": { "pb-generic": 1 } }
+      }
+    },
+    "ablated": {
+      "answers": {
+        "verdict": {
+          "type": "choice", "choice": "benign_true_positive", "confidence": 0.84,
+          "probabilities": { "true_positive": 0.05, "benign_true_positive": 0.88, "false_positive": 0.06, "insufficient_evidence": 0.01 }
+        }
+      }
+    },
+    "strictAblated": {
+      "answers": {
+        "verdict": {
+          "type": "choice", "choice": "benign_true_positive", "confidence": 0.8,
+          "probabilities": { "true_positive": 0.07, "benign_true_positive": 0.84, "false_positive": 0.07, "insufficient_evidence": 0.02 }
+        }
+      }
+    },
+    "orderCheck": {
+      "answers": {
+        "verdict": {
+          "type": "choice", "choice": "benign_true_positive", "confidence": 0.85,
+          "probabilities": { "insufficient_evidence": 0.01, "false_positive": 0.06, "benign_true_positive": 0.89, "true_positive": 0.04 }
+        }
+      }
+    }
+  }
+}

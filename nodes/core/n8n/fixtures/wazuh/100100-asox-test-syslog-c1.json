@@ -1,0 +1,30 @@
+{
+  "timestamp": "2026-10-09T20:42:26.591+0000",
+  "rule": {
+    "level": 10,
+    "description": "ASOX test rule: synthetic test event received",
+    "id": "100100",
+    "firedtimes": 3,
+    "mail": true,
+    "groups": [
+      "asox",
+      "test"
+    ]
+  },
+  "agent": {
+    "id": "000",
+    "name": "wazuh-manager"
+  },
+  "manager": {
+    "name": "wazuh-manager"
+  },
+  "id": "1791578546.39679",
+  "full_log": "Oct  9 13:42:26 window asox-test: ASOX_TEST_EVENT id=n8n-syslog3164-1791578546",
+  "predecoder": {
+    "program_name": "asox-test",
+    "timestamp": "Oct  9 13:42:26",
+    "hostname": "window"
+  },
+  "decoder": {},
+  "location": "172.19.0.1"
+}

@@ -1,0 +1,84 @@
+{
+  "timestamp": "2026-10-09T20:39:54.321+0000",
+  "rule": {
+    "level": 12,
+    "description": "Multiple authentication failures followed by a success.",
+    "id": "40112",
+    "mitre": {
+      "id": [
+        "T1078",
+        "T1110"
+      ],
+      "tactic": [
+        "Defense Evasion",
+        "Persistence",
+        "Privilege Escalation",
+        "Initial Access",
+        "Credential Access"
+      ],
+      "technique": [
+        "Valid Accounts",
+        "Brute Force"
+      ]
+    },
+    "frequency": 2,
+    "firedtimes": 1,
+    "mail": true,
+    "groups": [
+      "syslog",
+      "attacks"
+    ],
+    "pci_dss": [
+      "10.2.4",
+      "10.2.5",
+      "11.4"
+    ],
+    "gpg13": [
+      "7.1",
+      "7.8"
+    ],
+    "gdpr": [
+      "IV_35.7.d",
+      "IV_32.2"
+    ],
+    "hipaa": [
+      "164.312.b"
+    ],
+    "nist_800_53": [
+      "AU.14",
+      "AC.7",
+      "SI.4"
+    ],
+    "tsc": [
+      "CC6.1",
+      "CC6.8",
+      "CC7.2",
+      "CC7.3"
+    ]
+  },
+  "agent": {
+    "id": "001",
+    "name": "lab-agent",
+    "ip": "172.18.0.7"
+  },
+  "manager": {
+    "name": "wazuh-manager"
+  },
+  "id": "1791578394.38338",
+  "full_log": "Oct  9 13:39:52 lab-agent sshd[25997]: Accepted password for labuser from 198.51.100.24 port 41009 ssh2 asox_run=ea492168-d343-4f0f-9b86-52bea31ac310",
+  "predecoder": {
+    "program_name": "sshd",
+    "timestamp": "Oct  9 13:39:52",
+    "hostname": "lab-agent"
+  },
+  "decoder": {
+    "parent": "sshd",
+    "name": "sshd"
+  },
+  "data": {
+    "srcip": "198.51.100.24",
+    "srcport": "41009",
+    "dstuser": "labuser"
+  },
+  "location": "/var/log/asox-lab/test.log"
+}

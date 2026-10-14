@@ -1,0 +1,11 @@
+{
+  "version": "assets-1",
+  "status": "draft",
+  "description": "Asset inventory by Wazuh agent name (doc 6.4): a role in plain words and a criticality (low, medium, high, protected). Roles are sent to Jev as context.asset_role; an agent that is not listed gets `unknown` for both.",
+  "assets": {
+    "lab-agent": {
+      "role": "lab endpoint used to generate test events for the SOC; holds no production data or services",
+      "criticality": "low"
+    }
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "version": "playbooks-1",
+  "status": "draft",
+  "description": "Playbook catalog offered to the triage `playbook` question. Order matters (it is the order Jev sees) and is part of the hash in the effective question-set version. Add a playbook here only once its workflow exists.",
+  "playbooks": [
+    {
+      "id": "pb-generic",
+      "description": "No more specific playbook fits this alert, or the kind of alert is unclear."
+    }
+  ]
+}

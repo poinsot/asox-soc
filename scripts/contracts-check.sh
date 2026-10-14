@@ -7,8 +7,10 @@
 # One PASS/FAIL line per contract; exit code 1 if any contract fails.
 # C3/C4 create a test alert in TheHive (source contract-check) and delete it;
 # C1 deletes the TheHive alert n8n makes from its test alert (source asox-test).
-# C10 prints SKIP (not a failure) while its check workflow chk-misp-api is
-# neither in n8n nor in nodes/core/n8n/workflows/ (not merged yet).
+# C10 prints SKIP (not a failure) when, in single-host mode, the intel node
+# isn't running here (a mode without MISP, e.g. core or core-cases), and
+# while its check workflow chk-misp-api is neither in n8n nor in
+# nodes/core/n8n/workflows/ (not merged yet).
 set -euo pipefail
 # shellcheck source=scripts/lib/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
@@ -78,6 +80,18 @@ test_alert() {
   done
   TEST_ALERT_ERROR="test alert for event $TEST_EVENT_ID not indexed within ${ALERT_TIMEOUT}s"
   return 1
+}
+
+# <node>: true when, in single-host mode, <node> isn't running on this
+# machine, i.e. the current run mode leaves it out (the rule of
+# healthcheck.sh's target_absent). In distributed mode the node is on another
+# machine and is always checked.
+node_absent() {
+  local node=$1
+  [[ $TOPO_DEPLOY_MODE == single ]] || return 1
+  [[ -f "$(node_dir "$node")/.env" \
+    && -n $(compose "$node" ps --status running --services 2>/dev/null || true) ]] && return 1
+  return 0
 }
 
 # ------------------------------------------------------------- contracts ---
@@ -327,11 +341,17 @@ check_C7() {
 # checks the key itself, and C10 is about n8n's side. Until chk-misp-api
 # exists the contract can't be checked: SKIP while n8n has no workflow of
 # that name and the repo has no file for it; once the file is in the repo
-# (the n8n branch merged) a missing workflow is a failure.
+# (the n8n branch merged) a missing workflow is a failure. MISP not being
+# part of the running setup (single-host mode, intel node not running) is a
+# SKIP too (R-29); with intel running, a failing check is a failure.
 C10_WORKFLOW=chk-misp-api
 C10_VALUE=8.8.8.8
 check_C10() {
   local c="C10 n8n -> MISP" resp status hit write
+  if node_absent intel; then
+    skip "$c: not checked: node intel not running (not part of this mode)"
+    return
+  fi
   n8n_api_ok || { fail "$c: n8n API not reachable with N8N_API_KEY (run scripts/bootstrap.sh core)"; return; }
   if [[ -z $(n8n_workflow_id_by_name "$C10_WORKFLOW") ]]; then
     if [[ -f $N8N_WORKFLOW_DIR/$C10_WORKFLOW.json ]]; then

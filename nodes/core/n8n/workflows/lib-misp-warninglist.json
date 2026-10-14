@@ -1,0 +1,205 @@
+{
+  "id": "asoxLibMispWl001",
+  "name": "lib-misp-warninglist",
+  "active": true,
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## lib-misp-warninglist (N8N-2.11, C10)\n**Trigger:** called by playbooks (pb-generic) through Execute Workflow, between lib-extract-observables and lib-thehive-upsert-alert, waiting for the result.\n**Inputs:** `{observables: <lib-extract-observables observables>, config: <lib-config>, context}`.\n**Actions taken:** one `POST $env.MISP_URL/warninglists/checkValue` with the \"MISP API (n8n)\" credential (Read Only user) for all eligible values of the alert: dataTypes in `misp_warninglist.data_types`, minus observables carrying a `skip_tags` tag (the agent's own, internal ranges). No call when nothing is eligible or `enabled` is false. Each matching observable gets the tag `warninglist` plus `warninglist:<list name>` for at most `max_list_tags` lists (names matching `prefer` first, then by name); tag names, cap and order are lib-config `misp_warninglist`.\n**A match means common, not safe:** nothing else changes (`ioc`, severity, status; D12).\n**Failure:** MISP unreachable, timeout (`timeout_ms`, one call, no retry), not HTTP 200 or an unreadable answer -> `ok: false` with a `class`, observables unchanged; the caller continues (never parked).\n**Output:** `{ok, checked, skip_reason, class, message, http_status, observables, matches: [{dataType, data, lists, add_tags}], counts}`.\n**Systems changed:** none (read-only lookup in MISP; the tags reach TheHive in the alert body lib-thehive-upsert-alert sends).\n**Approval:** not needed.\n**Owner:** n8n.\nSuccessful executions are not saved (N8N-6.5): pb-generic's execution holds the result.",
+        "height": 480,
+        "width": 640
+      },
+      "id": "da07d5a4-cec2-5c33-996c-54f475701b4a",
+      "name": "About this workflow",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -40,
+        -520
+      ]
+    },
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "id": "bcada0a2-a8e6-5e29-b4d0-ae1d73a1ec4b",
+      "name": "Called by a workflow",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// --- lib-misp-warninglist, shared block (same text in \"Select values\" and\n// \"Result\"; pure functions, no calls) -----------------------------------------\n// Which observables are checked: a dataType MISP's warninglists know, and none\n// of the skip tags (the agent's own observables, internal ranges).\nfunction isEligible(o, w) {\n  return w.data_types.includes(o.dataType) && !w.skip_tags.some((t) => o.tags.includes(t));\n}\nfunction selectValues(observables, w) {\n  return [...new Set(observables.filter((o) => isEligible(o, w)).map((o) => o.data))];\n}\n\n// The HTTP node's item -> { ok, class, message, http_status, by_value }.\n// MISP answers 200 with an object keyed by the values that match, and with an\n// empty array when none does. Anything else is \"not done\", never \"no match\".\nfunction parseAnswer(r) {\n  const status = typeof r.statusCode === 'number' ? r.statusCode : null;\n  if (status === null) { // HTTP node error (On Error = continue): no response\n    const e = r.error;\n    const detail = typeof e === 'string' ? e : [e?.message, e?.description].filter(Boolean).join(': ') || JSON.stringify(r);\n    const code = `${e?.code ?? e?.cause?.code ?? ''} ${detail}`;\n    const unreachable = /ECONNREFUSED|ENOTFOUND|EAI_AGAIN|ECONNRESET|EHOSTUNREACH|ENETUNREACH|socket hang up|connection cannot be established/i;\n    const timeout = /ETIMEDOUT|ECONNABORTED|timeout|timed out/i;\n    const cls = unreachable.test(code) ? 'misp_unreachable' : timeout.test(code) ? 'timeout' : 'request_error';\n    return { ok: false, class: cls, message: detail.slice(0, 300), http_status: null, by_value: {} };\n  }\n  if (status !== 200) {\n    const body = typeof r.body === 'string' ? r.body : JSON.stringify(r.body ?? null);\n    return { ok: false, class: `http_${status}`, message: `HTTP ${status}: ${body}`.slice(0, 300), http_status: status, by_value: {} };\n  }\n  const b = r.body;\n  if (Array.isArray(b)) return { ok: true, class: null, message: null, http_status: 200, by_value: {} };\n  if (b !== null && typeof b === 'object') return { ok: true, class: null, message: null, http_status: 200, by_value: b };\n  return { ok: false, class: 'bad_answer', message: `HTTP 200 without a JSON object or array: ${String(b)}`.slice(0, 300), http_status: 200, by_value: {} };\n}\n\n// All list names of one value, in tag order: names containing a `prefer`\n// entry first (in `prefer` order), then by name, case-insensitive. Sorted by\n// name, not by MISP's order, which follows list ids that differ per instance.\nfunction orderLists(entries, w) {\n  const names = [...new Set((Array.isArray(entries) ? entries : [])\n    .map((x) => (typeof x?.name === 'string' ? x.name.trim() : '')).filter((n) => n !== ''))];\n  const prefer = (w.prefer ?? []).map((p) => String(p).toLowerCase());\n  const rank = (n) => { const i = prefer.findIndex((p) => n.toLowerCase().includes(p)); return i === -1 ? prefer.length : i; };\n  const cmp = (a, b) => { const x = a.toLowerCase(), y = b.toLowerCase(); return x < y ? -1 : x > y ? 1 : a < b ? -1 : a > b ? 1 : 0; };\n  return names.sort((a, b) => rank(a) - rank(b) || cmp(a, b));\n}\n\n// Observables + MISP's matches -> the observables with their tags (copies;\n// nothing else changes: ioc, severity and status are not this lib's, D12),\n// and one entry per matching observable for the writeback.\nfunction applyMatches(observables, byValue, w) {\n  const matches = [];\n  const out = observables.map((o) => {\n    if (!isEligible(o, w) || !Object.prototype.hasOwnProperty.call(byValue, o.data)) return o;\n    const lists = orderLists(byValue[o.data], w);\n    if (lists.length === 0) return o;\n    const wanted = [w.tag, ...lists.slice(0, w.max_list_tags).map((n) => `${w.list_tag_prefix}${n}`)];\n    const addTags = wanted.filter((t) => !o.tags.includes(t));\n    matches.push({ dataType: o.dataType, data: o.data, lists, add_tags: wanted });\n    return { ...o, tags: [...o.tags, ...addTags] };\n  });\n  return { observables: out, matches };\n}\n\n// --- this node: the values to send (pure, no calls) ----------------------------\nconst i = $input.first().json;\nconst w = i.config?.misp_warninglist;\nif (!w) throw new Error('lib-misp-warninglist needs the lib-config output as `config` (misp_warninglist)');\nif (!Array.isArray(i.observables)) throw new Error('lib-misp-warninglist needs `observables` (lib-extract-observables)');\nconst values = w.enabled === true ? selectValues(i.observables, w) : [];\nreturn [{ json: {\n  values, call: values.length > 0,\n  skip_reason: w.enabled !== true ? 'disabled' : (values.length === 0 ? 'nothing_eligible' : null),\n} }];\n"
+      },
+      "id": "3932a53f-4d4f-5bd8-a217-4984dfc66c0a",
+      "name": "Select values",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        260,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "bbbdb3ab-6cc4-545c-8822-ed33a0137428",
+              "leftValue": "={{ $json.call }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "bdac31d3-dd97-5ce2-a9af-f7036c4e545f",
+      "name": "Anything to check?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        520,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.MISP_URL }}/warninglists/checkValue",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.values) }}",
+        "options": {
+          "allowUnauthorizedCerts": true,
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": "={{ $('Called by a workflow').first().json.config.misp_warninglist.timeout_ms }}"
+        }
+      },
+      "id": "18375c38-bbd2-5271-8365-1d65ab49c164",
+      "name": "Check values (MISP)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        780,
+        -120
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "asoxMispApi00001",
+          "name": "MISP API (n8n)"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// --- lib-misp-warninglist, shared block (same text in \"Select values\" and\n// \"Result\"; pure functions, no calls) -----------------------------------------\n// Which observables are checked: a dataType MISP's warninglists know, and none\n// of the skip tags (the agent's own observables, internal ranges).\nfunction isEligible(o, w) {\n  return w.data_types.includes(o.dataType) && !w.skip_tags.some((t) => o.tags.includes(t));\n}\nfunction selectValues(observables, w) {\n  return [...new Set(observables.filter((o) => isEligible(o, w)).map((o) => o.data))];\n}\n\n// The HTTP node's item -> { ok, class, message, http_status, by_value }.\n// MISP answers 200 with an object keyed by the values that match, and with an\n// empty array when none does. Anything else is \"not done\", never \"no match\".\nfunction parseAnswer(r) {\n  const status = typeof r.statusCode === 'number' ? r.statusCode : null;\n  if (status === null) { // HTTP node error (On Error = continue): no response\n    const e = r.error;\n    const detail = typeof e === 'string' ? e : [e?.message, e?.description].filter(Boolean).join(': ') || JSON.stringify(r);\n    const code = `${e?.code ?? e?.cause?.code ?? ''} ${detail}`;\n    const unreachable = /ECONNREFUSED|ENOTFOUND|EAI_AGAIN|ECONNRESET|EHOSTUNREACH|ENETUNREACH|socket hang up|connection cannot be established/i;\n    const timeout = /ETIMEDOUT|ECONNABORTED|timeout|timed out/i;\n    const cls = unreachable.test(code) ? 'misp_unreachable' : timeout.test(code) ? 'timeout' : 'request_error';\n    return { ok: false, class: cls, message: detail.slice(0, 300), http_status: null, by_value: {} };\n  }\n  if (status !== 200) {\n    const body = typeof r.body === 'string' ? r.body : JSON.stringify(r.body ?? null);\n    return { ok: false, class: `http_${status}`, message: `HTTP ${status}: ${body}`.slice(0, 300), http_status: status, by_value: {} };\n  }\n  const b = r.body;\n  if (Array.isArray(b)) return { ok: true, class: null, message: null, http_status: 200, by_value: {} };\n  if (b !== null && typeof b === 'object') return { ok: true, class: null, message: null, http_status: 200, by_value: b };\n  return { ok: false, class: 'bad_answer', message: `HTTP 200 without a JSON object or array: ${String(b)}`.slice(0, 300), http_status: 200, by_value: {} };\n}\n\n// All list names of one value, in tag order: names containing a `prefer`\n// entry first (in `prefer` order), then by name, case-insensitive. Sorted by\n// name, not by MISP's order, which follows list ids that differ per instance.\nfunction orderLists(entries, w) {\n  const names = [...new Set((Array.isArray(entries) ? entries : [])\n    .map((x) => (typeof x?.name === 'string' ? x.name.trim() : '')).filter((n) => n !== ''))];\n  const prefer = (w.prefer ?? []).map((p) => String(p).toLowerCase());\n  const rank = (n) => { const i = prefer.findIndex((p) => n.toLowerCase().includes(p)); return i === -1 ? prefer.length : i; };\n  const cmp = (a, b) => { const x = a.toLowerCase(), y = b.toLowerCase(); return x < y ? -1 : x > y ? 1 : a < b ? -1 : a > b ? 1 : 0; };\n  return names.sort((a, b) => rank(a) - rank(b) || cmp(a, b));\n}\n\n// Observables + MISP's matches -> the observables with their tags (copies;\n// nothing else changes: ioc, severity and status are not this lib's, D12),\n// and one entry per matching observable for the writeback.\nfunction applyMatches(observables, byValue, w) {\n  const matches = [];\n  const out = observables.map((o) => {\n    if (!isEligible(o, w) || !Object.prototype.hasOwnProperty.call(byValue, o.data)) return o;\n    const lists = orderLists(byValue[o.data], w);\n    if (lists.length === 0) return o;\n    const wanted = [w.tag, ...lists.slice(0, w.max_list_tags).map((n) => `${w.list_tag_prefix}${n}`)];\n    const addTags = wanted.filter((t) => !o.tags.includes(t));\n    matches.push({ dataType: o.dataType, data: o.data, lists, add_tags: wanted });\n    return { ...o, tags: [...o.tags, ...addTags] };\n  });\n  return { observables: out, matches };\n}\n\n// --- this node: tag the observables, or return them unchanged ------------------\n// ok false = the check could not be done (MISP unreachable, timeout, not HTTP\n// 200, unreadable answer): the caller continues with the observables as they\n// were (C10: \"MISP unreachable = continue\"). checked false = no call was made.\nconst i = $('Called by a workflow').first().json;\nconst w = i.config.misp_warninglist;\nconst sel = $('Select values').first().json;\nconst base = { ok: true, checked: false, skip_reason: sel.skip_reason, class: null, message: null, http_status: null,\n  observables: i.observables, matches: [],\n  counts: { observables: i.observables.length, checked: sel.values.length, matched: 0 } };\nif (!sel.call) return [{ json: base }];\nconst a = parseAnswer($('Check values (MISP)').first().json);\nif (!a.ok) return [{ json: { ...base, ok: false, class: a.class, message: a.message, http_status: a.http_status } }];\nconst { observables, matches } = applyMatches(i.observables, a.by_value, w);\nreturn [{ json: { ...base, checked: true, http_status: 200, observables, matches,\n  // matched counts values, like checked (two observables can share a value).\n  counts: { ...base.counts, matched: new Set(matches.map((m) => m.data)).size } } }];\n"
+      },
+      "id": "cd350bb2-cef6-5007-8241-f4947438a647",
+      "name": "Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1040,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Called by a workflow": {
+      "main": [
+        [
+          {
+            "node": "Select values",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Select values": {
+      "main": [
+        [
+          {
+            "node": "Anything to check?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anything to check?": {
+      "main": [
+        [
+          {
+            "node": "Check values (MISP)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check values (MISP)": {
+      "main": [
+        [
+          {
+            "node": "Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataSuccessExecution": "none",
+    "saveDataErrorExecution": "all",
+    "saveManualExecutions": true
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "nodeGroups": [],
+  "tags": [],
+  "pinData": {}
+}

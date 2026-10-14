@@ -1,0 +1,85 @@
+{
+  "name": "true-positive",
+  "description": "A clear true positive on a low-level rule: failed SSH logins for root from the lab's test IOC, which has a recent high-threat MISP event and no benign explanation. Jev is confident, so the alert is escalated.",
+  "now": "2026-10-12T12:00:00Z",
+  "alert": {
+    "timestamp": "2026-10-12T11:58:00.000+0000",
+    "id": "1791806280.30001",
+    "rule": {
+      "id": "5716",
+      "level": 5,
+      "description": "sshd: authentication failed.",
+      "mitre": { "id": ["T1110"], "tactic": ["Credential Access"] }
+    },
+    "agent": { "id": "001", "name": "lab-agent" },
+    "decoder": { "name": "sshd" },
+    "full_log": "Oct 12 11:58:00 lab-agent sshd[4242]: Failed password for root from 203.0.113.66 port 43001 ssh2",
+    "data": { "srcip": "203.0.113.66", "srcport": "43001", "dstuser": "root" }
+  },
+  "enrichment": {
+    "observable": { "dataType": "ip", "data": "203.0.113.66" },
+    "seen_before": {
+      "count": 37,
+      "first_seen": "2026-10-12T09:00:00Z",
+      "last_seen": "2026-10-12T11:57:00Z",
+      "top_rules": [{ "rule_id": "5763", "level": 10, "count": 4 }, { "rule_id": "5716", "level": 5, "count": 33 }]
+    },
+    "misp": {
+      "events": [{ "date": "2026-10-09", "threat_level_id": 1, "info": "SSH brute-force infrastructure" }]
+    },
+    "warninglists": [],
+    "cortex_reports": [
+      {
+        "analyzer": "MISP_2_1",
+        "summary": { "taxonomies": [{ "level": "malicious", "namespace": "MISP", "predicate": "Search", "value": "1 event" }] },
+        "full": { "results": [{ "result": [{ "info": "SSH brute-force infrastructure" }] }] }
+      }
+    ]
+  },
+  "code_ctx_extra": { "thehive_severity": 1, "response_action_proposed": false },
+  "runs": {
+    "full": {
+      "answers": {
+        "verdict": {
+          "type": "choice", "choice": "true_positive", "confidence": 0.88,
+          "probabilities": { "true_positive": 0.91, "benign_true_positive": 0.03, "false_positive": 0.03, "insufficient_evidence": 0.03 }
+        },
+        "benign_pattern_match": { "type": "noul", "noul": 0.02 },
+        "shared_infrastructure": { "type": "noul", "noul": 0.04 },
+        "intel_conflict": { "type": "noul", "noul": 0.05 },
+        "role_consistency": { "type": "score", "score": 0, "confidence": 0.8, "probabilities": { "0": 0.85, "1": 0.12, "2": 0.03 } },
+        "outcome": {
+          "type": "choice", "choice": "attempt_failed", "confidence": 0.9,
+          "probabilities": { "attempt_failed": 0.93, "attempt_succeeded": 0.02, "informational": 0.02, "unclear": 0.03 }
+        },
+        "severity": { "type": "score", "score": 2, "confidence": 0.6, "probabilities": { "0": 0.05, "1": 0.25, "2": 0.5, "3": 0.2 } },
+        "steering": { "type": "noul", "noul": 0.01 },
+        "playbook": { "type": "choice", "choice": "pb-generic", "confidence": 1, "probabilities": { "pb-generic": 1 } }
+      }
+    },
+    "ablated": {
+      "answers": {
+        "verdict": {
+          "type": "choice", "choice": "true_positive", "confidence": 0.8,
+          "probabilities": { "true_positive": 0.84, "benign_true_positive": 0.04, "false_positive": 0.04, "insufficient_evidence": 0.08 }
+        }
+      }
+    },
+    "strictAblated": {
+      "answers": {
+        "verdict": {
+          "type": "choice", "choice": "true_positive", "confidence": 0.8,
+          "probabilities": { "true_positive": 0.84, "benign_true_positive": 0.04, "false_positive": 0.04, "insufficient_evidence": 0.08 }
+        }
+      }
+    },
+    "orderCheck": {
+      "answers": {
+        "verdict": {
+          "type": "choice", "choice": "true_positive", "confidence": 0.87,
+          "probabilities": { "insufficient_evidence": 0.03, "false_positive": 0.03, "benign_true_positive": 0.04, "true_positive": 0.9 }
+        }
+      }
+    }
+  }
+}
