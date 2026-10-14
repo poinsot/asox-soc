@@ -275,6 +275,11 @@ MISP (published, to_ids, not on a warninglist) --REST, read-only key--> misp-syn
   - with MISP's front end stopped, the lists were kept;
   - `trigger.sh --scenario ioc-ip` gave **108000**; a file with the IOC hash in `/etc/cron.d` gave **108020**; both reached n8n's `recv-wazuh-alert`. A Suricata alert from the IOC gives 108010 (`tests/cases/1010-suricata.cases`).
   - The manager stayed at 255 MiB anonymous (peak 623 MiB of its 700m) with the lists loaded.
+- **Live with Diego's user (2026-10-14, `core` + `intel` on `low`):**
+  - `bootstrap.sh intel` (`misp-config.sh apply`) created `wazuh@asox.local`, and `render-env.sh` copied its key to core. C14 started by itself.
+  - With MISP's seed event and the Botvrij feed (406 events), the filter (`to_ids`, published, no warninglist) kept **4,466** of Botvrij's ~29,000 attributes: misp-ip 373, misp-domain 914, misp-hash 3,121.
+  - `trigger.sh --scenario ioc-ip` gave **108000** ("source 101.99.75.184 is a MISP indicator", level 12), and n8n received it. No other `misp_ioc` alert appeared, so there were no false positives from the real IOCs.
+  - **Memory (W6.5):** the lists cost almost nothing (`wazuh-analysisd` 62 MiB). The manager was at 514 MiB anonymous of its 700m, mostly `wazuh-modulesd` (241 MiB: vulnerability detection and inventory, more with the Windows agent). No OOM kill. misp-core reached its 900m limit while it imported the feed (Cortex + MISP owner).
 - **The seed IOC:** since 2026-10-14 MISP's seed attribute is **`101.99.75.184`** (X-36: a Botvrij Loki-Bot address, `to_ids: true`, on no warninglist; `misp-config.sh apply` checks both). C14's filter exports it, so `trigger.sh --scenario ioc-ip`, which uses it by default (`ASOX_IOC_IP` overrides), gives 108000 once the lists are synced. Until 2026-10-13 it was `203.0.113.66`, a documentation address on MISP's RFC 5735 warninglist.
 
 ## Lab agent (`nodes/lab/`)

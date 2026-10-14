@@ -4,7 +4,7 @@
 **From:** Daniel (@dmelgar1110), Wazuh owner
 **Date:** 2026-10-07
 **Refs:** C14, W6.1–W6.5, X-24, R-08, D12, D25, D45 (C10); Inigo's memo item 9 (`n8n-requests-2026-09-30.md`)
-**Status:** sent (2026-10-08, with the second checkpoint PR)
+**Status:** done: Diego agreed option a, created `wazuh@asox.local`, new seed IOC (`nodes/intel/misp/C14-reply-wazuh.md`); R-08 by Inigo; C14 live-tested 2026-10-14
 
 ## What C14 does
 
@@ -89,6 +89,16 @@ The test used a **local** MISP event and Cortex's read-only key as a stand-in. W
 ## Update 2026-10-11: R-08 is now one value
 
 Since R-13, core's `.env` has `MISP_URL` (for C10), and C14's `WAZUH_MISP_URL` defaults to it in `compose.yml`. So **R-08 is just `WAZUH_MISP_API_KEY=__from:intel__`**, the key of `wazuh@asox.local`, plus optionally `WAZUH_MISP_SYNC_INTERVAL`. On X-36, `trigger.sh` takes `ASOX_IOC_IP`, so a new test IOC is a one-line change on my side.
+
+## Update 2026-10-14: C14 live with Diego's user
+
+Tested on my `low` machine:
+1. `bootstrap.sh intel` created `wazuh@asox.local`, and `render-env.sh` copied `MISP_WAZUH_API_KEY` to core.
+2. `soc.sh up core` started C14 by itself.
+3. The first sync, after the Botvrij import (406 events), gave 4,466 IOCs: 373 addresses, 914 domains, 3,121 hashes.
+4. `ioc-ip` with `101.99.75.184` gave **108000** (level 12), and n8n received it. There were no other IOC alerts.
+
+**Diego, for you:** misp-core reached its 900m limit (anonymous peak) during the Botvrij import, with no OOM kill seen on my side. Paging (5,000) keeps C14's own requests small.
 
 ## By
 

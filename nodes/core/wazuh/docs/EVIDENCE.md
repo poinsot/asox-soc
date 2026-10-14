@@ -56,7 +56,7 @@ Bold rules are ASOX's own (custom IDs 100000–120999); the others are Wazuh bui
 | Item | Status |
 |---|---|
 | Real OPNsense and Suricata VMs (VirtualBox, another PC) | Needs `DEPLOY_MODE=distributed`, planned for the final integration. Setup steps: README "OPNsense firewall" and [ENROLLMENT.md](../ENROLLMENT.md) "Suricata sensor VM". The scenarios send the same log formats today |
-| C14 permanently on | Built and tested with a local MISP event. It needs Diego's Read Only MISP user and Inigo's R-08 variables (`request-cortex-misp-c14-design.md`) |
+| C14 permanently on | **Done 2026-10-14:** Diego's `wazuh@asox.local`, Inigo's R-08, 4,466 IOCs synced, `ioc-ip` → 108000 with the new seed IOC `101.99.75.184` (README "MISP IOCs as CDB lists") |
 | End-to-end in `full` mode with TheHive (WD.3) | Integrator, on the 32 GB machine, after the final checkpoint merge |
 
 ## Screenshots (2026-10-11, right after `tests/e2e.sh`)
