@@ -1,6 +1,23 @@
 {
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
   "description": "SOC Status (\"Estado del SOC\", level 1): what is happening now, from wazuh-alerts-* only (GRAF-1.1 to 1.7). Owner: Grafana.",
   "editable": true,
+  "fiscalYearStartMonth": 0,
   "graphTooltip": 1,
   "links": [
     {
@@ -40,13 +57,14 @@
             "mode": "thresholds"
           },
           "decimals": 0,
+          "mappings": [],
           "noValue": "0",
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
                 "color": "blue",
-                "value": null
+                "value": 0
               }
             ]
           },
@@ -67,6 +85,7 @@
         "graphMode": "area",
         "justifyMode": "center",
         "orientation": "auto",
+        "percentChangeColorMode": "standard",
         "reduceOptions": {
           "calcs": [
             "sum"
@@ -78,6 +97,7 @@
         "textMode": "value",
         "wideLayout": true
       },
+      "pluginVersion": "12.4.11",
       "targets": [
         {
           "bucketAggs": [
@@ -123,13 +143,14 @@
             "mode": "thresholds"
           },
           "decimals": 0,
+          "mappings": [],
           "noValue": "0",
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
                 "color": "text",
-                "value": null
+                "value": 0
               }
             ]
           },
@@ -150,6 +171,7 @@
         "graphMode": "area",
         "justifyMode": "center",
         "orientation": "auto",
+        "percentChangeColorMode": "standard",
         "reduceOptions": {
           "calcs": [
             "sum"
@@ -161,6 +183,7 @@
         "textMode": "value",
         "wideLayout": true
       },
+      "pluginVersion": "12.4.11",
       "targets": [
         {
           "bucketAggs": [
@@ -207,13 +230,14 @@
             "mode": "thresholds"
           },
           "decimals": 0,
+          "mappings": [],
           "noValue": "0",
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
                 "color": "green",
-                "value": null
+                "value": 0
               },
               {
                 "color": "red",
@@ -238,6 +262,7 @@
         "graphMode": "area",
         "justifyMode": "center",
         "orientation": "auto",
+        "percentChangeColorMode": "standard",
         "reduceOptions": {
           "calcs": [
             "sum"
@@ -249,6 +274,7 @@
         "textMode": "value",
         "wideLayout": true
       },
+      "pluginVersion": "12.4.11",
       "targets": [
         {
           "bucketAggs": [
@@ -294,13 +320,14 @@
             "mode": "thresholds"
           },
           "decimals": 0,
+          "mappings": [],
           "noValue": "0",
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
                 "color": "green",
-                "value": null
+                "value": 0
               },
               {
                 "color": "orange",
@@ -325,6 +352,7 @@
         "graphMode": "area",
         "justifyMode": "center",
         "orientation": "auto",
+        "percentChangeColorMode": "standard",
         "reduceOptions": {
           "calcs": [
             "sum"
@@ -336,6 +364,7 @@
         "textMode": "value",
         "wideLayout": true
       },
+      "pluginVersion": "12.4.11",
       "targets": [
         {
           "bucketAggs": [
@@ -382,7 +411,21 @@
             "mode": "fixed"
           },
           "decimals": 0,
+          "mappings": [],
           "noValue": "0",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
           "unit": "short"
         },
         "overrides": []
@@ -400,6 +443,7 @@
         "graphMode": "none",
         "justifyMode": "center",
         "orientation": "auto",
+        "percentChangeColorMode": "standard",
         "reduceOptions": {
           "calcs": [
             "count"
@@ -411,6 +455,7 @@
         "textMode": "value",
         "wideLayout": true
       },
+      "pluginVersion": "12.4.11",
       "targets": [
         {
           "bucketAggs": [
@@ -472,7 +517,21 @@
             "mode": "fixed"
           },
           "decimals": 0,
+          "mappings": [],
           "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
           "unit": "short"
         },
         "overrides": [
@@ -548,10 +607,14 @@
       "options": {
         "displayMode": "basic",
         "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
           "showLegend": false
         },
         "maxVizHeight": 300,
         "minVizHeight": 16,
+        "minVizWidth": 8,
         "namePlacement": "left",
         "orientation": "horizontal",
         "reduceOptions": {
@@ -566,6 +629,7 @@
         "sizing": "auto",
         "valueMode": "color"
       },
+      "pluginVersion": "12.4.11",
       "targets": [
         {
           "bucketAggs": [
@@ -634,18 +698,55 @@
             "mode": "palette-classic"
           },
           "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
             "barAlignment": 0,
+            "barWidthFactor": 0.6,
             "drawStyle": "bars",
             "fillOpacity": 80,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
             "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
             "showPoints": "never",
+            "showValues": false,
+            "spanNulls": false,
             "stacking": {
               "group": "A",
               "mode": "normal"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
             }
           },
           "decimals": 0,
+          "mappings": [],
           "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
           "unit": "short"
         },
         "overrides": [
@@ -720,15 +821,18 @@
       "id": 9,
       "options": {
         "legend": {
+          "calcs": [],
           "displayMode": "list",
           "placement": "bottom",
           "showLegend": true
         },
         "tooltip": {
+          "hideZeros": false,
           "mode": "multi",
           "sort": "desc"
         }
       },
+      "pluginVersion": "12.4.11",
       "targets": [
         {
           "bucketAggs": [
@@ -810,7 +914,25 @@
             "align": "auto",
             "cellOptions": {
               "type": "auto"
-            }
+            },
+            "footer": {
+              "reducers": []
+            },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
           }
         },
         "overrides": [
@@ -861,11 +983,9 @@
       "id": 11,
       "options": {
         "cellHeight": "sm",
-        "footer": {
-          "show": false
-        },
         "showHeader": true
       },
+      "pluginVersion": "12.4.11",
       "targets": [
         {
           "bucketAggs": [
@@ -948,7 +1068,21 @@
             "mode": "fixed"
           },
           "decimals": 0,
+          "mappings": [],
           "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
           "unit": "short"
         },
         "overrides": []
@@ -963,10 +1097,14 @@
       "options": {
         "displayMode": "basic",
         "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
           "showLegend": false
         },
         "maxVizHeight": 300,
         "minVizHeight": 16,
+        "minVizWidth": 8,
         "namePlacement": "left",
         "orientation": "horizontal",
         "reduceOptions": {
@@ -981,6 +1119,7 @@
         "sizing": "auto",
         "valueMode": "color"
       },
+      "pluginVersion": "12.4.11",
       "targets": [
         {
           "bucketAggs": [
@@ -1040,7 +1179,25 @@
             "align": "auto",
             "cellOptions": {
               "type": "auto"
-            }
+            },
+            "footer": {
+              "reducers": []
+            },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
           }
         },
         "overrides": [
@@ -1079,11 +1236,9 @@
       "id": 14,
       "options": {
         "cellHeight": "sm",
-        "footer": {
-          "show": false
-        },
         "showHeader": true
       },
+      "pluginVersion": "12.4.11",
       "targets": [
         {
           "bucketAggs": [
@@ -1231,18 +1386,55 @@
             "mode": "palette-classic"
           },
           "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
             "barAlignment": 0,
+            "barWidthFactor": 0.6,
             "drawStyle": "bars",
             "fillOpacity": 80,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
             "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
             "showPoints": "never",
+            "showValues": false,
+            "spanNulls": false,
             "stacking": {
               "group": "A",
               "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
             }
           },
           "decimals": 0,
+          "mappings": [],
           "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
           "unit": "short"
         },
         "overrides": [
@@ -1287,15 +1479,18 @@
       "id": 15,
       "options": {
         "legend": {
+          "calcs": [],
           "displayMode": "list",
           "placement": "bottom",
           "showLegend": true
         },
         "tooltip": {
+          "hideZeros": false,
           "mode": "multi",
           "sort": "desc"
         }
       },
+      "pluginVersion": "12.4.11",
       "targets": [
         {
           "bucketAggs": [
@@ -1356,7 +1551,25 @@
             "align": "auto",
             "cellOptions": {
               "type": "auto"
-            }
+            },
+            "footer": {
+              "reducers": []
+            },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
           }
         },
         "overrides": [
@@ -1383,11 +1596,9 @@
       "id": 16,
       "options": {
         "cellHeight": "sm",
-        "footer": {
-          "show": false
-        },
         "showHeader": true
       },
+      "pluginVersion": "12.4.11",
       "targets": [
         {
           "bucketAggs": [
@@ -1560,18 +1771,55 @@
             "mode": "palette-classic"
           },
           "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
             "barAlignment": 0,
+            "barWidthFactor": 0.6,
             "drawStyle": "bars",
             "fillOpacity": 80,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
             "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
             "showPoints": "never",
+            "showValues": false,
+            "spanNulls": false,
             "stacking": {
               "group": "A",
               "mode": "normal"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
             }
           },
           "decimals": 0,
+          "mappings": [],
           "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
           "unit": "short"
         },
         "overrides": [
@@ -1631,15 +1879,18 @@
       "id": 18,
       "options": {
         "legend": {
+          "calcs": [],
           "displayMode": "list",
           "placement": "bottom",
           "showLegend": true
         },
         "tooltip": {
+          "hideZeros": false,
           "mode": "multi",
           "sort": "desc"
         }
       },
+      "pluginVersion": "12.4.11",
       "targets": [
         {
           "bucketAggs": [
@@ -1695,7 +1946,25 @@
             "align": "auto",
             "cellOptions": {
               "type": "auto"
-            }
+            },
+            "footer": {
+              "reducers": []
+            },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
           }
         },
         "overrides": [
@@ -1750,11 +2019,9 @@
       "id": 19,
       "options": {
         "cellHeight": "sm",
-        "footer": {
-          "show": false
-        },
         "showHeader": true
       },
+      "pluginVersion": "12.4.11",
       "targets": [
         {
           "bucketAggs": [
@@ -1850,7 +2117,21 @@
             "mode": "fixed"
           },
           "decimals": 0,
+          "mappings": [],
           "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
           "unit": "short"
         },
         "overrides": []
@@ -1865,10 +2146,14 @@
       "options": {
         "displayMode": "basic",
         "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
           "showLegend": false
         },
         "maxVizHeight": 300,
         "minVizHeight": 16,
+        "minVizWidth": 8,
         "namePlacement": "left",
         "orientation": "horizontal",
         "reduceOptions": {
@@ -1883,6 +2168,7 @@
         "sizing": "auto",
         "valueMode": "color"
       },
+      "pluginVersion": "12.4.11",
       "targets": [
         {
           "bucketAggs": [
@@ -1930,7 +2216,21 @@
             "mode": "fixed"
           },
           "decimals": 0,
+          "mappings": [],
           "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
           "unit": "short"
         },
         "overrides": []
@@ -1945,10 +2245,14 @@
       "options": {
         "displayMode": "basic",
         "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
           "showLegend": false
         },
         "maxVizHeight": 300,
         "minVizHeight": 16,
+        "minVizWidth": 8,
         "namePlacement": "left",
         "orientation": "horizontal",
         "reduceOptions": {
@@ -1963,6 +2267,7 @@
         "sizing": "auto",
         "valueMode": "color"
       },
+      "pluginVersion": "12.4.11",
       "targets": [
         {
           "bucketAggs": [
@@ -1998,8 +2303,9 @@
       "type": "bargauge"
     }
   ],
+  "preload": false,
   "refresh": "1m",
-  "schemaVersion": 41,
+  "schemaVersion": 42,
   "tags": [
     "asox",
     "wazuh"
@@ -2012,10 +2318,8 @@
           "value": "0"
         },
         "description": "Only alerts with rule.level at or above this value",
-        "hide": 0,
         "includeAll": false,
         "label": "Minimum level",
-        "multi": false,
         "name": "min_level",
         "options": [
           {
@@ -2045,7 +2349,8 @@
           }
         ],
         "query": "0,3,7,10,12",
-        "type": "custom"
+        "type": "custom",
+        "valuesFormat": "csv"
       }
     ]
   },
@@ -2053,8 +2358,10 @@
     "from": "now-24h",
     "to": "now"
   },
+  "timepicker": {},
   "timezone": "browser",
   "title": "SOC Status",
   "uid": "asox-soc-status",
-  "version": 1
+  "version": 2,
+  "weekStart": ""
 }
