@@ -32,6 +32,8 @@
   | `core-cases` | 14.5 GB | 10.3 GB | ~25 GB |
   | `full` | 19.1 GB | 12.2 GB | ~31 GB |
 
+  **Since 2026-10-14 the lab node also runs Suricata** (network IDS, D49): every mode with the lab (`core`, `core-cases`, `full`) needs **~0.65 GB more** than the table (the `jasonish/suricata` image, ~0.62 GB, plus its rules volume), e.g. `core` ~20 GB.
+
   Add room for backups (`core` ~1.1 GB, `intel` ~0.6 GB, `cases` a few MB, compressed), logs and WSL's own files. The WSL virtual disk grows but doesn't shrink by itself when data is deleted.
   Verify (PowerShell): `Get-PSDrive C`
 - [ ] *(Optional)* **Second x86-64 computer** on the same LAN for the distribution test (build step 1.8).
@@ -195,7 +197,9 @@ Reference: https://code.claude.com/docs/en/setup
 
 ## 8. Container images (Phase 1)
 
-Nothing to install by hand: `soc.sh init` pulls (or, for the lab agent, builds) every image the chosen mode needs. The exact pinned tags are in each node's `.env.example` (`nodes/<node>/.env.example`, where compose reads them from) and in [docs/decisions.md](docs/decisions.md) (Pinned images). The first pull is 6–19 GB depending on the mode (section 1).
+Nothing to install by hand: `soc.sh init` pulls (or, for the lab agent, builds) every image the chosen mode needs. The exact pinned tags are in each node's `.env.example` (`nodes/<node>/.env.example`, where compose reads them from) and in [docs/decisions.md](docs/decisions.md) (Pinned images). The first pull is 6–20 GB depending on the mode (section 1; Suricata adds ~0.65 GB to `core`).
+
+- [ ] **Internet at the first start of the lab node.** Suricata downloads the ET Open rules (no account needed) when it first starts, then refreshes them at most once a day; without internet it has no signatures.
 
 ---
 

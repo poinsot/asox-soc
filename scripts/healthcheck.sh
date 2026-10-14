@@ -162,17 +162,31 @@ check_intel() {
 
 # ------------------------------------------------------------------ lab ---
 
+# Status of agent <name> on the manager (active, pending, ...), or nothing.
+lab_agent_status() {
+  wazuh_api GET "/agents?name=$1&select=status" | jq -r '.data.affected_items[0].status // empty' 2>/dev/null || true
+}
+
 check_lab() {
-  local name status
+  local name status waited=0 note=""
   name=$(env_get "$(node_dir lab)/.env" LAB_AGENT_NAME)
   if ! wazuh_manager_running; then
     skip "lab: agent status needs the core node on this machine"
     return 0
   fi
   wazuh_admin_login || { fail "lab: Wazuh API admin login failed"; return; }
-  status=$(wazuh_api GET "/agents?name=$name&select=status" | jq -r '.data.affected_items[0].status // empty')
-  if [[ $status == active ]]; then pass "lab: agent $name active on the manager"
-  else fail "lab: agent $name is '${status:-not registered}' on the manager"; fi
+  # Right after `soc.sh up` the agent goes pending, gets its group
+  # configuration and restarts before it is active (A75; Wazuh owner,
+  # 2026-10-11): wait up to 60 s for active, checking every 5 s. An agent
+  # that is already active costs nothing.
+  status=$(lab_agent_status "$name")
+  while [[ $status != active ]] && (( waited < 60 )); do
+    sleep 5; waited=$((waited + 5))
+    status=$(lab_agent_status "$name")
+  done
+  (( waited > 0 )) && note=" (after ${waited} s)"
+  if [[ $status == active ]]; then pass "lab: agent $name active on the manager$note"
+  else fail "lab: agent $name is '${status:-not registered}' on the manager$note"; fi
 }
 
 # ---------------------------------------------------------- cross-node ---
