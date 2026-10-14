@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# MISP warninglists and feeds as code (owner: Cortex + MISP). Run it on the
-# machine that hosts the intel node, once scripts/soc.sh init has
-# bootstrapped it.
+# MISP warninglists, feeds and service users as code (owner: Cortex + MISP).
+# scripts/bootstrap.sh intel runs "apply" (R-22); run it by hand only after
+# changing misp-config.json, on the machine that hosts the intel node.
 #
 # Usage: nodes/intel/misp/misp-config.sh <apply|fetch|export>
 #   apply : update MISP's warninglists from the image and enable every list
@@ -10,9 +10,12 @@
 #           limit); load MISP's default feed
 #           list, then enable and cache the feeds marked "enabled": true
 #           (queueing a first fetch) and disable those marked false. Feeds
-#           not listed are left alone. Create the Read Only user of
-#           misp-config.json's n8n.user (contract C10) with its own API key,
-#           stored as MISP_N8N_API_KEY in nodes/intel/.env. Idempotent.
+#           not listed are left alone. Check that the seed event's test IOC
+#           is on no warninglist (X-36) and delete older seed events. Create
+#           the Read Only users of misp-config.json's n8n.user (contract
+#           C10) and wazuh.user (C14), each with its own API key, stored as
+#           MISP_N8N_API_KEY and MISP_WAZUH_API_KEY in nodes/intel/.env.
+#           Idempotent.
 #   fetch : queue a new fetch of every enabled feed (there is no schedule
 #           yet: see BACKLOG.md).
 #   export: write the enabled state of MISP's feeds back into misp-config.json,
@@ -113,54 +116,126 @@ apply_feeds() {
   done < <(jq -r '.feeds[] | [.name, (.enabled | tostring)] | @tsv' "$CONFIG_FILE")
 }
 
-# C10: the Read Only user n8n calls POST /warninglists/checkValue with. Same
-# steps as bootstrap.sh's user for Cortex (C7), with its own key.
-apply_n8n_user() {
-  local email r org_id role_id user_id key hit
-  email=$(jq -r '.n8n.user // empty' "$CONFIG_FILE")
-  if [[ -z $email ]]; then
-    skip "n8n user (C10): no n8n.user in misp-config.json"
+# The seed event (C7) is created by bootstrap.sh from seed/seed-event.json.
+# Its test IOC must be on no warninglist, or C10 tags the lab's only IOC as
+# common (X-36). Seed events from before the IOC changed (other info, same
+# asox:seed tag) are deleted, so every instance has the same single seed.
+apply_seed() {
+  local info ioc r seeds id old hit
+  info=$(jq -r '.Event.info' "$MISP_SEED_FILE")
+  ioc=$(jq -r '.Event.Attribute[0].value' "$MISP_SEED_FILE")
+  r=$(misp_as "$(intel_env MISP_CORTEX_API_KEY)" POST /warninglists/checkValue "$(jq -nc --arg v "$ioc" '[$v]')")
+  misp_ok "seed: checkValue $ioc" "$r" || return
+  hit=$(http_body "$r" | jq -r --arg v "$ioc" '[objects | .[$v][]?.name] | join("\", \"")')
+  if [[ -z $hit ]]; then pass "seed: test IOC $ioc is on no warninglist"
+  else fail "seed: test IOC $ioc is on warninglist(s) \"$hit\" (X-36): pick another IOC in seed/seed-event.json"; fi
+  r=$(misp_admin POST /events/restSearch '{"returnFormat": "json", "tags": ["asox:seed"], "metadata": true}')
+  misp_ok "seed: list seed events" "$r" || return
+  seeds=$(http_body "$r")
+  if ! jq -e --arg i "$info" '[.response[]?.Event | select(.info == $i)] | length > 0' <<<"$seeds" >/dev/null; then
+    skip "seed: \"$info\" not in MISP yet (scripts/bootstrap.sh intel creates it); older seed events kept"
     return
   fi
+  while IFS=$'\t' read -r id old; do
+    misp_ok "seed: delete old seed event $id" "$(misp_admin POST "/events/delete/$id")" \
+      && pass "seed: old seed event $id (\"$old\") deleted"
+  done < <(jq -r --arg i "$info" '.response[]?.Event | select(.info != $i) | [.id, .info] | @tsv' <<<"$seeds")
+}
+
+# ensure_ro_user LABEL EMAIL ENV_KEY COMMENT HINT: a Read Only user with its
+# own API key, stored as ENV_KEY in nodes/intel/.env. Same steps as
+# bootstrap.sh's user for Cortex (C7). Sets RO_KEY to the working key.
+RO_KEY=""
+ensure_ro_user() {
+  local label=$1 email=$2 env_key=$3 comment=$4 hint=$5 r org_id role_id user_id key
+  RO_KEY=""
   org_id=$(http_body "$(misp_admin GET /users/view/me)" | jq -r '.User.org_id')
   role_id=$(http_body "$(misp_admin GET /roles)" | jq -r '[.[] | (.Role // .) | select(.name == "Read Only") | .id] | first // empty')
-  [[ -n $role_id ]] || { fail "n8n user (C10): role \"Read Only\" not found"; return; }
+  [[ -n $role_id ]] || { fail "$label: role \"Read Only\" not found"; return 1; }
   user_id=$(http_body "$(misp_admin GET /admin/users)" | jq -r --arg e "$email" '[.[] | select(.User.email == $e) | .User.id] | first // empty')
   if [[ -z $user_id ]]; then
     r=$(misp_admin POST /admin/users/add "$(jq -nc --arg e "$email" --arg o "$org_id" --arg r "$role_id" \
       '{email: $e, org_id: $o, role_id: $r, change_pw: false, notify: false, termsaccepted: true}')")
-    misp_ok "n8n user (C10): create $email" "$r" || return
+    misp_ok "$label: create $email" "$r" || return 1
     user_id=$(http_body "$r" | jq -r '.User.id')
   else
     r=$(misp_admin POST "/admin/users/edit/$user_id" "$(jq -nc --arg r "$role_id" --arg o "$org_id" '{role_id: $r, org_id: $o, disabled: false}')")
-    misp_ok "n8n user (C10): update $email" "$r" || return
+    misp_ok "$label: update $email" "$r" || return 1
   fi
-  key=$(intel_env MISP_N8N_API_KEY)
+  key=$(intel_env "$env_key")
   if [[ $(misp_key_email "$key") != "$email" ]]; then
-    r=$(misp_admin POST "/auth_keys/add/$user_id" '{"comment": "n8n warninglist check (C10), created by misp-config.sh"}')
+    r=$(misp_admin POST "/auth_keys/add/$user_id" "$(jq -nc --arg c "$comment" '{comment: $c}')")
     key=$(http_body "$r" | jq -r '.AuthKey.authkey_raw // empty')
     if [[ -z $key || $(misp_key_email "$key") != "$email" ]]; then
-      fail "n8n user (C10): could not create a working API key for $email (HTTP $(http_code "$r"))"
-      return
+      fail "$label: could not create a working API key for $email (HTTP $(http_code "$r"))"
+      return 1
     fi
-    env_set "$(node_dir intel)/.env" MISP_N8N_API_KEY "$key"
-    info "new MISP_N8N_API_KEY in nodes/intel/.env: n8n's MISP credential needs it (R-13)"
+    env_set "$(node_dir intel)/.env" "$env_key" "$key"
+    info "new $env_key in nodes/intel/.env: $hint"
   fi
-  pass "n8n user (C10): $email (Read Only), API key works"
+  pass "$label: $email (Read Only), API key works"
+  RO_KEY=$key
+}
+
+# ro_write_refused LABEL KEY: a write with KEY must get HTTP 403.
+ro_write_refused() {
+  local r
+  r=$(misp_as "$2" POST /events/add '{"Event": {"info": "Read Only write check: must be refused", "distribution": 0}}')
+  if [[ $(http_code "$r") == 403 ]]; then pass "$1: a write (POST /events/add) is refused"
+  else fail "$1: POST /events/add answered HTTP $(http_code "$r"), expected 403"; fi
+}
+
+# C10: the Read Only user n8n calls POST /warninglists/checkValue with.
+apply_n8n_user() {
+  local label="n8n user (C10)" email r hit
+  email=$(jq -r '.n8n.user // empty' "$CONFIG_FILE")
+  if [[ -z $email ]]; then
+    skip "$label: no n8n.user in misp-config.json"
+    return
+  fi
+  ensure_ro_user "$label" "$email" MISP_N8N_API_KEY \
+    "n8n warninglist check (C10), created by misp-config.sh" \
+    "n8n's MISP credential needs it (R-13)" || return
   # C10's check: the key can read warninglists and nothing else.
-  r=$(misp_as "$key" POST /warninglists/checkValue '["8.8.8.8"]')
+  r=$(misp_as "$RO_KEY" POST /warninglists/checkValue '["8.8.8.8"]')
   hit=$(http_body "$r" | jq -r '.["8.8.8.8"][0].name // empty' 2>/dev/null || true)
-  if [[ -n $hit ]]; then pass "n8n user (C10): checkValue 8.8.8.8 -> \"$hit\""
-  else fail "n8n user (C10): checkValue matched no list for 8.8.8.8 (HTTP $(http_code "$r"))"; fi
-  r=$(misp_as "$key" POST /events/add '{"Event": {"info": "C10 write check: must be refused", "distribution": 0}}')
-  if [[ $(http_code "$r") == 403 ]]; then pass "n8n user (C10): a write (POST /events/add) is refused"
-  else fail "n8n user (C10): POST /events/add answered HTTP $(http_code "$r"), expected 403"; fi
+  if [[ -n $hit ]]; then pass "$label: checkValue 8.8.8.8 -> \"$hit\""
+  else fail "$label: checkValue matched no list for 8.8.8.8 (HTTP $(http_code "$r"))"; fi
+  ro_write_refused "$label" "$RO_KEY"
+}
+
+# C14: the attributes Wazuh's misp-sync exports into its CDB lists
+# (C14-reply-wazuh.md): published events, to_ids, these types, and nothing
+# that is on an enabled warninglist.
+C14_FILTER='{"returnFormat": "json", "type": ["ip-src", "ip-dst", "domain", "hostname", "md5", "sha1", "sha256"], "to_ids": 1, "published": 1, "enforceWarninglist": 1}'
+
+# C14: the Read Only user Wazuh's misp-sync calls POST /attributes/restSearch
+# with.
+apply_wazuh_user() {
+  local label="wazuh user (C14)" email ioc r n
+  email=$(jq -r '.wazuh.user // empty' "$CONFIG_FILE")
+  if [[ -z $email ]]; then
+    skip "$label: no wazuh.user in misp-config.json"
+    return
+  fi
+  ensure_ro_user "$label" "$email" MISP_WAZUH_API_KEY \
+    "Wazuh CDB list sync (C14), created by misp-config.sh" \
+    "core needs it as WAZUH_MISP_API_KEY (R-08): scripts/render-env.sh on the core machine" || return
+  # C14's check: C14's filter returns the seed IOC (it must stay to_ids).
+  ioc=$(jq -r '.Event.Attribute[0].value' "$MISP_SEED_FILE")
+  r=$(misp_as "$RO_KEY" POST /attributes/restSearch "$(jq -c --arg v "$ioc" '. + {value: $v}' <<<"$C14_FILTER")")
+  n=$(http_body "$r" | jq '[.response.Attribute[]?] | length' 2>/dev/null || echo 0)
+  if (( n > 0 )); then pass "$label: C14's filter returns the seed IOC $ioc ($n attribute(s))"
+  else fail "$label: C14's filter doesn't return the seed IOC $ioc (HTTP $(http_code "$r")); is it to_ids and published?"; fi
+  ro_write_refused "$label" "$RO_KEY"
 }
 
 cmd_apply() {
   apply_warninglists
   apply_feeds
+  apply_seed
   apply_n8n_user
+  apply_wazuh_user
 }
 
 cmd_fetch() {
