@@ -44,8 +44,16 @@ n8n_workflow_id_by_name() {
   n8n_api GET "/workflows?limit=250" | jq -r --arg n "$1" '.data[] | select(.name == $n) | .id' | head -n 1
 }
 
-# Activate (publish) a workflow on the running server, which registers its webhooks.
-n8n_activate() { [[ $(n8n_api POST "/workflows/$1/activate" | jq -r '.active // false') == true ]]; }
+# Activate (publish) a workflow on the running server, which registers its
+# webhooks. When n8n refuses, its reason is left in N8N_ACTIVATE_ERROR.
+N8N_ACTIVATE_ERROR=""
+n8n_activate() {
+  local resp
+  resp=$(n8n_api POST "/workflows/$1/activate")
+  [[ $(jq -r '.active // false' <<<"$resp" 2>/dev/null) == true ]] && return 0
+  N8N_ACTIVATE_ERROR=$(jq -r '.message // empty' <<<"$resp" 2>/dev/null | tr '\n' ' ' | head -c 200)
+  return 1
+}
 n8n_deactivate() { n8n_api POST "/workflows/$1/deactivate" >/dev/null; }
 
 # ---- UI session (bootstrap only) ----
@@ -97,6 +105,57 @@ n8n_cli() {
   compose core run --rm --no-deps -T "${opts[@]}" --entrypoint n8n n8n "$@"
 }
 
+# ---- credentials ----
+
+# n8n credentials, with fixed IDs so that exported workflows (which reference
+# credentials by ID and name) work on every machine. Values come from .env.
+# The webhook token has two forms: header X-ASOX-Token (Wazuh, scripts) and
+# "Authorization: Bearer" (TheHive's webhooks can't send other headers, C4).
+# MISP (C10) takes the bare key in the Authorization header; its self-signed
+# certificate (PROJECT.md 4.1) is accepted by the HTTP Request node's own
+# "ignore SSL issues" option, which a Header Auth credential can't carry.
+# shellcheck disable=SC2034  # used by the scripts that source this file
+N8N_CREDENTIALS='"ASOX webhook token", "ASOX webhook token (Bearer)", "Wazuh API (n8n-api)", "TheHive API (n8n)", "Cortex API (n8n)", "MISP API (n8n)"'
+n8n_credentials_json() {
+  jq -nc \
+    --arg token "$(n8n_env N8N_WEBHOOK_TOKEN)" \
+    --arg wuser "$(n8n_env WAZUH_N8N_API_USER)" --arg wpass "$(n8n_env WAZUH_N8N_API_PASSWORD)" \
+    --arg thkey "$(n8n_env THEHIVE_N8N_API_KEY)" --arg thurl "$(n8n_env THEHIVE_URL)" \
+    --arg cxkey "$(n8n_env CORTEX_N8N_API_KEY)" --arg cxurl "$(n8n_env CORTEX_URL)" \
+    --arg mikey "$(n8n_env MISP_N8N_API_KEY)" '[
+    {id: "asoxWebhookToken", name: "ASOX webhook token", type: "httpHeaderAuth",
+     data: {name: "X-ASOX-Token", value: $token}},
+    {id: "asoxWebhookBear1", name: "ASOX webhook token (Bearer)", type: "httpHeaderAuth",
+     data: {name: "Authorization", value: ("Bearer " + $token)}},
+    {id: "asoxWazuhApiRo01", name: "Wazuh API (n8n-api)", type: "httpBasicAuth",
+     data: {user: $wuser, password: $wpass}},
+    {id: "asoxTheHiveApi01", name: "TheHive API (n8n)", type: "theHiveProjectApi",
+     data: {ApiKey: $thkey, url: $thurl, allowUnauthorizedCerts: false}},
+    {id: "asoxCortexApi001", name: "Cortex API (n8n)", type: "cortexApi",
+     data: {cortexApiKey: $cxkey, host: $cxurl}},
+    {id: "asoxMispApi00001", name: "MISP API (n8n)", type: "httpHeaderAuth",
+     data: {name: "Authorization", value: $mikey}}
+  ]'
+}
+
+# Import the credentials above. n8n's import overwrites a credential with
+# the same ID, so an existing one is updated to the values in .env (a rotated
+# key arrives with the next run). Credential data goes through stdin, never
+# to a file on the host. The running n8n isn't restarted: it reads
+# credentials at execution time.
+n8n_import_credentials() {
+  n8n_credentials_json | n8n_cli -- import:credentials --input=/dev/stdin >/dev/null 2>&1
+}
+
+# The same for the one credential with ID <id>, leaving the others as they
+# are (e.g. on an instance whose n8n must not be touched otherwise).
+n8n_import_credential() {
+  local id=$1 json
+  json=$(n8n_credentials_json | jq -c --arg id "$id" 'map(select(.id == $id))')
+  [[ $json != '[]' ]] || return 1
+  printf '%s\n' "$json" | n8n_cli -- import:credentials --input=/dev/stdin >/dev/null 2>&1
+}
+
 # ---- workflow import ----
 
 # Wait until the webhooks of an activated workflow file are registered (a
@@ -124,6 +183,11 @@ n8n_wait_webhooks() {
 
 # Import workflow files (overwriting workflows with the same ID), then
 # activate those whose file says "active": true. Prints PASS/FAIL lines.
+# n8n refuses to activate a workflow while a sub-workflow it calls is still
+# inactive, and the files come in name order, not dependency order (R-25):
+# activation is repeated over the refused ones until every workflow is active
+# or a whole pass activates nothing. What is left gets a FAIL line with n8n's
+# reason; a last check reads the active state back from the server.
 n8n_import_workflows() {
   (( $# > 0 )) || return 0
   local tmp f id name active_ids
@@ -143,13 +207,37 @@ n8n_import_workflows() {
     return 1
   fi
   rm -rf "$tmp"
+
+  local -a pending=() refused=() wanted=()
+  local -A reason=()
   for f in "$@"; do
-    id=$(jq -r '.id' "$f"); name=$(jq -r '.name' "$f")
-    if [[ $(jq -r '.active // false' "$f") == true ]]; then
-      if n8n_activate "$id" && n8n_wait_webhooks "$f"; then pass "n8n: workflow $name imported and active"
-      else fail "n8n: workflow $name imported but could not be activated"; fi
-    else
-      pass "n8n: workflow $name imported (inactive)"
-    fi
+    if [[ $(jq -r '.active // false' "$f") == true ]]; then pending+=("$f"); wanted+=("$(jq -r '.id' "$f")")
+    else pass "n8n: workflow $(jq -r '.name' "$f") imported (inactive)"; fi
   done
+  local progress=1
+  while (( ${#pending[@]} > 0 && progress )); do
+    progress=0; refused=()
+    for f in "${pending[@]}"; do
+      id=$(jq -r '.id' "$f"); name=$(jq -r '.name' "$f")
+      if n8n_activate "$id"; then
+        progress=1
+        if n8n_wait_webhooks "$f"; then pass "n8n: workflow $name imported and active"
+        else fail "n8n: workflow $name imported and active, but its webhook did not register"; fi
+      else
+        reason[$id]=$N8N_ACTIVATE_ERROR; refused+=("$f")
+      fi
+    done
+    pending=("${refused[@]}")
+    (( ${#pending[@]} > 0 && progress )) && info "n8n: ${#pending[@]} workflow(s) refused (a sub-workflow wasn't active yet), trying them again"
+  done
+  for f in "${pending[@]}"; do
+    id=$(jq -r '.id' "$f")
+    fail "n8n: workflow $(jq -r '.name' "$f") ($id) imported but could not be activated: ${reason[$id]:-no reason given by n8n}"
+  done
+  (( ${#wanted[@]} > 0 )) || return 0
+  local inactive
+  active_ids=$(n8n_api GET "/workflows?limit=250&active=true" | jq -r '.data[].id')
+  inactive=$(comm -23 <(printf '%s\n' "${wanted[@]}" | sort) <(sort <<<"$active_ids") | paste -sd' ' -)
+  if [[ -z $inactive ]]; then pass "n8n: all ${#wanted[@]} workflow(s) marked active are active on the server"
+  elif (( ${#pending[@]} == 0 )); then fail "n8n: not active on the server after activation: $inactive"; fi
 }

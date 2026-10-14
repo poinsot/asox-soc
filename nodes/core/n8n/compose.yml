@@ -31,11 +31,34 @@ services:
       EXECUTIONS_DATA_PRUNE: "true"
       EXECUTIONS_DATA_MAX_AGE: ${N8N_EXECUTIONS_MAX_AGE_HOURS}
       EXECUTIONS_DATA_PRUNE_MAX_COUNT: ${N8N_EXECUTIONS_MAX_COUNT}
+      # After a crash, only mark unfinished executions `crashed` (N8N-1.4).
+      # The default ("extensive") re-amends every execution still listed in the
+      # event log on EVERY start, `crashed` ones included, and calls the error
+      # workflow each time: 3 parks per stale execution per restart (2.40.7).
+      # Crashed alerts are requeued by the alert queue (recv-n8n-start).
+      N8N_EVENTBUS_RECOVERY_MODE: simple
+      # At most 10 webhook and trigger executions at once (N8N-1.8): 40 C1
+      # deliveries at the same instant got n8n OOM-killed at 750m. The others
+      # wait in n8n's memory and answer later. Counted (2.40.7): webhook and
+      # trigger executions (the 5 s scheduler ticks included); not counted:
+      # sub-workflows and error workflows. sched-alert-queue holds up to 2 for
+      # up to 240 s (one per queue slot), which leaves 8 for webhooks.
+      N8N_CONCURRENCY_PRODUCTION_LIMIT: "10"
       # Service URLs for workflows ($env.X); non-secret only.
       N8N_BLOCK_ENV_ACCESS_IN_NODE: "false"
       WAZUH_API_URL: ${WAZUH_API_URL}
       THEHIVE_URL: ${THEHIVE_URL}
       CORTEX_URL: ${CORTEX_URL}
+      # C10 (warninglist check). The key is in the credential "MISP API (n8n)".
+      MISP_URL: ${MISP_URL}
+      # C1 threshold, also applied by recv-wazuh-alert (non-secret; lib-config
+      # holds 7 only as a fallback).
+      WAZUH_ALERT_MIN_LEVEL: ${WAZUH_ALERT_MIN_LEVEL:-7}
+      # Is TheHive deployed for this core? false on a machine without the
+      # cases node: playbooks record "skipped: TheHive not configured" instead
+      # of parking every alert (non-secret; rendered by render-env.sh once the
+      # integrator adds it, R-18; unset = true, the previous behaviour).
+      THEHIVE_ENABLED: ${THEHIVE_ENABLED:-true}
       # Also n8n's own setting: base URL of its webhooks (what other nodes call).
       N8N_WEBHOOK_URL: ${N8N_WEBHOOK_URL}
       # PostgreSQL instead of SQLite (profile "pg"): uncomment together with

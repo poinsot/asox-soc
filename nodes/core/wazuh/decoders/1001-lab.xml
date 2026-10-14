@@ -1,0 +1,20 @@
+<!--
+  ASOX lab decoders (owner: Wazuh). Range 1001xx: tests and lab markers.
+  Copied into /var/ossec/etc/decoders/ at every manager start.
+
+  Attack-start marker (W1.6, X-32), written by nodes/lab/trigger.sh (option scenario)
+  before a scenario's events:
+    "<date> <agent> asox-lab: ASOX_ATTACK_START scenario=<name> id=<run id>"
+  Fields: data.scenario, data.run_id. Grafana draws it as an annotation
+  (GRAF-2.2, D-G3); n8n uses its timestamp as C11's t_attack_start.
+-->
+<decoder name="asox-lab">
+  <program_name>^asox-lab$</program_name>
+</decoder>
+
+<decoder name="asox-lab-attack-start">
+  <parent>asox-lab</parent>
+  <prematch>^ASOX_ATTACK_START </prematch>
+  <regex offset="after_prematch">^scenario=(\S+) id=(\S+)</regex>
+  <order>scenario,run_id</order>
+</decoder>

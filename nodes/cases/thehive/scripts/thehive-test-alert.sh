@@ -5,29 +5,37 @@
 # Alerts are created with n8n's own TheHive account (C3), so this also checks
 # that account's permissions. Every test alert has source "asox-test".
 #
-# Usage: nodes/cases/thehive/scripts/thehive-test-alert.sh [SCENARIO...] [--critical-asset]
+# Usage: nodes/cases/thehive/scripts/thehive-test-alert.sh [SCENARIO...] [--critical-asset] [--promote]
 #        nodes/cases/thehive/scripts/thehive-test-alert.sh --cleanup
-#   SCENARIO          ssh, malware, ids, generic, or all (default: ssh)
+#   SCENARIO          ssh, malware, ids, generic (the 4 base templates), login,
+#                     sudo, newuser, ioc, portscan (templates for the Wazuh
+#                     detections in progress), or all (default: ssh)
 #   --critical-asset  mark the host as critical (severity +1, as in the mapping)
-#   --cleanup         delete every alert with source "asox-test"
+#   --promote         also promote each alert to a case with n8n's account, as
+#                     n8n's auto-promotion will (D-N4), and check the case got
+#                     its template's tasks (X-15)
+#   --cleanup         delete every test alert (source "asox-test") and the
+#                     test cases promoted from them (tag "asox-test"; cases are
+#                     deleted as an org-admin, through a temporary API key)
 # Run it on the machine hosting cases, while cases is up.
 set -euo pipefail
 # shellcheck source=nodes/cases/thehive/scripts/lib.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 TEST_SOURCE=asox-test
-SCENARIOS=(ssh malware ids generic)
+SCENARIOS=(ssh malware ids generic login sudo newuser ioc portscan)
 
-CLEANUP=0 CRITICALITY=medium
+CLEANUP=0 PROMOTE=0 CRITICALITY=medium
 wanted=()
 for a in "$@"; do
   case $a in
     -h|--help) print_usage "$0"; exit 0 ;;
     --cleanup) CLEANUP=1 ;;
     --critical-asset) CRITICALITY=critical ;;
+    --promote) PROMOTE=1 ;;
     all) wanted+=("${SCENARIOS[@]}") ;;
-    ssh|malware|ids|generic) wanted+=("$a") ;;
-    *) die "unknown argument: $a (scenarios: ${SCENARIOS[*]} all; options: --critical-asset --cleanup)" ;;
+    ssh|malware|ids|generic|login|sudo|newuser|ioc|portscan) wanted+=("$a") ;;
+    *) die "unknown argument: $a (scenarios: ${SCENARIOS[*]} all; options: --critical-asset --promote --cleanup)" ;;
   esac
 done
 (( ${#wanted[@]} > 0 )) || wanted=(ssh)
@@ -50,14 +58,35 @@ if (( CLEANUP )); then
     th_expect "delete alert $id" "$(as_n8n DELETE "/api/v1/alert/$id")" 200 204 || true
   done
   pass "deleted ${#ids[@]} test alert(s) (source $TEST_SOURCE)"
+  q=$(jq -nc --arg t "$TEST_SOURCE" '{query: [{_name: "listCase"}, {_name: "filter", _eq: {_field: "tags", _value: $t}}]}')
+  r=$(as_n8n POST '/api/v1/query?name=testCases' "$q")
+  if th_expect "list test cases" "$r" 200; then
+    mapfile -t cids < <(http_body "$r" | jq -r '.[]._id')
+    deleted=0
+    # Deleting a case needs an org-admin (n8n's analyst profile can't): use a
+    # temporary key of the bootstrap account, revoked on exit.
+    if (( ${#cids[@]} > 0 )); then th_require_ready; th_org_key; fi
+    for id in ${cids[@]+"${cids[@]}"}; do
+      r=$(thehive_org DELETE "/api/v1/case/$id")
+      if [[ $(http_code "$r") =~ ^20[04]$ ]]; then
+        deleted=$((deleted + 1))
+      else
+        warn "case $id: could not delete it (HTTP $(http_code "$r")); delete it in the UI (tag $TEST_SOURCE)"
+      fi
+    done
+    pass "deleted $deleted of ${#cids[@]} test case(s) (tag $TEST_SOURCE)"
+  fi
   finish
   exit 0
 fi
 
 # ---- Scenarios: what Wazuh would have detected ----
 # One line each: template, rule id, level, rule description, agent, MITRE
-# technique, observables (JSON). 203.0.113.66 is the seed IOC published in
-# MISP (C7), so the MISP analyzer finds it when the intel node runs.
+# technique (may be empty), observables (JSON). 203.0.113.66 is the seed IOC
+# published in MISP (C7), so the MISP analyzer finds it when intel runs.
+# login / sudo / newuser / ioc / portscan use rule IDs from Wazuh's built-in
+# ruleset or the ranges of Daniel's rule plan (W1.3); update them when his
+# rules are merged.
 scenario() {
   case $1 in
     ssh) printf '%s\n' ssh-bruteforce 5712 10 \
@@ -68,15 +97,54 @@ scenario() {
           "VirusTotal: Alert - /tmp/eicar.com - 60 engines detected this file" \
           lab-agent T1204 \
           '[{"dataType":"hash","data":"275a021bbfb6489e54d471899f7db9d1663fc695ec2fe2a2c4538aabf651fd0f","tags":["sha256"],"message":"EICAR test file","ioc":true},{"dataType":"filename","data":"/tmp/eicar.com","tags":["path"]},{"dataType":"hostname","data":"lab-agent","tags":["agent"]}]' ;;
-    ids) printf '%s\n' ids-network-alert 20101 8 \
-          "IDS event: ET SCAN Nmap Scripting Engine User-Agent Detected" \
+    ids) printf '%s\n' ids-network-alert 86601 10 \
+          "Suricata: Alert - ET SCAN Nmap Scripting Engine User-Agent Detected" \
           lab-agent T1046 \
-          '[{"dataType":"ip","data":"198.51.100.23","tags":["src"],"message":"Scanner"},{"dataType":"ip","data":"192.168.1.20","tags":["dst"]},{"dataType":"user-agent","data":"Mozilla/5.00 (Nmap Scripting Engine)"}]' ;;
+          '[{"dataType":"ip","data":"198.51.100.23","tags":["src"],"message":"data.src_ip (scanner)"},{"dataType":"ip","data":"192.168.1.20","tags":["dst"],"message":"data.dest_ip, data.dest_port 80"},{"dataType":"user-agent","data":"Mozilla/5.00 (Nmap Scripting Engine)"},{"dataType":"hostname","data":"lab-agent","tags":["agent"]}]' ;;
     generic) printf '%s\n' wazuh-generic 31151 10 \
           "Multiple web server 400 error codes from same source ip." \
           lab-agent T1595 \
           '[{"dataType":"ip","data":"198.51.100.77","tags":["src"]},{"dataType":"hostname","data":"lab-agent","tags":["agent"]}]' ;;
+    login) printf '%s\n' suspicious-login 40112 12 \
+          "Multiple authentication failures followed by a success." \
+          lab-agent T1078 \
+          '[{"dataType":"ip","data":"203.0.113.66","tags":["src"]},{"dataType":"user-account","data":"admin","tags":["target"]},{"dataType":"hostname","data":"lab-agent","tags":["agent"]}]' ;;
+    sudo) printf '%s\n' privilege-escalation 5404 10 \
+          "Three failed attempts to run sudo." \
+          lab-agent T1548 \
+          '[{"dataType":"user-account","data":"intern","tags":["src"]},{"dataType":"hostname","data":"lab-agent","tags":["agent"]}]' ;;
+    newuser) printf '%s\n' account-change 5902 8 \
+          "New user added to the system." \
+          lab-agent T1136 \
+          '[{"dataType":"user-account","data":"backup2","tags":["new"]},{"dataType":"hostname","data":"lab-agent","tags":["agent"]}]' ;;
+    ioc) printf '%s\n' ioc-match 103001 12 \
+          "IOC match: source IP found in MISP list misp-ip." \
+          lab-agent "" \
+          '[{"dataType":"ip","data":"203.0.113.66","tags":["src"],"message":"Seed IOC published in MISP","ioc":true},{"dataType":"hostname","data":"lab-agent","tags":["agent"]}]' ;;
+    portscan) printf '%s\n' network-scan 104010 10 \
+          "pfSense: multiple blocked connections from the same source (port scan)." \
+          pfsense-fw T1046 \
+          '[{"dataType":"ip","data":"198.51.100.23","tags":["src"]},{"dataType":"hostname","data":"pfsense-fw","tags":["agent"]}]' ;;
   esac
+}
+
+# promote ALERT_ID TEMPLATE: promote the alert to a case as n8n would, then
+# count the case's tasks (they come from the template).
+promote() {
+  local r case_id number tasks
+  r=$(as_n8n POST "/api/v1/alert/$1/case" "$(jq -nc --arg t "$2" '{caseTemplate: $t}')")
+  th_expect "promote alert $1" "$r" 200 201 || return 1
+  case_id=$(http_body "$r" | jq -r '._id')
+  number=$(http_body "$r" | jq -r '.number // "?"')
+  r=$(as_n8n POST '/api/v1/query?name=testCaseTasks' \
+      "$(jq -nc --arg id "$case_id" '{query: [{_name: "getCase", idOrName: $id}, {_name: "tasks"}]}')")
+  th_expect "read tasks of case $case_id" "$r" 200 || return 1
+  tasks=$(http_body "$r" | jq 'length')
+  if (( tasks > 0 )); then
+    pass "  promoted to case #$number with $tasks tasks from $2 (n8n's account can promote: X-15)"
+  else
+    fail "  case #$number has no tasks: template $2 wasn't applied"
+  fi
 }
 
 for s in "${wanted[@]}"; do
@@ -87,29 +155,30 @@ for s in "${wanted[@]}"; do
   severity=$(th_severity "$level" "$CRITICALITY")
   body=$(jq -nc \
     --arg src "$TEST_SOURCE" --arg ref "$alert_id" --arg tpl "$template" --arg desc "$desc" \
-    --arg agent "$agent" --arg mitre "$mitre" --arg crit "$CRITICALITY" \
+    --arg agent "$agent" --arg mitre "$mitre" --arg crit "$CRITICALITY" --arg tag "$TEST_SOURCE" \
     --argjson rule "$rule" --argjson level "$level" --argjson sev "$severity" \
     --argjson date "$((now * 1000))" --argjson obs "$obs" '{
       type: "wazuh", source: $src, sourceRef: $ref,
       title: "\($desc) (\($agent))",
-      description: "**Test alert** created by thehive-test-alert.sh (not a real detection).\n\n| Field | Value |\n|---|---|\n| Wazuh rule | \($rule), level \($level) |\n| Description | \($desc) |\n| Agent | \($agent) |\n| MITRE ATT&CK | \($mitre) |\n| Wazuh alert ID | \($ref) |",
+      description: "**Test alert** created by thehive-test-alert.sh (not a real detection).\n\n| Field | Value |\n|---|---|\n| Wazuh rule | \($rule), level \($level) |\n| Description | \($desc) |\n| Agent | \($agent) |\n| MITRE ATT&CK | \(if $mitre == "" then "-" else $mitre end) |\n| Wazuh alert ID | \($ref) |",
       severity: $sev, tlp: 2, pap: 2, date: $date,
-      tags: ["wazuh", "test", "rule:\($rule)", "agent:\($agent)", "attack.\($mitre | ascii_downcase)"],
+      tags: (["wazuh", $tag, "rule:\($rule)", "agent:\($agent)"] + (if $mitre == "" then [] else ["attack.\($mitre | ascii_downcase)"] end)),
       caseTemplate: $tpl,
-      customFields: [
+      customFields: ([
         {name: "wazuh-alert-id", value: $ref},
         {name: "wazuh-rule-id", value: $rule},
         {name: "wazuh-rule-level", value: $level},
         {name: "wazuh-agent-name", value: $agent},
-        {name: "mitre-technique", value: $mitre},
         {name: "asset-criticality", value: $crit},
         {name: "playbook", value: "manual-test"}
-      ],
+      ] + (if $mitre == "" then [] else [{name: "mitre-technique", value: $mitre}] end)),
       observables: $obs
     }')
   r=$(as_n8n POST /api/v1/alert "$body")
   if th_expect "$s: create alert" "$r" 200 201; then
-    pass "$s: alert $(http_body "$r" | jq -r '._id') created (severity $severity, template $template) -> ${THEHIVE_API}/alerts"
+    id=$(http_body "$r" | jq -r '._id')
+    pass "$s: alert $id created (severity $severity, template $template) -> ${THEHIVE_API}/alerts"
+    if (( PROMOTE )); then promote "$id" "$template" || true; fi
   fi
 done
 

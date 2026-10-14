@@ -1,0 +1,42 @@
+# Cases for rules/1002-linux-auth.xml and decoders/1002-linux-auth.xml.
+# Attacker addresses are documentation ranges.
+
+case root SSH login
+expect rule=100200 level=10 groups=asox,linux,sshd,authentication_success
+log Oct  8 10:00:01 lab-agent sshd[1234]: Accepted password for root from 198.51.100.30 port 4242 ssh2
+
+case normal SSH login stays at the built-in level
+expect rule=5715 level=3
+log Oct  8 10:00:01 lab-agent sshd[1234]: Accepted password for labuser from 198.51.100.30 port 4242 ssh2
+
+case usermod adds a user to sudo
+expect rule=100211 level=10 groups=asox,linux,adduser,account_changed decoder=asox-usermod
+log Oct  8 10:00:02 lab-agent usermod[2100]: add 'svc-backup' to group 'sudo'
+
+case usermod adds a user to docker (root-equivalent)
+expect rule=100211 level=10
+log Oct  8 10:00:02 lab-agent usermod[2100]: add 'svc-backup' to group 'docker'
+
+case usermod adds a user to an ordinary group
+expect rule=100210 level=3 groups=adduser
+log Oct  8 10:00:02 lab-agent usermod[2100]: add 'svc-backup' to group 'users'
+
+case usermod shadow group line does not alert
+expect rule=none
+log Oct  8 10:00:02 lab-agent usermod[2100]: add 'svc-backup' to shadow group 'sudo'
+
+case usermod sudo-like name is not sudo
+expect rule=100210 level=3
+log Oct  8 10:00:02 lab-agent usermod[2100]: add 'svc-backup' to group 'sudoers-audit'
+
+case gpasswd adds a user to sudo
+expect rule=100212 level=10 groups=asox,linux,adduser
+log Oct  8 10:00:03 lab-agent gpasswd[2101]: user svc-backup added by root to group sudo
+
+case gpasswd adds a user to wheel (built-in 2961 is sudo only)
+expect rule=100212 level=10
+log Oct  8 10:00:03 lab-agent gpasswd[2101]: user svc-backup added by root to group wheel
+
+case gpasswd ordinary group stays at the built-in level
+expect rule=2960 level=2
+log Oct  8 10:00:03 lab-agent gpasswd[2101]: user svc-backup added by root to group users

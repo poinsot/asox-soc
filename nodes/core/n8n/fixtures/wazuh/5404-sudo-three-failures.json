@@ -1,0 +1,78 @@
+{
+  "timestamp": "2026-10-09T20:38:30.620+0000",
+  "rule": {
+    "level": 10,
+    "description": "Three failed attempts to run sudo",
+    "id": "5404",
+    "mitre": {
+      "id": [
+        "T1548.003"
+      ],
+      "tactic": [
+        "Privilege Escalation",
+        "Defense Evasion"
+      ],
+      "technique": [
+        "Sudo and Sudo Caching"
+      ]
+    },
+    "firedtimes": 2,
+    "mail": true,
+    "groups": [
+      "syslog",
+      "sudo"
+    ],
+    "pci_dss": [
+      "10.2.4",
+      "10.2.5"
+    ],
+    "gpg13": [
+      "7.8"
+    ],
+    "gdpr": [
+      "IV_35.7.d",
+      "IV_32.2"
+    ],
+    "hipaa": [
+      "164.312.b"
+    ],
+    "nist_800_53": [
+      "AU.14",
+      "AC.7"
+    ],
+    "tsc": [
+      "CC6.1",
+      "CC6.8",
+      "CC7.2",
+      "CC7.3"
+    ]
+  },
+  "agent": {
+    "id": "001",
+    "name": "lab-agent",
+    "ip": "172.18.0.7"
+  },
+  "manager": {
+    "name": "wazuh-manager"
+  },
+  "id": "1791578310.19749",
+  "full_log": "Oct  9 13:38:29 lab-agent sudo: labuser : 3 incorrect password attempts ; TTY=pts/0 ; PWD=/home/labuser ; USER=root ; COMMAND=/bin/bash asox_run=1c19a013-f9ae-4cc3-b2d0-b9040b38291d",
+  "predecoder": {
+    "program_name": "sudo",
+    "timestamp": "Oct  9 13:38:29",
+    "hostname": "lab-agent"
+  },
+  "decoder": {
+    "parent": "sudo",
+    "name": "sudo",
+    "ftscomment": "First time user executed the sudo command"
+  },
+  "data": {
+    "srcuser": "labuser",
+    "dstuser": "root",
+    "tty": "pts/0",
+    "pwd": "/home/labuser",
+    "command": "/bin/bash asox_run=1c19a013-f9ae-4cc3-b2d0-b9040b38291d"
+  },
+  "location": "/var/log/asox-lab/test.log"
+}

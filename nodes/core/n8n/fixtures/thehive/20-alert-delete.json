@@ -1,0 +1,30 @@
+{
+  "_id": "~40984720",
+  "_type": "Audit",
+  "_createdBy": "analyst@asox.local",
+  "_createdAt": 1790801533190,
+  "action": "delete",
+  "requestId": "3746dfb99015d4e6:7c222b5d:1a0f409c719:-8000:91",
+  "rootId": "~5394560",
+  "details": {},
+  "objectId": "~40984640",
+  "objectType": "Alert",
+  "context": {
+    "_id": "~5394560",
+    "_type": "Organisation",
+    "_createdBy": "admin@thehive.local",
+    "_createdAt": 1790397194350,
+    "name": "SOC",
+    "description": "ASOX SOC",
+    "taskRule": "manual",
+    "observableRule": "manual",
+    "links": [],
+    "locked": false,
+    "extraData": {}
+  },
+  "mainAction": true,
+  "organisation": {
+    "organisationId": "~5394560",
+    "organisation": "SOC"
+  }
+}

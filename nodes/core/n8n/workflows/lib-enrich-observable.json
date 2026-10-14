@@ -1,0 +1,941 @@
+{
+  "id": "asoxLibEnrichObs",
+  "name": "lib-enrich-observable",
+  "active": true,
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## lib-enrich-observable (N8N-2.4, C6)\n**Trigger:** called by playbooks (pb-generic) through Execute Workflow, after the TheHive alert was **created** (a duplicate is not re-enriched), waiting for the result.\n**Inputs:** `{thehive_alert_id, wazuh_alert_id, observables: <lib-extract-observables observables, with the tags lib-misp-warninglist added>, tlp, pap, config: <lib-config>, context}`.\n**Actions taken:** (1) plan from lib-config `enrichment` (README \"Enrichment policy\"): never the agent's own observables or internal ranges, documentation ranges to local analyzers only, values on a MISP warninglist (tag `warninglist`, C10) to local analyzers only while `misp_warninglist.skip_online_analyzers` is true, TLP/PAP of the alert against each analyzer's max, disabled analyzers and unsupported dataTypes skipped, at most `max_observables_per_alert`; (2) if any job: list Cortex analyzers (name -> id; Cortex down shows here: every job fails `cortex_unreachable`), run each job through lib-cortex-job one after another (Loop Over Items); (3) reduce each report's taxonomies to a verdict (worst wins); (4) for each enriched observable, look up its TheHive id (`getAlert` -> `observables` query) and add tags `asox:verdict=<verdict>`, `analyzer:<name>`, plus `ioc: true` only for a malicious verdict, through lib-thehive-tag-observable.\n**Never** parks the alert, lowers severity, closes or suppresses anything (D12): failures are returned per observable for the writeback.\n**Systems changed:** TheHive (observable tags and IOC flag); Cortex runs read-only lookups.\n**Approval:** not needed (no system changes outside TheHive).\n**Owner:** n8n.\nSuccessful executions are not saved (N8N-6.5): pb-generic's execution holds the result.",
+        "height": 460,
+        "width": 640
+      },
+      "id": "6cf17613-e55b-5ac0-99c2-98b000aaac62",
+      "name": "About this workflow",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -40,
+        -420
+      ]
+    },
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "id": "2e0730b2-f4a0-561e-a5ea-89a453fa5c57",
+      "name": "Called by a workflow",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Enrichment policy (lib-config `enrichment`), pure: which observable goes to\n// which analyzer, and why the others don't. Order of the checks: enrichment\n// off; a never-enrich tag; then per analyzer that supports the dataType:\n// disabled, TLP / PAP above its max, online on a local-only observable, online\n// on a value MISP has on a warninglist (C10; `wl` is lib-config\n// misp_warninglist, the tag is set by lib-misp-warninglist); last, the cap on\n// observables per alert (extraction order).\nfunction planEnrichment(observables, e, tlp, pap, wl) {\n  const jobs = [];\n  const perObservable = [];\n  const warnings = [];\n  if (e.concurrency !== 1) warnings.push(`enrichment.concurrency ${e.concurrency} is not supported yet: jobs ran one after another`);\n  const wlTag = wl?.skip_online_analyzers === true && typeof wl.tag === 'string' ? wl.tag : null;\n  let eligible = 0;\n  for (const o of observables) {\n    const entry = { dataType: o.dataType, data: o.data, tags: o.tags, status: 'skipped', reasons: [], analyzers: [] };\n    perObservable.push(entry);\n    if (e.enabled !== true) { entry.reasons.push('enrichment disabled in lib-config'); continue; }\n    const never = e.skip.never_tags.filter((t) => o.tags.includes(t));\n    if (never.length > 0) {\n      entry.reasons.push(...never.map((t) => e.skip.reason_by_tag[t] ?? `tag ${t}`));\n      continue;\n    }\n    const localOnly = e.skip.local_only_tags.filter((t) => o.tags.includes(t));\n    const supporting = e.analyzers.filter((a) => a.data_types.includes(o.dataType));\n    if (supporting.length === 0) { entry.reasons.push(`no analyzer for dataType ${o.dataType}`); continue; }\n    const usable = [];\n    for (const a of supporting) {\n      if (a.enabled !== true) { entry.reasons.push(`${a.name} disabled`); continue; }\n      if (tlp > a.max_tlp) { entry.reasons.push(`${a.name}: alert TLP ${tlp} above its max ${a.max_tlp}`); continue; }\n      if (pap > a.max_pap) { entry.reasons.push(`${a.name}: alert PAP ${pap} above its max ${a.max_pap}`); continue; }\n      if (a.kind !== 'local' && localOnly.length > 0) { entry.reasons.push(`${a.name}: online, and ${localOnly.join(', ')} goes to local analyzers only`); continue; }\n      if (a.kind !== 'local' && wlTag !== null && o.tags.includes(wlTag)) { entry.reasons.push(`${a.name}: online, and the value is on a MISP warninglist (tag ${wlTag}): local analyzers only`); continue; }\n      usable.push(a);\n    }\n    if (usable.length === 0) continue;\n    eligible += 1;\n    if (eligible > e.max_observables_per_alert) {\n      entry.reasons = [`over max_observables_per_alert (${e.max_observables_per_alert})`];\n      continue;\n    }\n    entry.status = 'planned';\n    entry.analyzers = usable.map((a) => a.name);\n    for (const a of usable) {\n      jobs.push({ key: `${o.dataType}:${o.data}`, dataType: o.dataType, data: o.data,\n        analyzer: a.name, timeout_s: a.timeout_s, tlp, pap, force: e.force === true });\n    }\n  }\n  return { jobs, perObservable, warnings };\n}\n\n// One analyzer report -> verdict: each taxonomy level through `levels`, then\n// the analyzer's overrides; the worst (highest in `rank`) wins. No taxonomy, or\n// only unknown levels -> `empty`.\nfunction verdictOf(analyzer, taxonomies, v) {\n  let best = null;\n  const unknown = [];\n  for (const t of Array.isArray(taxonomies) ? taxonomies : []) {\n    let level = v.levels[String(t?.level ?? '').toLowerCase()];\n    if (level === undefined) { unknown.push(String(t?.level)); continue; }\n    level = v.overrides?.[analyzer]?.[level] ?? level;\n    if (best === null || v.rank.indexOf(level) > v.rank.indexOf(best)) best = level;\n  }\n  return { verdict: best ?? v.empty, unknown };\n}\n\n// Plan + job results -> per-observable outcome and the TheHive tag updates.\nfunction reduceResults(plan, results, e) {\n  const v = e.verdict;\n  const byKey = new Map();\n  for (const r of results) {\n    if (!byKey.has(r.key)) byKey.set(r.key, []);\n    byKey.get(r.key).push(r);\n  }\n  const updates = [];\n  const warnings = [];\n  const observables = plan.perObservable.map((p) => {\n    if (p.status !== 'planned') return { ...p };\n    const rs = byKey.get(`${p.dataType}:${p.data}`) ?? [];\n    const ok = [];\n    const failed = [];\n    for (const r of rs) {\n      if (r.outcome === 'success') {\n        const { verdict, unknown } = verdictOf(r.analyzer, r.taxonomies, v);\n        if (unknown.length > 0) warnings.push(`${r.analyzer} on ${p.data}: unknown taxonomy level(s) ${unknown.join(', ')} ignored`);\n        ok.push({ analyzer: r.analyzer, verdict, job_id: r.job_id, from_cache: r.from_cache === true,\n          taxonomies: (r.taxonomies ?? []).map((t) => `${t.namespace}:${t.predicate}=${JSON.stringify(t.value)} (${t.level})`) });\n      } else {\n        failed.push({ analyzer: r.analyzer, class: r.class, attempts: r.attempts ?? null, job_id: r.job_id ?? null, message: r.message ?? null });\n      }\n    }\n    for (const a of p.analyzers) {\n      if (!rs.some((r) => r.analyzer === a)) failed.push({ analyzer: a, class: 'no_result', attempts: null, job_id: null, message: 'no result returned' });\n    }\n    const out = { dataType: p.dataType, data: p.data, tags: p.tags, reasons: p.reasons, results: ok, failed };\n    if (ok.length === 0) return { ...out, status: 'failed', verdict: null };\n    const verdict = ok.map((x) => x.verdict).reduce((a, b) => (v.rank.indexOf(b) > v.rank.indexOf(a) ? b : a));\n    const ioc = e.ioc_verdicts.includes(verdict);\n    const addTags = [`${e.tags.verdict_prefix}${verdict}`, ...ok.map((x) => `${e.tags.analyzer_prefix}${x.analyzer}`)];\n    updates.push({ key: `${p.dataType}:${p.data}`, dataType: p.dataType, data: p.data, add_tags: addTags, ioc });\n    return { ...out, status: 'enriched', verdict, ioc, add_tags: addTags };\n  });\n  return { observables, updates, warnings };\n}\n\n// --- this node: plan the jobs (pure, no calls) ----------------------------\nconst i = $('Called by a workflow').first().json;\nif (!i.config?.enrichment) throw new Error('lib-enrich-observable needs the lib-config output as `config`');\nif (!Array.isArray(i.observables)) throw new Error('lib-enrich-observable needs `observables` (lib-extract-observables)');\nconst plan = planEnrichment(i.observables, i.config.enrichment, i.tlp, i.pap, i.config.misp_warninglist);\nreturn [{ json: plan }];\n"
+      },
+      "id": "0516ded1-2098-5e92-9956-d2a3160722ac",
+      "name": "Plan",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        520,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "ff61fe6e-d3fd-55fb-92ad-c9eac2218180",
+              "leftValue": "={{ $json.jobs.length > 0 }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "90a25302-418d-5f6f-b323-5ad9bc54da25",
+      "name": "Jobs planned?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        780,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.CORTEX_URL }}/api/analyzer",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "cortexApi",
+        "options": {
+          "timeout": "={{ $('Called by a workflow').first().json.config.cortex_http.timeout_ms }}",
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "389422e5-03bb-54c5-8e94-beb45fdb347b",
+      "name": "List Cortex analyzers",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1040,
+        -100
+      ],
+      "credentials": {
+        "cortexApi": {
+          "id": "asoxCortexApi001",
+          "name": "Cortex API (n8n)"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Retry policy for Cortex calls (N8N-6.2; lib-config cortex_http): a\n// connection error, a timeout or HTTP 5xx -> wait and call again; anything\n// else (2xx, and 4xx, which a retry never fixes) -> passed on. A transient\n// failure on the last call is passed on as an error with the number of calls.\nconst r = $input.first().json;\nconst policy = $('Called by a workflow').first().json.config.cortex_http;\nconst NODE = 'List Cortex analyzers';\nconst attempt = $runIndex + 1; // this node runs once per call\nconst status = typeof r.statusCode === 'number' ? r.statusCode : null;\nconst thrown = r.error !== undefined && status === null; // HTTP node error output\nconst NETWORK = /ECONNREFUSED|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|ECONNRESET|EHOSTUNREACH|ENETUNREACH|ECONNABORTED|timeout|timed out|socket hang up|connection cannot be established/i;\nconst transient = thrown ? NETWORK.test(JSON.stringify(r)) : status >= 500;\nconst calls = policy.retry_waits_s.length + 1;\nif (transient && attempt < calls) {\n  return [{ json: { decision: 'retry', stage: NODE, attempt, wait_s: policy.retry_waits_s[attempt - 1],\n    reason: thrown ? 'connection error or timeout' : `HTTP ${status}` } }];\n}\nif (thrown || transient) {\n  const e = r.error;\n  const detail = thrown\n    ? (typeof e === 'string' ? e : [e?.message, e?.description].filter(Boolean).join(': ') || JSON.stringify(r))\n    : `HTTP ${status}: ${typeof r.body === 'string' ? r.body : JSON.stringify(r.body)}`;\n  return [{ json: { decision: 'error', stage: NODE, node: NODE, attempts: attempt, retry_exhausted: transient,\n    http_status: status, error_code: e?.code ?? e?.cause?.code ?? null,\n    message: `${detail}`.slice(0, 1000) + (transient ? ` (${attempt} calls)` : '') } }];\n}\nreturn [{ json: { ...r, decision: 'response', attempts: attempt } }];\n"
+      },
+      "id": "09822912-0857-51bf-a7e4-f8b9b5f7727e",
+      "name": "Assess: List Cortex analyzers",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1300,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "96083140-bfa2-59b9-9b48-2e3193546d5c",
+              "leftValue": "={{ $json.decision === 'retry' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "34a37ed4-8e3c-5495-b27a-a8feef06572a",
+      "name": "Retry: List Cortex analyzers?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1560,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "resume": "timeInterval",
+        "amount": "={{ $json.wait_s }}",
+        "unit": "seconds"
+      },
+      "id": "0508162a-e217-5eac-b2cd-a903b93b67bf",
+      "name": "Wait before retry: List Cortex analyzers",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1560,
+        -300
+      ],
+      "webhookId": "0870feb8-fbb1-5c23-a50c-91996f6f4bcb"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "79366c30-9daa-5860-8dd5-f99fa208f3f5",
+              "leftValue": "={{ $json.decision === 'response' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "d5450334-34d8-5d66-8129-befec8789680",
+      "name": "Answered: List Cortex analyzers?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1820,
+        -40
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Analyzer IDs differ per Cortex instance: resolve each job's analyzer name\n// (lib-config) to its ID as user n8n sees it. Emits one lib-cortex-job input\n// per job; jobs that can't run are carried on every item as `unresolved`.\n// With nothing to run, one item {nothing_to_run: true}.\nconst r = $input.first().json;\nconst i = $('Called by a workflow').first().json;\nconst jobs = $('Plan').first().json.jobs;\nconst fail = (j, cls, message) => ({ kind: 'cortex_job_result', key: j.key, dataType: j.dataType, data: j.data,\n  analyzer: j.analyzer, job_id: null, from_cache: false, outcome: 'failed', class: cls, attempts: null, message });\nif (!(r.statusCode >= 200 && r.statusCode < 300) || !Array.isArray(r.body)) {\n  const msg = `analyzer list: HTTP ${r.statusCode}`;\n  const unresolved = jobs.map((j) => fail(j, r.statusCode >= 400 && r.statusCode < 500 ? 'cortex_4xx' : 'cortex_error', msg));\n  return [{ json: { nothing_to_run: true, unresolved } }];\n}\nconst ids = Object.fromEntries(r.body.map((a) => [a.name, a.id]));\nconst unresolved = jobs.filter((j) => !ids[j.analyzer])\n  .map((j) => fail(j, 'analyzer_not_found', `${j.analyzer} is not enabled in Cortex for user n8n`));\nconst toRun = jobs.filter((j) => ids[j.analyzer]);\nif (toRun.length === 0) return [{ json: { nothing_to_run: true, unresolved } }];\nconst message = `asox-n8n enrichment: wazuh-alert-id=${i.wazuh_alert_id}, thehive-alert=${i.thehive_alert_id}`;\nreturn toRun.map((j) => ({ json: { job: { ...j, analyzer_id: ids[j.analyzer] }, cortex_http: i.config.cortex_http, message, unresolved } }));\n"
+      },
+      "id": "9551c7e3-d717-517d-8340-b480375183cf",
+      "name": "Resolve analyzers",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2080,
+        -200
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// The analyzer list failed for good: every planned job fails with that class\n// (no per-job calls, so a Cortex outage costs one retried call per alert).\nconst x = $input.first().json;\nconst cls = x.retry_exhausted ? 'cortex_unreachable' : 'cortex_error';\nreturn $('Plan').first().json.jobs.map((j) => ({ json: { kind: 'cortex_job_result', key: j.key, dataType: j.dataType,\n  data: j.data, analyzer: j.analyzer, job_id: null, from_cache: false, outcome: 'failed', class: cls,\n  attempts: x.attempts ?? null, message: x.message ?? null } }));\n"
+      },
+      "id": "b1080e31-66f6-5824-99a5-20ca93c6568b",
+      "name": "Cortex unreachable",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2080,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "a3c71c6d-2e59-5a66-94da-4fe54df5de24",
+              "leftValue": "={{ $json.nothing_to_run !== true }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a3674303-7e31-5f93-8317-63f23867e62e",
+      "name": "Jobs to run?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2340,
+        -200
+      ]
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "id": "b9a7510a-5ebc-564d-93b5-9d9bb640ecc3",
+      "name": "One job at a time",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        2600,
+        -300
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "asoxLibCortexJob",
+          "cachedResultName": "lib-cortex-job"
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "11f547ba-37ad-5d85-a175-065c7e284b92",
+      "name": "Cortex job (lib-cortex-job)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        2860,
+        -440
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Enrichment policy (lib-config `enrichment`), pure: which observable goes to\n// which analyzer, and why the others don't. Order of the checks: enrichment\n// off; a never-enrich tag; then per analyzer that supports the dataType:\n// disabled, TLP / PAP above its max, online on a local-only observable, online\n// on a value MISP has on a warninglist (C10; `wl` is lib-config\n// misp_warninglist, the tag is set by lib-misp-warninglist); last, the cap on\n// observables per alert (extraction order).\nfunction planEnrichment(observables, e, tlp, pap, wl) {\n  const jobs = [];\n  const perObservable = [];\n  const warnings = [];\n  if (e.concurrency !== 1) warnings.push(`enrichment.concurrency ${e.concurrency} is not supported yet: jobs ran one after another`);\n  const wlTag = wl?.skip_online_analyzers === true && typeof wl.tag === 'string' ? wl.tag : null;\n  let eligible = 0;\n  for (const o of observables) {\n    const entry = { dataType: o.dataType, data: o.data, tags: o.tags, status: 'skipped', reasons: [], analyzers: [] };\n    perObservable.push(entry);\n    if (e.enabled !== true) { entry.reasons.push('enrichment disabled in lib-config'); continue; }\n    const never = e.skip.never_tags.filter((t) => o.tags.includes(t));\n    if (never.length > 0) {\n      entry.reasons.push(...never.map((t) => e.skip.reason_by_tag[t] ?? `tag ${t}`));\n      continue;\n    }\n    const localOnly = e.skip.local_only_tags.filter((t) => o.tags.includes(t));\n    const supporting = e.analyzers.filter((a) => a.data_types.includes(o.dataType));\n    if (supporting.length === 0) { entry.reasons.push(`no analyzer for dataType ${o.dataType}`); continue; }\n    const usable = [];\n    for (const a of supporting) {\n      if (a.enabled !== true) { entry.reasons.push(`${a.name} disabled`); continue; }\n      if (tlp > a.max_tlp) { entry.reasons.push(`${a.name}: alert TLP ${tlp} above its max ${a.max_tlp}`); continue; }\n      if (pap > a.max_pap) { entry.reasons.push(`${a.name}: alert PAP ${pap} above its max ${a.max_pap}`); continue; }\n      if (a.kind !== 'local' && localOnly.length > 0) { entry.reasons.push(`${a.name}: online, and ${localOnly.join(', ')} goes to local analyzers only`); continue; }\n      if (a.kind !== 'local' && wlTag !== null && o.tags.includes(wlTag)) { entry.reasons.push(`${a.name}: online, and the value is on a MISP warninglist (tag ${wlTag}): local analyzers only`); continue; }\n      usable.push(a);\n    }\n    if (usable.length === 0) continue;\n    eligible += 1;\n    if (eligible > e.max_observables_per_alert) {\n      entry.reasons = [`over max_observables_per_alert (${e.max_observables_per_alert})`];\n      continue;\n    }\n    entry.status = 'planned';\n    entry.analyzers = usable.map((a) => a.name);\n    for (const a of usable) {\n      jobs.push({ key: `${o.dataType}:${o.data}`, dataType: o.dataType, data: o.data,\n        analyzer: a.name, timeout_s: a.timeout_s, tlp, pap, force: e.force === true });\n    }\n  }\n  return { jobs, perObservable, warnings };\n}\n\n// One analyzer report -> verdict: each taxonomy level through `levels`, then\n// the analyzer's overrides; the worst (highest in `rank`) wins. No taxonomy, or\n// only unknown levels -> `empty`.\nfunction verdictOf(analyzer, taxonomies, v) {\n  let best = null;\n  const unknown = [];\n  for (const t of Array.isArray(taxonomies) ? taxonomies : []) {\n    let level = v.levels[String(t?.level ?? '').toLowerCase()];\n    if (level === undefined) { unknown.push(String(t?.level)); continue; }\n    level = v.overrides?.[analyzer]?.[level] ?? level;\n    if (best === null || v.rank.indexOf(level) > v.rank.indexOf(best)) best = level;\n  }\n  return { verdict: best ?? v.empty, unknown };\n}\n\n// Plan + job results -> per-observable outcome and the TheHive tag updates.\nfunction reduceResults(plan, results, e) {\n  const v = e.verdict;\n  const byKey = new Map();\n  for (const r of results) {\n    if (!byKey.has(r.key)) byKey.set(r.key, []);\n    byKey.get(r.key).push(r);\n  }\n  const updates = [];\n  const warnings = [];\n  const observables = plan.perObservable.map((p) => {\n    if (p.status !== 'planned') return { ...p };\n    const rs = byKey.get(`${p.dataType}:${p.data}`) ?? [];\n    const ok = [];\n    const failed = [];\n    for (const r of rs) {\n      if (r.outcome === 'success') {\n        const { verdict, unknown } = verdictOf(r.analyzer, r.taxonomies, v);\n        if (unknown.length > 0) warnings.push(`${r.analyzer} on ${p.data}: unknown taxonomy level(s) ${unknown.join(', ')} ignored`);\n        ok.push({ analyzer: r.analyzer, verdict, job_id: r.job_id, from_cache: r.from_cache === true,\n          taxonomies: (r.taxonomies ?? []).map((t) => `${t.namespace}:${t.predicate}=${JSON.stringify(t.value)} (${t.level})`) });\n      } else {\n        failed.push({ analyzer: r.analyzer, class: r.class, attempts: r.attempts ?? null, job_id: r.job_id ?? null, message: r.message ?? null });\n      }\n    }\n    for (const a of p.analyzers) {\n      if (!rs.some((r) => r.analyzer === a)) failed.push({ analyzer: a, class: 'no_result', attempts: null, job_id: null, message: 'no result returned' });\n    }\n    const out = { dataType: p.dataType, data: p.data, tags: p.tags, reasons: p.reasons, results: ok, failed };\n    if (ok.length === 0) return { ...out, status: 'failed', verdict: null };\n    const verdict = ok.map((x) => x.verdict).reduce((a, b) => (v.rank.indexOf(b) > v.rank.indexOf(a) ? b : a));\n    const ioc = e.ioc_verdicts.includes(verdict);\n    const addTags = [`${e.tags.verdict_prefix}${verdict}`, ...ok.map((x) => `${e.tags.analyzer_prefix}${x.analyzer}`)];\n    updates.push({ key: `${p.dataType}:${p.data}`, dataType: p.dataType, data: p.data, add_tags: addTags, ioc });\n    return { ...out, status: 'enriched', verdict, ioc, add_tags: addTags };\n  });\n  return { observables, updates, warnings };\n}\n\n// --- this node: job results -> verdict per observable ---------------------\n// Reached by exactly one path: no job planned, Cortex unreachable, nothing to\n// run after resolving, or the job loop done. Job results come as input items;\n// jobs that couldn't run are on the Resolve analyzers items.\nconst i = $('Called by a workflow').first().json;\nconst plan = $('Plan').first().json;\nconst results = $input.all().map((x) => x.json).filter((j) => j.kind === 'cortex_job_result');\nif ($('Resolve analyzers').isExecuted) results.push(...($('Resolve analyzers').first().json.unresolved ?? []));\nconst red = reduceResults(plan, results, i.config.enrichment);\nreturn [{ json: { ...red, jobs: results.length, jobs_from_cache: results.filter((r) => r.from_cache).length,\n  cortex_called: $('List Cortex analyzers').isExecuted, warnings: [...plan.warnings, ...red.warnings] } }];\n"
+      },
+      "id": "ad5e7027-8dbe-57f0-89db-84fa1a106d25",
+      "name": "Reduce",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3120,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "857f4d3a-0677-5c21-b82b-9c476d8dbed3",
+              "leftValue": "={{ $json.updates.length > 0 }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "146d695f-e096-5fe8-9e90-b30ade7ef7f1",
+      "name": "Anything to tag?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        3380,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.THEHIVE_URL }}/api/v1/query",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "theHiveProjectApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ query: [ { _name: 'getAlert', idOrName: $('Called by a workflow').first().json.thehive_alert_id }, { _name: 'observables' }, { _name: 'page', from: 0, to: 1000 } ] }) }}",
+        "options": {
+          "timeout": "={{ $('Called by a workflow').first().json.config.thehive_http.timeout_ms }}",
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "20f0266d-b974-5664-9ad1-fcf8fb991564",
+      "name": "Fetch alert observables",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3640,
+        -100
+      ],
+      "credentials": {
+        "theHiveProjectApi": {
+          "id": "asoxTheHiveApi01",
+          "name": "TheHive API (n8n)"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Retry policy for TheHive calls (N8N-6.2; lib-config thehive_http): a\n// connection error, a timeout or HTTP 5xx -> wait and call again; anything\n// else (2xx, and 4xx, which a retry never fixes) -> passed on. A transient\n// failure on the last call is passed on as an error with the number of calls.\nconst r = $input.first().json;\nconst policy = $('Called by a workflow').first().json.config.thehive_http;\nconst NODE = 'Fetch alert observables';\nconst attempt = $runIndex + 1; // this node runs once per call\nconst status = typeof r.statusCode === 'number' ? r.statusCode : null;\nconst thrown = r.error !== undefined && status === null; // HTTP node error output\nconst NETWORK = /ECONNREFUSED|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|ECONNRESET|EHOSTUNREACH|ENETUNREACH|ECONNABORTED|timeout|timed out|socket hang up|connection cannot be established/i;\nconst transient = thrown ? NETWORK.test(JSON.stringify(r)) : status >= 500;\nconst calls = policy.retry_waits_s.length + 1;\nif (transient && attempt < calls) {\n  return [{ json: { decision: 'retry', stage: NODE, attempt, wait_s: policy.retry_waits_s[attempt - 1],\n    reason: thrown ? 'connection error or timeout' : `HTTP ${status}` } }];\n}\nif (thrown || transient) {\n  const e = r.error;\n  const detail = thrown\n    ? (typeof e === 'string' ? e : [e?.message, e?.description].filter(Boolean).join(': ') || JSON.stringify(r))\n    : `HTTP ${status}: ${typeof r.body === 'string' ? r.body : JSON.stringify(r.body)}`;\n  return [{ json: { decision: 'error', stage: NODE, node: NODE, attempts: attempt, retry_exhausted: transient,\n    http_status: status, error_code: e?.code ?? e?.cause?.code ?? null,\n    message: `${detail}`.slice(0, 1000) + (transient ? ` (${attempt} calls)` : '') } }];\n}\nreturn [{ json: { ...r, decision: 'response', attempts: attempt } }];\n"
+      },
+      "id": "fb1f577b-ba41-561d-9bbe-5df5a9803d63",
+      "name": "Assess: Fetch alert observables",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3900,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "1a24cf20-a917-55d8-99ea-c821939dbe53",
+              "leftValue": "={{ $json.decision === 'retry' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "936c3201-494d-5c7f-8aa2-9ae3d183886b",
+      "name": "Retry: Fetch alert observables?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        4160,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "resume": "timeInterval",
+        "amount": "={{ $json.wait_s }}",
+        "unit": "seconds"
+      },
+      "id": "77e44784-801e-54e1-ba0b-de2f99c67167",
+      "name": "Wait before retry: Fetch alert observables",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        4160,
+        -300
+      ],
+      "webhookId": "2f009e08-bc6c-5f71-8a6e-970d47ce33ac"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c6d34c55-3220-5518-b73b-9082f4a3a41b",
+              "leftValue": "={{ $json.decision === 'response' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a0ba2b79-9a56-5acf-badf-5c4a6c066ecc",
+      "name": "Answered: Fetch alert observables?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        4420,
+        -40
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// TheHive 5.7.6 returns an alert's observables (with their _id) through the\n// query API: getAlert -> observables. Matched on dataType + data.\nconst r = $input.first().json;\nconst i = $('Called by a workflow').first().json;\nconst updates = $('Reduce').first().json.updates;\nif (!(r.statusCode >= 200 && r.statusCode < 300) || !Array.isArray(r.body)) {\n  const cls = r.statusCode >= 400 && r.statusCode < 500 ? 'thehive_4xx' : 'thehive_error';\n  return [{ json: { nothing_to_tag: true, not_tagged: updates.map((u) => ({ key: u.key, class: cls, message: `observable lookup: HTTP ${r.statusCode}` })) } }];\n}\nconst idByKey = new Map(r.body.map((o) => [`${o.dataType}:${o.data}`, o._id]));\nconst not_tagged = updates.filter((u) => !idByKey.has(u.key))\n  .map((u) => ({ key: u.key, class: 'observable_not_found', message: `${u.key} not found on alert ${i.thehive_alert_id}` }));\nconst toTag = updates.filter((u) => idByKey.has(u.key));\nif (toTag.length === 0) return [{ json: { nothing_to_tag: true, not_tagged } }];\nreturn toTag.map((u) => ({ json: { observable_id: idByKey.get(u.key), dataType: u.dataType, data: u.data,\n  add_tags: u.add_tags, ioc: u.ioc, thehive_http: i.config.thehive_http, not_tagged } }));\n"
+      },
+      "id": "d0374bce-e5e4-5a57-a912-1a9213f8e15e",
+      "name": "Match observables",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4420,
+        -200
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "f599c179-5988-522f-83ac-ef5c8148d24c",
+              "leftValue": "={{ $json.nothing_to_tag !== true }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "036b4385-8f3f-5b67-b7be-a7a6a125210c",
+      "name": "Tags to write?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        4680,
+        -200
+      ]
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "id": "ff797071-33fe-5240-a4b5-9fb58082f910",
+      "name": "One observable at a time",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        4940,
+        -300
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "asoxLibThTagObs",
+          "cachedResultName": "lib-thehive-tag-observable"
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "00008654-b746-5cf5-b9da-0de3aeb58874",
+      "name": "Tag observable (lib-thehive-tag-observable)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        5200,
+        -440
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Reached by exactly one path: nothing to tag, the observable lookup failed\n// for good, nothing matched, or the tag loop done.\nconst red = $('Reduce').first().json;\nconst inputs = $input.all().map((x) => x.json);\nconst tagResults = inputs.filter((j) => j.kind === 'tag_result');\nconst lookupError = inputs.find((j) => j.decision === 'error');\nconst notTagged = new Map();\nif ($('Match observables').isExecuted) for (const n of $('Match observables').first().json.not_tagged ?? []) notTagged.set(n.key, n);\nif (lookupError) {\n  for (const u of red.updates) notTagged.set(u.key, { key: u.key, class: lookupError.retry_exhausted ? 'thehive_unreachable' : 'thehive_error',\n    attempts: lookupError.attempts ?? null, message: lookupError.message ?? null });\n}\nfor (const t of tagResults) {\n  if (!t.ok) notTagged.set(`${t.dataType}:${t.data}`, { class: t.class, attempts: t.attempts, message: t.message });\n}\nconst observables = red.observables.map((o) => {\n  if (o.status !== 'enriched') return o;\n  const n = notTagged.get(`${o.dataType}:${o.data}`);\n  return { ...o, tagged: !n, tag_error: n ? { class: n.class, attempts: n.attempts ?? null, message: n.message ?? null } : null };\n});\nconst count = (s) => observables.filter((o) => o.status === s).length;\nreturn [{ json: {\n  ok: true,\n  counts: { observables: observables.length, enriched: count('enriched'), skipped: count('skipped'), failed: count('failed'),\n    jobs: red.jobs, jobs_from_cache: red.jobs_from_cache, tagged: observables.filter((o) => o.tagged === true).length,\n    not_tagged: observables.filter((o) => o.tagged === false).length },\n  cortex_called: red.cortex_called,\n  observables,\n  warnings: red.warnings,\n} }];\n"
+      },
+      "id": "8455211f-dd9a-5886-bfe5-d5647e04c387",
+      "name": "Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5720,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Called by a workflow": {
+      "main": [
+        [
+          {
+            "node": "Plan",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Plan": {
+      "main": [
+        [
+          {
+            "node": "Jobs planned?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Jobs planned?": {
+      "main": [
+        [
+          {
+            "node": "List Cortex analyzers",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Reduce",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "List Cortex analyzers": {
+      "main": [
+        [
+          {
+            "node": "Assess: List Cortex analyzers",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Assess: List Cortex analyzers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Assess: List Cortex analyzers": {
+      "main": [
+        [
+          {
+            "node": "Retry: List Cortex analyzers?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Retry: List Cortex analyzers?": {
+      "main": [
+        [
+          {
+            "node": "Wait before retry: List Cortex analyzers",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Answered: List Cortex analyzers?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait before retry: List Cortex analyzers": {
+      "main": [
+        [
+          {
+            "node": "List Cortex analyzers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Answered: List Cortex analyzers?": {
+      "main": [
+        [
+          {
+            "node": "Resolve analyzers",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Cortex unreachable",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resolve analyzers": {
+      "main": [
+        [
+          {
+            "node": "Jobs to run?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Jobs to run?": {
+      "main": [
+        [
+          {
+            "node": "One job at a time",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Reduce",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "One job at a time": {
+      "main": [
+        [
+          {
+            "node": "Reduce",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Cortex job (lib-cortex-job)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cortex job (lib-cortex-job)": {
+      "main": [
+        [
+          {
+            "node": "One job at a time",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cortex unreachable": {
+      "main": [
+        [
+          {
+            "node": "Reduce",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reduce": {
+      "main": [
+        [
+          {
+            "node": "Anything to tag?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anything to tag?": {
+      "main": [
+        [
+          {
+            "node": "Fetch alert observables",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch alert observables": {
+      "main": [
+        [
+          {
+            "node": "Assess: Fetch alert observables",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Assess: Fetch alert observables",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Assess: Fetch alert observables": {
+      "main": [
+        [
+          {
+            "node": "Retry: Fetch alert observables?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Retry: Fetch alert observables?": {
+      "main": [
+        [
+          {
+            "node": "Wait before retry: Fetch alert observables",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Answered: Fetch alert observables?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait before retry: Fetch alert observables": {
+      "main": [
+        [
+          {
+            "node": "Fetch alert observables",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Answered: Fetch alert observables?": {
+      "main": [
+        [
+          {
+            "node": "Match observables",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Match observables": {
+      "main": [
+        [
+          {
+            "node": "Tags to write?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tags to write?": {
+      "main": [
+        [
+          {
+            "node": "One observable at a time",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "One observable at a time": {
+      "main": [
+        [
+          {
+            "node": "Result",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Tag observable (lib-thehive-tag-observable)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tag observable (lib-thehive-tag-observable)": {
+      "main": [
+        [
+          {
+            "node": "One observable at a time",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataSuccessExecution": "none",
+    "saveDataErrorExecution": "all",
+    "saveManualExecutions": true
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "nodeGroups": [],
+  "tags": [],
+  "pinData": {}
+}

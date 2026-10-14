@@ -5,9 +5,9 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## recv-thehive-event (stub, contract C4)\n**Trigger:** POST /webhook/thehive-event from the TheHive webhook, header `Authorization: Bearer <N8N_WEBHOOK_TOKEN>` required (credential \"ASOX webhook token (Bearer)\": TheHive's webhooks can't send other headers).\n**Inputs:** TheHive event JSON (body).\n**Actions taken:** none (records the event summary only).\n**Systems changed:** none.\n**Approval:** not applicable.\n**Owner:** n8n.",
-        "height": 260,
-        "width": 420
+        "content": "## recv-thehive-event (C4, N8N-1.5)\n**Trigger:** `POST /webhook/thehive-event` from TheHive's webhook (every event of the SOC organisation), token as `Authorization: Bearer` (C4).\n**Inputs:** the TheHive audit event (`operation`, `objectType`, `objectId`, top-level `_createdBy` = the actor, `details`, `object`).\n**Actions taken:** records a summary of every event (operation, object type and id, actor, request id, source, sourceRef), then routes it (first match wins): (1) actor n8n@asox.local (lib-config): ignored, loop prevention; (2) delete: ignored (open question, N8N-1.5); (3) alert update with caseId: promoted; (4) alert update with status; (5) case create; (6) case update with status/stage (closing); (7) Task / Log / Comment: analyst activity; (8) anything else: recorded, no handler. Routes 3-7 end in labelled **no-op stubs** where N8N-5.3 and C11 (N8N-2.9) attach.\n**Systems changed:** none.\n**Approval:** not applicable.\n**Owner:** n8n.\nThe C4 check's test alert is created by n8n's account, so its event ends at (1); the execution is still saved. Error workflow: recv-n8n-error.\nEvents caused by n8n's own account are ignored right after the summary, before lib-config (fast path, N8N-1.4); the execution is still saved.",
+        "height": 360,
+        "width": 620
       },
       "id": "e77fb3fd-3eba-5bd8-b08a-b9d441bd95a6",
       "name": "About this workflow",
@@ -69,6 +69,24 @@
               "name": "source",
               "value": "={{ $json.body.object?.source }}",
               "type": "string"
+            },
+            {
+              "id": "b4363dfe-25d9-5845-9f60-391cdcb59db1",
+              "name": "actor",
+              "value": "={{ $json.body._createdBy }}",
+              "type": "string"
+            },
+            {
+              "id": "94cfcc68-db77-51ad-ba6a-67e40af0ab49",
+              "name": "request_id",
+              "value": "={{ $json.body.requestId }}",
+              "type": "string"
+            },
+            {
+              "id": "1ab1d949-875c-523a-aff2-277500d70734",
+              "name": "source_ref",
+              "value": "={{ $json.body.object?.sourceRef }}",
+              "type": "string"
             }
           ]
         },
@@ -81,6 +99,382 @@
       "position": [
         260,
         0
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "asoxLibConfig001",
+          "cachedResultName": "lib-config"
+        },
+        "options": {}
+      },
+      "id": "5bcf335c-de41-56e6-b3f8-50d97cb5bd67",
+      "name": "Config (lib-config)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        520,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Routing table (N8N-1.5), first match wins. The summary above is kept in this\n// execution for every event, routed or not.\nconst s = $('Event summary').first().json;\nconst body = $('TheHive event').first().json.body ?? {};\nconst cfg = $input.first().json;\nconst details = body.details !== null && typeof body.details === 'object' ? body.details : {};\nconst op = s.operation;\nconst type = s.object_type;\nconst has = (k) => Object.prototype.hasOwnProperty.call(details, k);\nlet route;\nlet status;\nif (s.actor === cfg.thehive.n8n_user) {\n  // TheHive's webhook reports n8n's own writes back to n8n: stop here.\n  route = 'loop'; status = `ignored: caused by ${cfg.thehive.n8n_user} (loop prevention)`;\n} else if (op === 'delete') {\n  // No object and no useful details (ALERT-TO-THEHIVE §6): open question, N8N-1.5.\n  route = 'delete'; status = 'ignored: delete (open question, N8N-1.5)';\n} else if (type === 'Alert' && op === 'update' && has('caseId')) {\n  route = 'alert-promoted'; status = 'stub: alert promoted to a case';\n} else if (type === 'Alert' && op === 'update' && has('status')) {\n  route = 'alert-status'; status = 'stub: alert status changed';\n} else if (type === 'Case' && op === 'create') {\n  route = 'case-created'; status = 'stub: case created';\n} else if (type === 'Case' && op === 'update' && (has('status') || has('stage'))) {\n  route = 'case-status'; status = 'stub: case status changed (closing included)';\n} else if (['Task', 'Log', 'Comment'].includes(type)) {\n  route = 'analyst-activity'; status = 'stub: analyst activity (task, log, comment)';\n} else {\n  route = 'other'; status = 'recorded: no handler';\n}\nreturn [{ json: { ...s, route, status, details_keys: Object.keys(details) } }];\n"
+      },
+      "id": "8aa55ad4-0fc8-5414-bc95-e3832191e71e",
+      "name": "Route",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        780,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "d60be09f-5a91-5254-b747-68a1e5ab9af4",
+                    "leftValue": "={{ $json.route }}",
+                    "rightValue": "loop",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "loop"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "f3f87cac-1b43-5129-9e4d-af2cd6190cbd",
+                    "leftValue": "={{ $json.route }}",
+                    "rightValue": "delete",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "delete"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "b3434482-9c2f-51c1-8e08-b923b8172fae",
+                    "leftValue": "={{ $json.route }}",
+                    "rightValue": "alert-promoted",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "alert-promoted"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "39ecfbfb-bc4c-5498-bd72-55733bcd853d",
+                    "leftValue": "={{ $json.route }}",
+                    "rightValue": "alert-status",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "alert-status"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "f96e91ad-0505-5a08-bb38-89bb0a03be02",
+                    "leftValue": "={{ $json.route }}",
+                    "rightValue": "case-created",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "case-created"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "3ae35e96-317e-5dca-b746-36d28fab31cf",
+                    "leftValue": "={{ $json.route }}",
+                    "rightValue": "case-status",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "case-status"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "9ace619e-df4a-5405-b16f-97fdaa75a28d",
+                    "leftValue": "={{ $json.route }}",
+                    "rightValue": "analyst-activity",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "analyst-activity"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "106eabd9-ca64-57cd-857d-75eb6411f43a",
+                    "leftValue": "={{ $json.route }}",
+                    "rightValue": "other",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "other"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "b328b3e1-c593-59a9-bee2-b9d429b2cdaa",
+      "name": "Route by event",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        1040,
+        0
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "af52075b-58c2-5b75-9eef-2e85db12ef70",
+      "name": "Ignored: caused by n8n (loop prevention)",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1360,
+        -420
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "77efaed9-ff8a-5f9f-902d-ada08e4ed5a9",
+      "name": "Ignored: delete (open question N8N-1.5)",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1360,
+        -300
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "079104f7-c873-5073-8dd1-8ee78984767d",
+      "name": "STUB no-op: alert promoted (N8N-5.3; C11 t_case, N8N-2.9)",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1360,
+        -180
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "d9b81622-4495-595b-bb32-1d7d3f17d911",
+      "name": "STUB no-op: alert status (C11 t_ack, N8N-2.9)",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1360,
+        -60
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "9bba85c5-23b2-5b6c-81f8-5e7c892ce1b6",
+      "name": "STUB no-op: case created (N8N-5.3; C11 t_case, N8N-2.9)",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1360,
+        60
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "18803db8-4828-5063-b925-155862bca117",
+      "name": "STUB no-op: case status or closed (N8N-5.3; C11 t_closed/resolution, N8N-2.9)",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1360,
+        180
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "5f609776-087b-59fe-ab36-b7d94e7c5a56",
+      "name": "STUB no-op: analyst activity (approval, N8N-7.2)",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1360,
+        300
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "81a15d53-277a-5560-ae9d-447bec21b78d",
+      "name": "Recorded, no handler",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1360,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "a7e9b6a9-5b99-516a-94a9-a62642f2f5db",
+              "leftValue": "={{ $json.actor === 'n8n@asox.local' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "be041169-bd1f-580d-8e0e-8e66df83c9cf",
+      "name": "Caused by n8n? (fast path)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        520,
+        -220
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// n8n's own writes (alert, observables, comments, tags) come back as C4\n// events: each pb-generic run causes several. Ignored here, before\n// lib-config, so a burst doesn't double the work (N8N-1.4). The account is\n// lib-config thehive.n8n_user; if they ever differ, \"Route\" still ignores\n// these events, only more slowly. The execution is still saved (C4 check).\nconst s = $input.first().json;\nreturn [{ json: { ...s, route: 'loop', status: `ignored: caused by ${s.actor} (loop prevention, fast path)` } }];\n"
+      },
+      "id": "5997ef19-bb28-5887-b134-078d650efa62",
+      "name": "Loop prevention (fast path)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        760,
+        -300
       ]
     }
   ],
@@ -95,13 +489,136 @@
           }
         ]
       ]
+    },
+    "Event summary": {
+      "main": [
+        [
+          {
+            "node": "Caused by n8n? (fast path)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config (lib-config)": {
+      "main": [
+        [
+          {
+            "node": "Route",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route": {
+      "main": [
+        [
+          {
+            "node": "Route by event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route by event": {
+      "main": [
+        [
+          {
+            "node": "Ignored: caused by n8n (loop prevention)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ignored: delete (open question N8N-1.5)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STUB no-op: alert promoted (N8N-5.3; C11 t_case, N8N-2.9)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STUB no-op: alert status (C11 t_ack, N8N-2.9)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STUB no-op: case created (N8N-5.3; C11 t_case, N8N-2.9)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STUB no-op: case status or closed (N8N-5.3; C11 t_closed/resolution, N8N-2.9)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STUB no-op: analyst activity (approval, N8N-7.2)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Recorded, no handler",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Caused by n8n? (fast path)": {
+      "main": [
+        [
+          {
+            "node": "Loop prevention (fast path)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Config (lib-config)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop prevention (fast path)": {
+      "main": [
+        [
+          {
+            "node": "Ignored: caused by n8n (loop prevention)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "settings": {
     "executionOrder": "v1",
     "saveDataSuccessExecution": "all",
     "saveDataErrorExecution": "all",
-    "saveManualExecutions": true
+    "saveManualExecutions": true,
+    "errorWorkflow": "asoxRecvN8nError"
   },
   "meta": {
     "templateCredsSetupCompleted": true

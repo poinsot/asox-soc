@@ -1,0 +1,29 @@
+{
+  "version": "intel-fields-1",
+  "status": "draft: pending Cortex + MISP owner",
+  "description": "Per Cortex analyzer, what lib/state.js keeps from a report (doc 6.3): always the summary taxonomies, plus the short descriptive fields listed here, read from the report's `full` object. Analyzers are matched on their name with `match` (a regular expression, first match wins); a report from an analyzer that matches nothing keeps its taxonomies only. Full reports are never sent.",
+  "max_taxonomies_per_report": 5,
+  "max_detail_chars": 200,
+  "analyzers": [
+    {
+      "match": "^MISP_[0-9]+_[0-9]+$",
+      "source": "MISP",
+      "fields": [
+        { "path": "results.0.result.0.info", "label": "Event" }
+      ]
+    },
+    {
+      "match": "^AbuseIPDB_[0-9]+_[0-9]+$",
+      "source": "AbuseIPDB",
+      "fields": [
+        { "path": "values.0.data.usageType", "label": "usage type" },
+        { "path": "values.0.data.isp", "label": "ISP" }
+      ]
+    },
+    {
+      "match": "^OTXQuery_[0-9]+_[0-9]+$",
+      "source": "OTX",
+      "fields": []
+    }
+  ]
+}

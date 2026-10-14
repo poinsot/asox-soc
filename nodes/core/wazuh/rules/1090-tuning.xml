@@ -1,0 +1,38 @@
+<!--
+  ASOX tuning (owner: Wazuh). Range 109000-109999 for new silencing rules;
+  overwrites keep the built-in rule's own ID. Loaded last among the numbered
+  files, after the built-in ruleset (README, "Rules: ID plan, files and groups").
+  Every entry says why. Levels follow README "Alert levels" (W2.1).
+  Copied into /var/ossec/etc/rules/ at every manager start.
+-->
+
+<!--
+  W2.7, X-09: Security Configuration Assessment (built-in 0570-sca_rules.xml).
+  An agent's first scan, at every new enrollment, reports every failed CIS
+  check: about 130 alerts of 19007 at level 7 for one Ubuntu agent
+  (2026-09-29), all sent to n8n through C1. Later scans only report changes.
+  - 19007 (check failed) and 19004 (score below 50%) go to level 5: context
+    for Grafana's compliance panels, indexed but not forwarded.
+  - Kept as they are, so they still reach n8n: 19011 and 19014 (a check that
+    got worse: passed or not applicable -> failed, level 9) and 19005 (score
+    below 30%, level 9).
+  Overwrites must repeat the whole rule; the group list is the built-in one,
+  so n8n's `sca` group still applies. Re-check on a Wazuh upgrade.
+-->
+<group name="sca,gdpr_IV_35.7.d,pci_dss_2.2,nist_800_53_CM.1,tsc_CC7.1,tsc_CC7.2,">
+
+  <rule id="19004" level="5" overwrite="yes">
+    <if_sid>19001</if_sid>
+    <field name="sca.score">^4\d|^3\d</field>
+    <options>no_full_log</options>
+    <description>SCA summary: $(sca.policy): Score less than 50% ($(sca.score))</description>
+  </rule>
+
+  <rule id="19007" level="5" overwrite="yes">
+    <if_sid>19006</if_sid>
+    <field name="sca.check.result">^failed</field>
+    <options>no_full_log</options>
+    <description>$(sca.policy): $(sca.check.title)</description>
+  </rule>
+
+</group>

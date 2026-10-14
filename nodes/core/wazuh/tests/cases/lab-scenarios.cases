@@ -1,0 +1,37 @@
+# The attack scenarios of nodes/lab/trigger.sh --scenario (W1.5, W1.6).
+# "scenario <name>" takes the exact lines trigger.sh writes (--print), so these
+# cases fail if a scenario stops producing what n8n, TheHive and Grafana expect.
+# Every scenario starts with the attack-start marker (100101).
+
+case ssh-bruteforce
+scenario ssh-bruteforce
+expect rule=100101 level=3 groups=attack_start
+expect rule=5763 level=10 groups=sshd,authentication_failures
+
+case ssh-success-after-fail
+scenario ssh-success-after-fail
+expect rule=100101 level=3 groups=attack_start
+expect rule=5763 level=10 groups=sshd,authentication_failures
+expect rule=40112 level=12
+
+case sudo-fail
+scenario sudo-fail
+expect rule=100101 level=3 groups=attack_start
+expect rule=5404 level=10 groups=sudo
+
+case new-user
+scenario new-user
+expect rule=100101 level=3 groups=attack_start
+expect rule=5901 level=8 groups=adduser
+expect rule=5902 level=8 groups=adduser
+expect rule=100211 level=10 groups=asox,linux,adduser
+
+case ioc-ip (MISP seed IOC 203.0.113.66)
+scenario ioc-ip
+expect rule=100101 level=3 groups=attack_start
+expect rule=5712 level=10 groups=sshd,authentication_failures
+
+case root-login
+scenario root-login
+expect rule=100101 level=3 groups=attack_start
+expect rule=100200 level=10 groups=asox,linux,sshd,authentication_success

@@ -1,11 +1,16 @@
 #!/usr/bin/env bash
 # Check the integration contracts (PROJECT.md section 5): each one must
 # connect and authenticate. Run on the machine hosting core (and lab), with
-# the nodes the checked contracts need running (full mode for C1-C8).
+# the nodes the checked contracts need running (full mode for C1-C8, C10).
 #
 # Usage: scripts/contracts-check.sh [--only C3,C4]
 # One PASS/FAIL line per contract; exit code 1 if any contract fails.
-# C3/C4 create a test alert in TheHive (source contract-check) and delete it.
+# C3/C4 create a test alert in TheHive (source contract-check) and delete it;
+# C1 deletes the TheHive alert n8n makes from its test alert (source asox-test).
+# C10 prints SKIP (not a failure) when, in single-host mode, the intel node
+# isn't running here (a mode without MISP, e.g. core or core-cases), and
+# while its check workflow chk-misp-api is neither in n8n nor in
+# nodes/core/n8n/workflows/ (not merged yet).
 set -euo pipefail
 # shellcheck source=scripts/lib/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
@@ -25,11 +30,11 @@ while (( $# > 0 )); do
   esac
   shift
 done
-ALL_CONTRACTS=(C1 C2 C3 C4 C5 C6 C7 C8)
+ALL_CONTRACTS=(C1 C2 C3 C4 C5 C6 C7 C8 C10)
 if [[ -n $ONLY ]]; then
   IFS=',' read -r -a CONTRACTS <<<"${ONLY^^}"
   for c in "${CONTRACTS[@]}"; do
-    [[ " ${ALL_CONTRACTS[*]} " == *" $c "* ]] || die "unknown contract: $c (C1-C8)"
+    [[ " ${ALL_CONTRACTS[*]} " == *" $c "* ]] || die "unknown contract: $c (C1-C8, C10)"
   done
 else
   CONTRACTS=("${ALL_CONTRACTS[@]}")
@@ -77,6 +82,18 @@ test_alert() {
   return 1
 }
 
+# <node>: true when, in single-host mode, <node> isn't running on this
+# machine, i.e. the current run mode leaves it out (the rule of
+# healthcheck.sh's target_absent). In distributed mode the node is on another
+# machine and is always checked.
+node_absent() {
+  local node=$1
+  [[ $TOPO_DEPLOY_MODE == single ]] || return 1
+  [[ -f "$(node_dir "$node")/.env" \
+    && -n $(compose "$node" ps --status running --services 2>/dev/null || true) ]] && return 1
+  return 0
+}
+
 # ------------------------------------------------------------- contracts ---
 
 # HTTP status of a POST to an n8n webhook; extra curl arguments follow.
@@ -84,6 +101,46 @@ webhook_status() {
   local path=$1; shift
   curl -s -o /dev/null -w '%{http_code}' -X POST "$N8N_URL/webhook/$path" \
     -H 'Content-Type: application/json' -d '{"contract_check": true}' "$@" || true
+}
+
+# n8n's pb-generic turns the C1 test alert into a TheHive alert (source
+# asox-test, sourceRef = the Wazuh alert id). Delete it directly through
+# TheHive's API with n8n's key; only alerts with source asox-test. Never
+# fails: without pb-generic, TheHive or the key, it prints an INFO line.
+# Calls are bounded: an unreachable cases host must not stall the run.
+c1_thehive() { _call -H "Authorization: Bearer $1" --max-time 10 -- "$2" "$THEHIVE_API$3" "${4:-}"; }
+c1_thehive_cleanup() {
+  local key q r ids deadline
+  key=$(core_env THEHIVE_N8N_API_KEY)
+  [[ -n $key ]] || { info "C1 cleanup: THEHIVE_N8N_API_KEY is empty, no TheHive alert to delete"; return 0; }
+  # pb-generic runs after recv-wazuh-alert: wait for its alert only if n8n has it.
+  deadline=$SECONDS
+  [[ -n $(n8n_workflow_id_by_name pb-generic) ]] && deadline=$(( SECONDS + EVENT_TIMEOUT ))
+  q=$(jq -nc --arg r "$TEST_ALERT_ID" \
+    '{query: [{_name: "listAlert"}, {_name: "filter", _field: "sourceRef", _value: $r}]}')
+  while :; do
+    r=$(c1_thehive "$key" POST /api/v1/query "$q")
+    if [[ $(http_code "$r") != 200 ]]; then
+      info "C1 cleanup: TheHive not reachable at $THEHIVE_API (HTTP $(http_code "$r")), nothing deleted"
+      return 0
+    fi
+    ids=$(http_body "$r" | jq -r '.[]? | select(.source == "asox-test") | ._id')
+    [[ -n $ids ]] && break
+    if (( SECONDS >= deadline )); then
+      info "C1 cleanup: no TheHive alert with source asox-test and sourceRef $TEST_ALERT_ID (pb-generic not merged, or TheHive disabled)"
+      return 0
+    fi
+    sleep 3
+  done
+  local id
+  while IFS= read -r id; do
+    r=$(c1_thehive "$key" DELETE "/api/v1/alert/$id")
+    if [[ $(http_code "$r") == 204 ]]; then
+      info "C1 cleanup: deleted TheHive test alert $id (sourceRef $TEST_ALERT_ID)"
+    else
+      warn "C1 cleanup: deleting TheHive test alert $id returned HTTP $(http_code "$r"); delete it by hand"
+    fi
+  done <<<"$ids"
 }
 
 check_C1() {
@@ -106,6 +163,7 @@ check_C1() {
       | jq -r --arg a "$TEST_ALERT_ID" '[.data[]? | select(tostring | contains($a)) | .id] | first // empty')
     if [[ -n $e ]]; then
       pass "$c: alert $TEST_ALERT_ID recorded by recv-wazuh-alert (execution $e); requests without a valid token rejected (HTTP $no_token/$wrong_token)"
+      c1_thehive_cleanup
       return
     fi
     sleep 3
@@ -276,6 +334,52 @@ check_C7() {
   fi
 }
 
+# C10: through n8n's own credential "MISP API (n8n)", by the check workflow
+# chk-misp-api (n8n's, like C2's and C6's): 8.8.8.8 must be on a public DNS
+# resolver warninglist, and a write (POST /events/add) must be refused.
+# There is no direct call to MISP from here: misp-config.sh apply already
+# checks the key itself, and C10 is about n8n's side. Until chk-misp-api
+# exists the contract can't be checked: SKIP while n8n has no workflow of
+# that name and the repo has no file for it; once the file is in the repo
+# (the n8n branch merged) a missing workflow is a failure. MISP not being
+# part of the running setup (single-host mode, intel node not running) is a
+# SKIP too (R-29); with intel running, a failing check is a failure.
+C10_WORKFLOW=chk-misp-api
+C10_VALUE=8.8.8.8
+check_C10() {
+  local c="C10 n8n -> MISP" resp status hit write
+  if node_absent intel; then
+    skip "$c: not checked: node intel not running (not part of this mode)"
+    return
+  fi
+  n8n_api_ok || { fail "$c: n8n API not reachable with N8N_API_KEY (run scripts/bootstrap.sh core)"; return; }
+  if [[ -z $(n8n_workflow_id_by_name "$C10_WORKFLOW") ]]; then
+    if [[ -f $N8N_WORKFLOW_DIR/$C10_WORKFLOW.json ]]; then
+      fail "$c: check workflow $C10_WORKFLOW is in nodes/core/n8n/workflows/ but not in n8n (run scripts/n8n-import.sh)"
+    else
+      skip "$c: not checked: check workflow $C10_WORKFLOW doesn't exist yet (neither in n8n nor in nodes/core/n8n/workflows/; it comes with the n8n branch, N8N-2.11)"
+    fi
+    return
+  fi
+  resp=$(curl -s -X POST "$N8N_URL/webhook/$C10_WORKFLOW" -H "X-ASOX-Token: $(core_env N8N_WEBHOOK_TOKEN)" || true)
+  status=$(jq -r '.status // empty' <<<"$resp" 2>/dev/null || true)
+  if [[ $status != 200 ]]; then
+    fail "$c: check workflow $C10_WORKFLOW failed (active? credential \"MISP API (n8n)\"? MISP running? MISP_URL in n8n's environment?): ${resp:0:200}"
+    return
+  fi
+  hit=$(jq -r '[.matches[]? | select(test("public dns"; "i"))] | first // empty' <<<"$resp" 2>/dev/null || true)
+  if [[ -z $hit ]]; then
+    fail "$c: $C10_VALUE is on no public DNS warninglist (matches: $(jq -c '.matches // []' <<<"$resp" 2>/dev/null | cut -c1-160)); run scripts/bootstrap.sh intel"
+    return
+  fi
+  write=$(jq -r '.write_status // empty' <<<"$resp" 2>/dev/null || true)
+  if [[ $write != 403 ]]; then
+    fail "$c: a write (POST /events/add) was NOT refused (HTTP ${write:-none}): n8n's MISP user is not read-only"
+    return
+  fi
+  pass "$c: credential checks $C10_VALUE against the warninglists (\"$hit\"); a write is refused (HTTP 403)"
+}
+
 check_C8() {
   local auth health body resp
   auth="$(core_env GRAFANA_ADMIN_USER):$(core_env GRAFANA_ADMIN_PASSWORD)"
@@ -298,7 +402,7 @@ check_C8() {
   fi
 }
 
-if [[ ! -f $CORE_ENV && " ${CONTRACTS[*]} " =~ \ C[123468]\  ]]; then
+if [[ ! -f $CORE_ENV && " ${CONTRACTS[*]} " =~ \ C([123468]|10)\  ]]; then
   die "nodes/core/.env not found; run this on the core machine after scripts/soc.sh init"
 fi
 echo "== Integration contracts (${CONTRACTS[*]})"
