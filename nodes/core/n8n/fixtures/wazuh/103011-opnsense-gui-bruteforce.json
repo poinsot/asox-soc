@@ -1,0 +1,52 @@
+{
+  "timestamp": "2026-10-14T19:33:48.810+0000",
+  "rule": {
+    "level": 10,
+    "description": "ASOX firewall: web GUI brute force from 203.0.113.51 (5 failures in 2 min)",
+    "id": "103011",
+    "mitre": {
+      "id": [
+        "T1110"
+      ],
+      "tactic": [
+        "Credential Access"
+      ],
+      "technique": [
+        "Brute Force"
+      ]
+    },
+    "frequency": 5,
+    "firedtimes": 1,
+    "mail": true,
+    "groups": [
+      "asox",
+      "opnsense",
+      "pfsense",
+      "authentication_failures"
+    ]
+  },
+  "agent": {
+    "id": "000",
+    "name": "wazuh-manager"
+  },
+  "manager": {
+    "name": "wazuh-manager"
+  },
+  "id": "1792006428.5929",
+  "previous_output": "Oct 14 12:33:48 opnsense audit[5757]: /index.php: Web GUI authentication error for 'root' from 203.0.113.51 asox_run=efd8f66f-94a4-428d-aedc-2adcc89f691b\nOct 14 12:33:48 opnsense audit[5757]: /index.php: Web GUI authentication error for 'root' from 203.0.113.51 asox_run=efd8f66f-94a4-428d-aedc-2adcc89f691b\nOct 14 12:33:48 opnsense audit[5757]: /index.php: Web GUI authentication error for 'root' from 203.0.113.51 asox_run=efd8f66f-94a4-428d-aedc-2adcc89f691b\nOct 14 12:33:48 opnsense audit[5757]: /index.php: Web GUI authentication error for 'root' from 203.0.113.51 asox_run=efd8f66f-94a4-428d-aedc-2adcc89f691b",
+  "full_log": "Oct 14 12:33:48 opnsense audit[5757]: /index.php: Web GUI authentication error for 'root' from 203.0.113.51 asox_run=efd8f66f-94a4-428d-aedc-2adcc89f691b",
+  "predecoder": {
+    "program_name": "audit",
+    "timestamp": "Oct 14 12:33:48",
+    "hostname": "opnsense"
+  },
+  "decoder": {
+    "parent": "solaris_bsm",
+    "name": "solaris_bsm"
+  },
+  "data": {
+    "srcip": "203.0.113.51",
+    "dstuser": "root"
+  },
+  "location": "172.18.0.7"
+}

@@ -29,6 +29,6 @@
   "decoder": {},
   "location": "/var/log/asox-lab/test.log",
   "data": {
-    "srcip": "203.0.113.66"
+    "srcip": "101.99.75.184"
   }
 }

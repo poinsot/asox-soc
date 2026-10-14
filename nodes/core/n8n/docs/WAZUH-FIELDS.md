@@ -16,6 +16,7 @@ Fixtures used (short names in the tables):
 | **sshd** | `5763-sshd-bruteforce.json`, `5712-sshd-bruteforce-invalid-users.json`, `100200-ssh-root-login.json`, `40112-login-after-bruteforce.json` | sshd brute force (existing / invalid users), root login, login after failures | 10, 10, 10, 12 | yes |
 | **sudo** | `5404-sudo-three-failures.json` | 5404 three failed sudo attempts | 10 | yes |
 | **accounts** | `5901-new-group.json`, `5902-new-user.json`, `100211-user-added-to-privileged-group.json` | groupadd, useradd, usermod (privileged group) | 8, 8, 10 | yes |
+| **opnsense** | `103011-opnsense-gui-bruteforce.json`, `103000-opnsense-port-scan.json` (2026-10-14) | OPNsense web GUI brute force (decoder `solaris_bsm`, Wazuh's child decoders), port scan (decoder `pf`); both over syslog from the lab container: agent `000`, `predecoder.hostname` `opnsense`, `location` the sender's address | 10, 10 | yes |
 
 "Optional" means the normalizer (N8N-1.2) must accept the alert without the field; "required" means an alert without it is malformed and is parked (N8N-1.2), not dropped.
 
@@ -71,11 +72,11 @@ All **optional**. Decoder field names are agreed (custom decoders use `srcip`, `
 
 | Field | Seen in | Type | Used for |
 |---|---|---|---|
-| `data.srcip` | sshd (5712, 5763, 100200, 40112) | string | observable `ip` tag `src`; C13 `ip`; aggregation key for `pb-ssh-bruteforce` |
+| `data.srcip` | sshd (5712, 5763, 100200, 40112), OPNsense (103011, 103000) | string | observable `ip` tag `src`; C13 `ip`; aggregation key for `pb-ssh-bruteforce` |
 | `data.srcport` | sshd (5763, 100200, 40112) | **string** (`"43001"`) | not read by n8n |
-| `data.dstip` | **not seen** (firewall decoders, M4) | — | observable `ip` tag `dst`; C13 `ip` |
+| `data.dstip` | OPNsense port scan 103000 (decoder `pf`, the blocked destination) | string | observable `ip` tag `dst`; C13 `ip` |
 | `data.srcuser` | sshd 5712 (invalid user: the **attempted** name), sudo 5404 (who ran sudo) | string | observable `user-account`: tag `src`, except on sshd (`target`, below); C13 `user-account` |
-| `data.dstuser` | sshd 5763, 100200, 40112 (the targeted existing account), sudo 5404 (the target, `root`), useradd 5902, usermod 100211 (the account), **groupadd 5901 (a group name)** | string | observable `user-account` tag `target`, except groupadd (skipped, below); C13 `user-account` |
+| `data.dstuser` | sshd 5763, 100200, 40112 (the targeted existing account), sudo 5404 (the target, `root`), useradd 5902, usermod 100211 (the account), OPNsense web GUI 103011 (the account tried), **groupadd 5901 (a group name)** | string | observable `user-account` tag `target`, except groupadd (skipped, below); C13 `user-account` |
 | `data.hostname` | **not seen** (M4) | — | observable `domain`/`fqdn`; C13 `hostname` |
 | `data.url` | **not seen** (web decoders, M4) | — | observable `url` |
 
@@ -89,7 +90,7 @@ All **optional**. Decoder field names are agreed (custom decoders use `srcip`, `
 
 | Field | Seen in | Type | Notes |
 |---|---|---|---|
-| `data.command`, `data.pwd`, `data.tty` | sudo 5404 | string | Useful in TheHive's description for `privilege-escalation` (Wazuh review item 5): not used yet, a candidate for that playbook (N8N-4.5). In the lab, `data.command` **also ends with ` asox_run=<run id>`** (the decoder takes the rest of the line). |
+| `data.command`, `data.pwd`, `data.tty` | sudo 5404 | string | Kept by the normalizer for decoder `sudo` (`canonical.sudo`) and written into TheHive's description as `sudo command`, `sudo working directory`, `sudo TTY` (Wazuh review item 5, ALERT-FORMAT §1, TheHive answer A; 2026-10-14). In the lab, `data.command` **also ends with ` asox_run=<run id>`** (the decoder takes the rest of the line). |
 | `data.uid`, `data.gid`, `data.home`, `data.shell` | useradd 5902 (`gid` also groupadd 5901) | string | Not used. |
 | `data.group` | usermod 100211 (decoder `asox-usermod`; same name as Wazuh's gpasswd decoder, 100212) | string | The privileged group (sudo, wheel, admin, root, docker, lxd). Not used yet. |
 
