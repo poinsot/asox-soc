@@ -145,8 +145,8 @@ From these, `render-env.sh` derives every URL, `WAZUH_MANAGER_ADDR`, `BIND_ADDR`
 | `MISP_CORTEX_API_KEY` | intel → cases | `bootstrap.sh intel` | Cortex's MISP analyzer (C7) |
 | `THEHIVE_N8N_API_KEY`, `CORTEX_N8N_API_KEY` | cases → core | `bootstrap.sh cases` | n8n's TheHive and Cortex credentials (C3, C6) |
 | `N8N_WEBHOOK_TOKEN` | core → cases | `render-env.sh` (a `__secret__` of core) | TheHive's webhook to n8n (C4) |
-| *Planned (section 5; added when each contract is built):* | | | |
 | `MISP_N8N_API_KEY` | intel → core | `bootstrap.sh intel` | n8n's MISP credential (C10) |
+| *Planned (section 5; added when each contract is built):* | | | |
 | `N8N_LOOKUP_TOKEN` | core → cases | `render-env.sh` (a `__secret__` of core) | The Cortex "seen before in Wazuh?" analyzer calling n8n's lookup webhook (C13) |
 | C14 MISP key for the CDB sync | intel → core | `bootstrap.sh intel` | Only if C14 doesn't reuse `MISP_N8N_API_KEY` (C14 design, due 2026-10-16) |
 
@@ -196,7 +196,7 @@ Contracts are the interfaces between components. Phase 1 makes each one **connec
 
 C9, C10, C11, C13 and C14 are listed now so the owners design toward them; C12 (a direct Wazuh → TheHive alert link bypassing n8n) was **proposed and rejected** (D47): it cuts against D12 (n8n is the single orchestration point) and reintroduces the exact duplicate-alert/dedup problem that routing everything through n8n avoids, with no use case C1 → n8n → C3 doesn't already cover. They are implemented in component development, after the Phase 1 baseline; C9 needs Phase 2 (real endpoints) to be useful even once built. The planned rows were written into this table on 2026-09-30, ahead of a checkpoint, so owners design against one text; **each still needs the acknowledgement of the owners named in it** (tracked in `docs/integration-backlog.md`), and its check is added to `contracts-check.sh` when it is built. Acknowledged so far: C10 by both owners, and it is no longer planned: built and checked on `main` since 2026-10-13 (PR #17; its check is in `contracts-check.sh`); C13 by Cortex + MISP (2026-09-30) and Wazuh (2026-10-07), so by all its owners; C9 by Wazuh (2026-10-07), so by both owners; C11 by Wazuh (2026-10-07), **Grafana's still owed**; C14's design is not agreed yet.
 
-**C1, what a 200 means (clarification of 2026-10-10; wording only, no contract change: path, token header and payload are as in the table).** With the n8n owner's N8N-1.8 (branch `n8n`, **not merged into `main` yet**; on `main` the 200 is still sent on receipt), n8n answers HTTP 200 once the alert **is queued in n8n** (or filtered because its level is below `WAZUH_ALERT_MIN_LEVEL`), never after a playbook. It takes ~0.1 s for one alert and ~1–3 s when 20–60 alerts arrive at the same instant, against the integration's 10 s timeout. A delivery cut off by an n8n crash gets **no HTTP status** (the connection closes) and shows as a failed delivery in Wazuh's `integrations.log`; n8n doesn't have that alert, and Wazuh doesn't send it again (no retries; register X-10). The Phase 1 check is unchanged and passes. **To tell the Wazuh owner** (register X-35, section G); `docs/decisions.md` A87.
+**C1, what a 200 means (clarification of 2026-10-10; wording only, no contract change: path, token header and payload are as in the table).** With the n8n owner's N8N-1.8 (on `main` since 2026-10-13, PR #17), n8n answers HTTP 200 once the alert **is queued in n8n** (or filtered because its level is below `WAZUH_ALERT_MIN_LEVEL`), never after a playbook. It takes ~0.1 s for one alert and ~1–3 s when 20–60 alerts arrive at the same instant, against the integration's 10 s timeout. A delivery cut off by an n8n crash gets **no HTTP status** (the connection closes) and shows as a failed delivery in Wazuh's `integrations.log`; n8n doesn't have that alert, and Wazuh doesn't send it again (no retries; register X-10). The Phase 1 check is unchanged and passes. **To tell the Wazuh owner** (register X-35, section G); `docs/decisions.md` A87.
 
 **Changing a contract** (URL path, payload shape, auth method, permissions) must be **agreed by both owners first**. It is merged at a checkpoint, with this table and the check in `contracts-check.sh` updated by the integrator (11.1, rule 5).
 
@@ -741,7 +741,7 @@ asox-soc/
 │   ├── soc.sh                  # init / up / down / status / info / reset
 │   ├── bootstrap.sh            # per node, idempotent
 │   ├── healthcheck.sh
-│   ├── contracts-check.sh      # C1–C8
+│   ├── contracts-check.sh      # C1–C8, C10
 │   ├── wazuh-query.sh
 │   ├── n8n-export.sh / n8n-import.sh
 │   ├── grafana-export.sh
