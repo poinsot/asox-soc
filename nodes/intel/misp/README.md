@@ -9,7 +9,9 @@ MISP stores threat intelligence (events, IOCs, tags, galaxies) and can share it;
 | Folder / file | What it is |
 |---|---|
 | `compose.yml` | `misp-core` (MISP), `misp-nginx` (HTTPS front end, 8443 → published 9443), `misp-modules`, `mariadb`, `redis` (Valkey) |
-| `seed/seed-event.json` | The seed event with the test IOC `203.0.113.66`, created by bootstrap for C7 |
+| `seed/seed-event.json` | The seed event with the test IOC `101.99.75.184` (`to_ids`), created by bootstrap for C7 and C14 |
+| `misp-config.json`, `misp-config.sh` | Warninglists, feeds and the Read Only users of n8n (C10) and Wazuh (C14), as code; `bootstrap.sh intel` runs `misp-config.sh apply` |
+| `C10-handoff-n8n.md`, `C14-reply-wazuh.md`, `request-n8n-warninglist-description.md` | Contract notes and requests for the n8n and Wazuh owners |
 | `../certs/` (generated, git-ignored) | MISP's self-signed certificate (`scripts/gen-certs.sh intel`) |
 
 UI: `https://localhost:9443` (a certificate warning is expected), login from `scripts/soc.sh info` (`MISP_ADMIN_EMAIL`).
@@ -40,6 +42,8 @@ If the Cortex user's key changes (e.g. after `soc.sh reset intel`), Cortex needs
 | Contract | Role | Status at `v1.0-baseline` |
 |---|---|---|
 | C7 Cortex → MISP | Provides the Read Only user `cortex@asox.local`, its API key and the seed event | Passes |
+| C10 n8n → MISP | Read Only user `n8n@asox.local` (`MISP_N8N_API_KEY`) for `POST /warninglists/checkValue` | Live (2026-10-13) |
+| C14 MISP → Wazuh CDB lists | Read Only user `wazuh@asox.local` (`MISP_WAZUH_API_KEY`); filter in `C14-reply-wazuh.md` | Design agreed on my side (2026-10-14); Wazuh builds W6.2–W6.5 |
 
 Check: `scripts/contracts-check.sh --only C7`. **Exporting changes:** MISP's settings, taxonomies, feeds and events live in its database; export/import scripts in this folder are the owner's task (PROJECT.md 11.2); the seed event is `seed/seed-event.json`. Changing a contract needs the other owner's agreement first (PROJECT.md 5).
 
