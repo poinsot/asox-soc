@@ -1,6 +1,6 @@
 # Wazuh alert → TheHive: the n8n side (N8N-0.4)
 
-Owner: n8n (Inigo). **Status: draft, for agreeing the format with the TheHive owner (Park) by checkpoint 1, 2026-10-20** (X-02, TheHive T2.4/T2.5).
+Owner: n8n (Inigo). **Status (2026-10-14): n8n agrees with ALERT-FORMAT as merged on `main` (PR #19)**, after Park's answers A–G (§9): it can be marked agreed at checkpoint 1, 2026-10-20 (X-02, TheHive T2.4/T2.5). Still open: R2 / D-N4 (by 2026-11-03), Diego's confirmation of E (X-07) and his warninglist proposal (§9).
 
 The format itself is Park's: [`nodes/cases/thehive/docs/ALERT-FORMAT.md`](../../../cases/thehive/docs/ALERT-FORMAT.md) (cited as **AF §n**). This file doesn't repeat it. It records what n8n reads to fill it: the exact Wazuh path for each AF field, checked against the fixtures (`../fixtures/`, field details in [`WAZUH-FIELDS.md`](WAZUH-FIELDS.md)), plus the gaps found, the duplicate handling, what the C4 events look like to n8n, and the answers and questions for AF §7.
 
@@ -55,7 +55,7 @@ Gaps:
 - **`rule.mitre.id` exists in no fixture**, so the T1110 branch is untested; the group names are also unverified until real sshd/rootcheck alerts exist (X-05).
 - "Starts with T1110" (so `T1110.001` counts) is n8n's reading of "has `T1110`"; confirm.
 - **An unknown `caseTemplate` is silently dropped:** an alert created with `caseTemplate: "wazuh-generic"` on the build instance (no templates loaded) got HTTP 201 with `caseTemplate: null`. The same applies to custom fields (§4). So a missing template won't fail the playbook, but the case would silently get no tasks. The playbook will check the returned `caseTemplate` and log a warning when it comes back null.
-- The mapping (AF §3) is one input of n8n's routing table (D-N2, X-04), kept as data in a `lib-` workflow, not hardcoded in each playbook. **Done 2026-10-06:** all 9 AF §3 rows are in `lib-config` `routing` (README "Routing"); the table above shows only the 2026-09-30 state, see §8. **Since 2026-10-09** n8n's order and matches differ from AF §3 (Wazuh's answers A1–A6): §8, "Routing after the Wazuh owner's answers".
+- The mapping (AF §3) is one input of n8n's routing table (D-N2, X-04), kept as data in a `lib-` workflow, not hardcoded in each playbook. **Done 2026-10-06:** all 9 AF §3 rows are in `lib-config` `routing` (README "Routing"); the table above shows only the 2026-09-30 state, see §8. **Since 2026-10-09** n8n's order and matches differ from AF §3 (Wazuh's answers A1–A6): §8, "Routing after the Wazuh owner's answers". **Since 2026-10-14 they are the same again** (AF §3 of PR #19, plus `login-bruteforce` and `network-scan` active): §9.
 
 ## 4. AF §4: custom fields
 
@@ -93,7 +93,7 @@ Gaps:
 - Duplicate observables in one alert (e.g. the same IP as `src` and `agent`) are merged by `lib-extract-observables` into one observable carrying both tags (N8N-2.3). Values are refanged and validated first; an invalid value is left out and listed in the playbook's writeback.
 - `data.hostname` (n8n's rule until question 6 is answered): an IP → `ip`, a name with a dot → `fqdn`, else `hostname`.
 - `ioc: true` only for known-bad values (AF §5), decided after enrichment, so observables are created with `ioc: false`.
-- **Warninglist tags (C10, N8N-2.11; names proposed, question G in §8):** an `ip`, `fqdn`, `domain`, `url` or `hash` observable whose value is on a MISP warninglist is created with the tag `warninglist` plus `warninglist:<list name>` for at most 3 lists (e.g. `warninglist:List of known IPv4 public DNS resolvers`); the agent's own observables and internal addresses are not checked. The tags mean "common value", never "safe": `ioc`, severity and status are not touched. They are set when the alert is created; when MISP can't be reached the observables simply have none (the writeback says so).
+- **Warninglist tags (C10, N8N-2.11; names confirmed by Park 2026-10-14, answer G; Diego's change proposal in §9):** an `ip`, `fqdn`, `domain`, `url` or `hash` observable whose value is on a MISP warninglist is created with the tag `warninglist` plus `warninglist:<list name>` for at most 3 lists (e.g. `warninglist:List of known IPv4 public DNS resolvers`); the agent's own observables and internal addresses are not checked. The tags mean "common value", never "safe": `ioc`, severity and status are not touched. They are set when the alert is created; when MISP can't be reached the observables simply have none (the writeback says so).
 
 ## 6. C4 events as n8n sees them (input for N8N-1.5, 2.9, 5.3)
 
@@ -209,4 +209,34 @@ Three rows went from proposed to **active** (`suspicious-login`, `privilege-esca
 | Q6 (`data.hostname`, private `agent.ip`) | AF §5 |
 | Q9 (atomic duplicate refusal) | AF §1 "Limit": no TheHive setting; serialize re-sends |
 | Q4 (SCA template or no SCA in TheHive) | Wazuh W2.7 (2026-10-07): 19007/19004 lowered to level 5, only SCA regressions (19011, 19014, 19005) reach n8n and go to `wazuh-generic`; the Wazuh owner sees no need for a compliance template. n8n dropped its `sca` exclusion (2026-10-09). Park to confirm |
-| Still open | Q7 (informational, nothing to answer), Q8 (case delete silently reopens its alert) |
+| Still open | Q7 (informational, nothing to answer), ~~Q8 (case delete silently reopens its alert)~~ answered 2026-10-14 (§9); Q4 confirmed by Park the same day |
+
+## 9. TheHive's answers A–G (2026-10-14) and what n8n changed
+
+Park's answers are in [`reply-n8n-2026-10-14.md`](../../../cases/thehive/docs/reply-n8n-2026-10-14.md) and ALERT-FORMAT §1/§3/§4/§5/§7 (PR #19, merged 2026-10-14). Applied on branch `n8n` the same day:
+
+| # | Answer | n8n change |
+|---|---|---|
+| A | Keep the Time row; no code block without `full_log`; for sudo add `data.command`, `data.pwd`, `data.tty` | **Changed:** the normalizer keeps `sudo: {command, pwd, tty}` on alerts of decoder `sudo` (5404), and `lib-thehive-upsert-alert` adds the rows `sudo command`, `sudo working directory`, `sudo TTY` (a missing one is left out). The Time row and the optional code block were already so. Checked with the 5404 fixture in an offline run of the workflow code, not replayed live |
+| B | The confirmed rows active; `ioc-match` and `network-scan` proposed until their rules exist | Superseded by X-04 the same day: `network-scan` is **active** (rule 103000 exists and its scenario was captured), `ioc-match` stays proposed (C14 not live yet) |
+| C | `playbook` = the playbook that ran | None: already so |
+| D | `pfsense` stands for the firewall | None: the `network-scan` clauses already say so |
+| E | A MISP hit stays `suspicious`, `ioc: false` | None: already so. Diego's confirmation is left (X-07, `n8n-enrichment.md`) |
+| F1 | Syslog alerts: title, `agent:` tag and `wazuh-agent-name` use `predecoder.hostname`, else `location` | **Changed:** `lib-thehive-upsert-alert` uses the normalizer's host (the device on a syslog alert, else the agent) for all three; the description's `Agent` row becomes `Host` there (`<device> (syslog from <location>; agent wazuh-manager (000))`). Checked live on 103011 and 103000 from `opnsense` |
+| F2 | sshd: both user fields tagged `target`; no `user-account` from groupadd | None: already so since 2026-10-09 |
+| G | Tags `warninglist` + `warninglist:<list name>` OK | None (temporary item removed from the backlog). See Diego's proposal below |
+| Q4 | No compliance template | None |
+| Q8 | Analysts never delete real cases | n8n keeps ignoring delete events (N8N-1.5 decided) |
+
+**Routing (X-04, AF §3):** `lib-config` `routing` version `2026-10-14` has AF §3's rows in AF §3's order and with its matches: `ssh-bruteforce` requires `sshd` in both clauses, `login-bruteforce` (T1110 on anything else) right after it, `network-scan` active. Table in the README, "Routing".
+
+### Diego's warninglist proposal (`nodes/intel/misp/request-n8n-warninglist-description.md`)
+
+**What it changes:** observables keep only the `warninglist` tag (no `warninglist:<list name>` tags), and every matching list's full name goes into the observable's description (`message`): "On MISP warninglists (common, not safe):" plus one line per list. Three code strings in `lib-config`, `lib-misp-warninglist` and `lib-thehive-upsert-alert`; the writeback is unchanged.
+
+**Recommendation: agree, once Park agrees; not applied now.**
+- The problem is real: the list-name tags are long, TheHive cuts them at ~25 characters and pushes `src` / `dst` / `asox:verdict=` onto "Show more", and a value like `github.com` is on ~17 lists, of which only 3 can be tags.
+- Meaning and safety are unchanged: `ioc`, severity and status untouched (D12), `skip_online_analyzers` keys on the `warninglist` tag, which stays.
+- **But it isn't n8n's output alone:** it drops the per-list tags that ALERT-FORMAT §5 lists and Park confirmed in answer G, and it adds an observable field that AF §5 doesn't mention. So Park changes AF §5 (and decides whether TRIAGE.md needs "open the observable to see which lists") before n8n changes anything.
+- Diego's question 1: no cap is needed in the description (a few hundred characters at most for 17 lists); keep the `prefer` sort there.
+- When Park agrees: apply Diego's patch, check that the observable `message` survives promotion to a case, replay `synthetic/100100-warninglist-demo.json`, and update the README ("Warninglist check"), `fixtures/README.md` and §5 above.
