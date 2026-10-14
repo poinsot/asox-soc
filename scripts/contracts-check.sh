@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Check the integration contracts (PROJECT.md section 5): each one must
 # connect and authenticate. Run on the machine hosting core (and lab), with
-# the nodes the checked contracts need running (full mode for C1-C8, C10).
+# the nodes the checked contracts need running (full mode for C1-C8, C10;
+# core for C11).
 #
 # Usage: scripts/contracts-check.sh [--only C3,C4]
 # One PASS/FAIL line per contract; exit code 1 if any contract fails.
@@ -11,6 +12,9 @@
 # isn't running here (a mode without MISP, e.g. core or core-cases), and
 # while its check workflow chk-misp-api is neither in n8n nor in
 # nodes/core/n8n/workflows/ (not merged yet).
+# C11 writes a test document (outcome contract-check) to asox-metrics through
+# n8n and deletes it; it prints SKIP while its check workflow chk-metrics is
+# neither in n8n nor in the repo (N8N-2.9).
 set -euo pipefail
 # shellcheck source=scripts/lib/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
@@ -18,6 +22,8 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/lib/n8n.sh"
 # shellcheck source=scripts/lib/cases.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/cases.sh"
+# shellcheck source=scripts/lib/wazuh.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/wazuh.sh"
 
 usage() { print_usage "$0"; }
 
@@ -30,18 +36,17 @@ while (( $# > 0 )); do
   esac
   shift
 done
-ALL_CONTRACTS=(C1 C2 C3 C4 C5 C6 C7 C8 C10)
+ALL_CONTRACTS=(C1 C2 C3 C4 C5 C6 C7 C8 C10 C11)
 if [[ -n $ONLY ]]; then
   IFS=',' read -r -a CONTRACTS <<<"${ONLY^^}"
   for c in "${CONTRACTS[@]}"; do
-    [[ " ${ALL_CONTRACTS[*]} " == *" $c "* ]] || die "unknown contract: $c (C1-C8, C10)"
+    [[ " ${ALL_CONTRACTS[*]} " == *" $c "* ]] || die "unknown contract: $c (C1-C8, C10, C11)"
   done
 else
   CONTRACTS=("${ALL_CONTRACTS[@]}")
 fi
 
-CORE_ENV="$(node_dir core)/.env"
-core_env() { env_get "$CORE_ENV" "$1"; }
+CORE_ENV="$(node_dir core)/.env"   # core_env: lib/wazuh.sh
 # Published on the core host; 127.0.0.1 works with either BIND_ADDR.
 GRAFANA_URL=${GRAFANA_URL:-http://127.0.0.1:3000}
 ALERT_TIMEOUT=${ALERT_TIMEOUT:-120}
@@ -236,8 +241,6 @@ thehive_test_alert_delete() {
   TH_DELETE_STATUS=$(chk_thehive "$(jq -nc --arg i "$TH_ALERT_ID" '{step: "delete", id: $i}')"     | jq -r '.deleted_status // "none"' 2>/dev/null || true)
   TH_ALERT_ID=""
 }
-# Never leave the test alert behind, even if the script stops early.
-trap thehive_test_alert_delete EXIT
 
 check_C3() {
   local c="C3 n8n -> TheHive" id by
@@ -380,6 +383,99 @@ check_C10() {
   pass "$c: credential checks $C10_VALUE against the warninglists (\"$hit\"); a write is refused (HTTP 403)"
 }
 
+# C11: n8n writes asox-metrics as n8n-indexer (its credential "Wazuh indexer
+# (n8n-indexer)") through its check workflow chk-metrics, Grafana reads it as
+# grafana-ro. chk-metrics takes {step: "write", id} (upserts document <id>
+# with outcome contract-check and t_event / t_alert = now; answers
+# {status: <indexer HTTP status>, id}) and {step: "delete", id} (answers
+# {deleted_status: <indexer HTTP status>}), like chk-thehive-api. The read
+# goes through Grafana's datasource asox-metrics (GRAF-0.8) when it is
+# provisioned, else as grafana-ro straight to the indexer (said in the
+# result). A write as grafana-ro must get 403. SKIP while chk-metrics is
+# neither in n8n nor in the repo, as for C10.
+C11_WORKFLOW=chk-metrics
+C11_DS=asox-metrics
+C11_TIMEOUT=${C11_TIMEOUT:-20}
+C11_DOC_ID=""
+c11_chk() {
+  curl -s --max-time 30 -X POST "$N8N_URL/webhook/$C11_WORKFLOW" -H "X-ASOX-Token: $(core_env N8N_WEBHOOK_TOKEN)" \
+    -H 'Content-Type: application/json' -d "$1" || true
+}
+c11_gro() { indexer_as "$(core_env GRAFANA_INDEXER_USER)" "$(core_env GRAFANA_INDEXER_PASSWORD)" "$@"; }
+C11_DELETE_STATUS=""
+c11_doc_delete() {
+  [[ -n $C11_DOC_ID ]] || return 0
+  C11_DELETE_STATUS=$(c11_chk "$(jq -nc --arg i "$C11_DOC_ID" '{step: "delete", id: $i}')" \
+    | jq -r '.deleted_status // "none"' 2>/dev/null || true)
+  C11_DOC_ID=""
+}
+# True when Grafana's query (datasource asox-metrics) returns document <id>.
+c11_grafana_has() {
+  local auth body
+  auth="$(core_env GRAFANA_ADMIN_USER):$(core_env GRAFANA_ADMIN_PASSWORD)"
+  body=$(jq -nc --arg q "outcome:contract-check AND alert_id:\"$1\"" --arg ds "$C11_DS" '{
+    from: "now-1h", to: "now+5m",
+    queries: [{refId: "A", datasource: {uid: $ds}, queryType: "lucene", query: $q,
+               timeField: "t_alert", metrics: [{id: "1", type: "raw_data", settings: {size: "10"}}], bucketAggs: []}]}')
+  curl -s -u "$auth" -H 'Content-Type: application/json' "$GRAFANA_URL/api/ds/query" -d "$body" \
+    | jq -e --arg id "$1" '[.results.A.frames[]?.data.values[]?[]?] | any(. == $id)' >/dev/null 2>&1
+}
+# The same as grafana-ro, straight to the indexer.
+c11_indexer_has() {
+  local q
+  q=$(jq -nc --arg id "$1" '{query: {bool: {filter: [{term: {alert_id: $id}}, {term: {outcome: "contract-check"}}]}}}')
+  http_body "$(c11_gro POST "/$ASOX_METRICS_INDEX/_search" "$q")" \
+    | jq -e --arg id "$1" '[.hits.hits[]?._id] | index($id) != null' >/dev/null 2>&1
+}
+check_C11() {
+  local c="C11 n8n -> indexer -> Grafana" id resp status via finder deadline found="" ro
+  n8n_api_ok || { fail "$c: n8n API not reachable with N8N_API_KEY (run scripts/bootstrap.sh core)"; return; }
+  if [[ -z $(n8n_workflow_id_by_name "$C11_WORKFLOW") ]]; then
+    if [[ -f $N8N_WORKFLOW_DIR/$C11_WORKFLOW.json ]]; then
+      fail "$c: check workflow $C11_WORKFLOW is in nodes/core/n8n/workflows/ but not in n8n (run scripts/n8n-import.sh)"
+    else
+      skip "$c: not checked: check workflow $C11_WORKFLOW doesn't exist yet (neither in n8n nor in nodes/core/n8n/workflows/; it comes with the n8n branch, N8N-2.9)"
+    fi
+    return
+  fi
+  id="contract-check-$(date +%s)-$RANDOM"
+  resp=$(c11_chk "$(jq -nc --arg i "$id" '{step: "write", id: $i}')")
+  status=$(jq -r '.status // empty' <<<"$resp" 2>/dev/null || true)
+  if [[ $status != 20[01] ]]; then
+    fail "$c: check workflow $C11_WORKFLOW could not write test document $id (active? credential \"Wazuh indexer (n8n-indexer)\"? root CA in n8n, NODE_EXTRA_CA_CERTS?): ${resp:0:200}"
+    return
+  fi
+  C11_DOC_ID=$id
+  if [[ $(curl -s -o /dev/null -w '%{http_code}' -u "$(core_env GRAFANA_ADMIN_USER):$(core_env GRAFANA_ADMIN_PASSWORD)" \
+          "$GRAFANA_URL/api/datasources/uid/$C11_DS" || true) == 200 ]]; then
+    via="by Grafana's datasource $C11_DS" finder=c11_grafana_has
+  else
+    via="as grafana-ro directly (Grafana's datasource $C11_DS isn't provisioned yet, GRAF-0.8)" finder=c11_indexer_has
+  fi
+  deadline=$(( SECONDS + C11_TIMEOUT ))
+  while (( SECONDS < deadline )); do
+    "$finder" "$id" && { found=1; break; }
+    sleep 2
+  done
+  ro=$(http_code "$(c11_gro PUT "/$ASOX_METRICS_INDEX/_doc/$id-ro" '{"outcome": "contract-check"}')")
+  c11_doc_delete
+  if [[ -z $found ]]; then
+    fail "$c: test document $id written, but not read back $via within ${C11_TIMEOUT}s"
+  elif [[ $ro != 403 ]]; then
+    [[ $ro == 20[01] ]] && indexer_api DELETE "/$ASOX_METRICS_INDEX/_doc/$id-ro" >/dev/null
+    fail "$c: a write as grafana-ro was NOT refused (HTTP $ro): grafana-ro is not read-only"
+  elif [[ $C11_DELETE_STATUS != 200 ]]; then
+    fail "$c: test document $id written and read back, but deleting it through $C11_WORKFLOW returned ${C11_DELETE_STATUS:-nothing}"
+  elif [[ $(http_code "$(c11_gro GET "/$ASOX_METRICS_INDEX/_doc/$id")") != 404 ]]; then
+    fail "$c: test document $id is still in $ASOX_METRICS_INDEX after its delete"
+  else
+    pass "$c: test document $id (outcome contract-check) written as n8n-indexer, read back $via and deleted; a write as grafana-ro is refused (HTTP 403)"
+  fi
+}
+
+# Never leave a test object behind, even if the script stops early.
+trap 'thehive_test_alert_delete; c11_doc_delete' EXIT
+
 check_C8() {
   local auth health body resp
   auth="$(core_env GRAFANA_ADMIN_USER):$(core_env GRAFANA_ADMIN_PASSWORD)"
@@ -402,7 +498,7 @@ check_C8() {
   fi
 }
 
-if [[ ! -f $CORE_ENV && " ${CONTRACTS[*]} " =~ \ C([123468]|10)\  ]]; then
+if [[ ! -f $CORE_ENV && " ${CONTRACTS[*]} " =~ \ C([123468]|1[01])\  ]]; then
   die "nodes/core/.env not found; run this on the core machine after scripts/soc.sh init"
 fi
 echo "== Integration contracts (${CONTRACTS[*]})"

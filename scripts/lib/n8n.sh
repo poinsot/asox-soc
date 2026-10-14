@@ -114,15 +114,19 @@ n8n_cli() {
 # MISP (C10) takes the bare key in the Authorization header; its self-signed
 # certificate (PROJECT.md 4.1) is accepted by the HTTP Request node's own
 # "ignore SSL issues" option, which a Header Auth credential can't carry.
+# The Wazuh indexer (C11, C13) is verified against the root CA, which n8n
+# trusts through NODE_EXTRA_CA_CERTS (PROJECT.md 4.1), not through the
+# credential.
 # shellcheck disable=SC2034  # used by the scripts that source this file
-N8N_CREDENTIALS='"ASOX webhook token", "ASOX webhook token (Bearer)", "Wazuh API (n8n-api)", "TheHive API (n8n)", "Cortex API (n8n)", "MISP API (n8n)"'
+N8N_CREDENTIALS='"ASOX webhook token", "ASOX webhook token (Bearer)", "Wazuh API (n8n-api)", "TheHive API (n8n)", "Cortex API (n8n)", "MISP API (n8n)", "Wazuh indexer (n8n-indexer)"'
 n8n_credentials_json() {
   jq -nc \
     --arg token "$(n8n_env N8N_WEBHOOK_TOKEN)" \
     --arg wuser "$(n8n_env WAZUH_N8N_API_USER)" --arg wpass "$(n8n_env WAZUH_N8N_API_PASSWORD)" \
     --arg thkey "$(n8n_env THEHIVE_N8N_API_KEY)" --arg thurl "$(n8n_env THEHIVE_URL)" \
     --arg cxkey "$(n8n_env CORTEX_N8N_API_KEY)" --arg cxurl "$(n8n_env CORTEX_URL)" \
-    --arg mikey "$(n8n_env MISP_N8N_API_KEY)" '[
+    --arg mikey "$(n8n_env MISP_N8N_API_KEY)" \
+    --arg ixuser "$(n8n_env N8N_INDEXER_USER)" --arg ixpass "$(n8n_env N8N_INDEXER_PASSWORD)" '[
     {id: "asoxWebhookToken", name: "ASOX webhook token", type: "httpHeaderAuth",
      data: {name: "X-ASOX-Token", value: $token}},
     {id: "asoxWebhookBear1", name: "ASOX webhook token (Bearer)", type: "httpHeaderAuth",
@@ -134,7 +138,9 @@ n8n_credentials_json() {
     {id: "asoxCortexApi001", name: "Cortex API (n8n)", type: "cortexApi",
      data: {cortexApiKey: $cxkey, host: $cxurl}},
     {id: "asoxMispApi00001", name: "MISP API (n8n)", type: "httpHeaderAuth",
-     data: {name: "Authorization", value: $mikey}}
+     data: {name: "Authorization", value: $mikey}},
+    {id: "asoxIndexerN8n01", name: "Wazuh indexer (n8n-indexer)", type: "httpBasicAuth",
+     data: {user: $ixuser, password: $ixpass}}
   ]'
 }
 

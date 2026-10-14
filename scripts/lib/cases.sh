@@ -22,8 +22,6 @@ _call() {
   [[ -n $data ]] && args+=(-H 'Content-Type: application/json' --data-binary "$data")
   curl "${args[@]}" || printf '\n000'
 }
-http_body() { sed '$d' <<<"$1"; }
-http_code() { tail -n 1 <<<"$1"; }
 
 # thehive_as USER PASSWORD METHOD PATH [JSON]  (PATH starts with /api)
 thehive_as() { local u=$1 p=$2; shift 2; _call -u "$u:$p" -- "$1" "$THEHIVE_API$2" "${3:-}"; }
