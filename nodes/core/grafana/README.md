@@ -11,7 +11,7 @@ Analytic dashboards and SOC metrics; the replacement for the Wazuh dashboard.
 | `compose.yml` | `grafana` |
 | `provisioning/datasources/wazuh-indexer.yml` | The Wazuh indexer datasource (contract C8), read-only user `grafana-ro` |
 | `provisioning/dashboards/asox.yml` | Loads every `*.json` in that folder into the "ASOX" folder |
-| `provisioning/dashboards/*.json` | Dashboards (starter: `soc-overview.json`, "SOC Overview") |
+| `provisioning/dashboards/*.json` | Dashboards: `soc-overview.json` ("SOC Overview", the starter), `soc-status.json` ("SOC Status" / "Estado del SOC", GRAF-1.1 to 1.7) |
 | `provisioning/alerting/`, `provisioning/plugins/` | Empty; for alerting rules and app plugin settings later |
 
 ## Editing dashboards
@@ -26,6 +26,8 @@ git diff nodes/core/grafana/
 A dashboard keeps its file (matched by `uid`); a new one becomes `provisioning/dashboards/<title>.json`. Keep `uid`s stable, and reference the datasource by its uid `wazuh-indexer`. If a file changes on disk (e.g. after `git pull`), Grafana applies it within 30 seconds and overwrites unsaved UI edits of that dashboard, so export first.
 
 ## Datasource notes
+
+- Wazuh maps text fields as plain `keyword` (template `string_as_keyword`): aggregate on `rule.description`, `agent.name`, ... directly. There is **no** `.keyword` subfield, so a Terms on `agent.name.keyword` returns nothing.
 
 - The URL must be `${WAZUH_INDEXER_URL}` (`https://wazuh.indexer:9200`), the name in the indexer's certificate.
 - The index pattern is daily, `[wazuh-alerts-4.x-]YYYY.MM.DD`, not `wazuh-alerts-*`: the OpenSearch plugin's health check fails with a wildcard pattern (PROJECT.md D35).
