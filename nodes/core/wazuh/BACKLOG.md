@@ -59,7 +59,7 @@ Close the known gaps before core is exposed on a LAN, and build the tools the la
 - [x] **W1.2** Remove upstream placeholders from ossec.conf · P2, C1
   - Done when: The cluster block (disabled, but it carries upstream's public default `<key>`) and the `smtp.example` email values are removed or neutralised; `wazuh-analysisd -t` shows no errors; C1 still passes.
   - Files: `nodes/core/wazuh/config/ossec.conf`
-- [ ] **W1.3** Define the rule ID plan, rule groups and file layout *(in progress)* · P1
+- [x] **W1.3** Define the rule ID plan, rule groups and file layout · P1
   - Done when: README lists ID ranges inside 100000–120999 (e.g. 1001xx tests, 1002xx–1009xx Linux, 101xxx Suricata, 104xxx pfSense, 102xxx router, 103xxx MISP lists, 109xxx tuning). One file per source, named for good from the start, since removing a file later needs the manual `rm` procedure. The rule groups double as the routing key for n8n's router (N8N-1.3, D-N2) and TheHive's `caseTemplate` routing (T2.6, ALERT-FORMAT.md §3): the three of you agree on them by checkpoint 1 (2026-10-20).
   - Files: `nodes/core/wazuh/rules/`, `nodes/core/wazuh/README.md`
   - With: Inigo (router), Park (case templates)
@@ -72,7 +72,7 @@ Close the known gaps before core is exposed on a LAN, and build the tools the la
   - Files: `nodes/lab/trigger.sh`
   - With: Inigo (fixtures for playbooks), Park (TheHive's end-to-end test uses `ssh-bruteforce`), Jesus (dashboard data)
   - Refs: X-05
-- [ ] **W1.6** Attack-start marker for lab scenarios *(in progress)* · P1, C11
+- [x] **W1.6** Attack-start marker for lab scenarios · P1, C11
   - Done when: Every `trigger.sh --scenario` first writes `ASOX_ATTACK_START scenario=<name> id=<uuid>`, and the scenario's own events carry the same id. A dedicated low-noise rule (ID in the 1001xx test range, level agreed with Jesus and Inigo) catches it; Grafana draws it as an annotation. It is C11's `t_attack_start`: without it there is no MTTD.
   - Files: `nodes/lab/trigger.sh`, `nodes/core/wazuh/rules/`
   - With: Jesus (GRAF-2.2, D-G3), Inigo (C11 writer)
