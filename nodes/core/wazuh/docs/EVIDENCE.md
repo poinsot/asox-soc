@@ -21,6 +21,13 @@ To reproduce, with `scripts/soc.sh up core` running:
 - `nodes/core/wazuh/tests/e2e.sh` (about 6 minutes; wait 5 minutes between runs);
 - `scripts/contracts-check.sh --only C1,C2,C8`.
 
+## After checkpoint 1 (2026-10-14, `main` at `16455b7`)
+
+Wazuh PR #20 merged, together with n8n's checkpoint (PR #17: the alert queue and router) and TheHive's and Grafana's updates. I followed CONTRIBUTING's "After a checkpoint merge" on the `low` machine (`render-env.sh`, `soc.sh up core`, `n8n-import.sh`: 23 workflows active).
+- `tests/e2e.sh`: **28/28**, all 20 alerts at level ≥ 7 found in n8n ([e2e-on-main-16455b7.txt](evidence/2026-10-14/e2e-on-main-16455b7.txt)).
+- Rule tests 59/59, and C1, C2, C8 pass.
+- Only the first `healthcheck.sh` failed, on Grafana's login while Grafana was still starting (reported to Jesus and Inigo: `request-grafana-low-startup.md`); the next run passed.
+
 ## What the component detects
 
 Full catalog: [README "Detection catalog"](../README.md#detection-catalog-w25). Levels follow [README "Alert levels"](../README.md#alert-levels-w21): level 7 and above goes to n8n, and 12 and above is Critical.

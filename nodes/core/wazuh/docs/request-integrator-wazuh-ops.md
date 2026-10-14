@@ -4,7 +4,7 @@
 **From:** Daniel (@dmelgar1110), Wazuh owner
 **Date:** 2026-10-11
 **Refs:** WO.4, A74 (disk and core backup size), A75 (fresh-clone test, lab `pending`), `scripts/backup.sh`, `scripts/healthcheck.sh`
-**Status:** draft
+**Status:** sent (2026-10-14, with PR #20, merged)
 
 ## 1. Core backups carry Wazuh's vulnerability feed
 

@@ -4,7 +4,7 @@
 **From:** Daniel (@dmelgar1110), Wazuh owner
 **Date:** 2026-10-10
 **Refs:** X-10, X-35, X-36, C1, C7, C10, C14, A48, A87; `integrations/custom-n8n.py`
-**Status:** draft
+**Status:** sent (2026-10-14, with PR #20, merged)
 
 ## X-35: does integratord call `custom-n8n.py` for several alerts at once? **No.**
 
