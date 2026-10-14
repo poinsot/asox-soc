@@ -4,10 +4,13 @@
 #
 # Usage: scripts/bootstrap.sh <node>
 #   core : Wazuh API user n8n-api with a read-only role (C2);
-#          indexer user grafana-ro, read-only on wazuh-alerts-* (C8);
+#          the asox-metrics index template and the empty index (C11);
+#          indexer user grafana-ro, read-only on wazuh-alerts-* and
+#          asox-metrics (C8, C11); indexer user n8n-indexer, documents of
+#          asox-metrics and read on wazuh-alerts-* (C11, C13);
 #          n8n recreated if its .env changed (docker compose up --wait),
-#          n8n owner, n8n credentials (incl. TheHive, Cortex and MISP,
-#          C3/C6/C10),
+#          n8n owner, n8n credentials (incl. TheHive, Cortex, MISP and
+#          the indexer, C3/C6/C10/C11),
 #          and the workflows from nodes/core/n8n/workflows/ that n8n
 #          doesn't have yet
 #   cases: Cortex indexes, superadmin, SOC organization, org admin and the
@@ -50,8 +53,10 @@ N8N_POLICIES=(
   cluster_read_resourceless
 )
 
-# Indexer role for Grafana (C8): read wazuh-alerts-* only.
+# Indexer roles: Grafana reads wazuh-alerts-* (C8) and asox-metrics (C11,
+# R-11); n8n writes asox-metrics (C11) and reads wazuh-alerts-* (C13, R-16).
 GRAFANA_ROLE=asox_grafana_ro
+N8N_INDEXER_ROLE=asox_n8n_indexer
 
 # Fail with the API response unless it reports no failed items.
 wazuh_ok() {
@@ -141,46 +146,164 @@ bootstrap_wazuh_api() {
   fail "Wazuh API: user $user cannot log in or list agents (after $attempt attempts)"
 }
 
-bootstrap_indexer() {
-  local user pw resp
-  user=$(core_env GRAFANA_INDEXER_USER)
-  pw=$(core_env GRAFANA_INDEXER_PASSWORD)
+# Indexer roles (C8, C11, C13). Security-API objects are written only when
+# they differ from what is here, so a second run changes nothing.
+grafana_role_json() {
+  jq -nc '{
+    description: "ASOX: Grafana read-only access to Wazuh alerts (C8) and asox-metrics (C11)",
+    cluster_permissions: ["cluster_composite_ops_ro", "cluster:monitor/main", "cluster:monitor/health"],
+    index_permissions: [
+      {index_patterns: ["wazuh-alerts-*"],
+       allowed_actions: ["read", "indices:admin/get", "indices:admin/mappings/get", "indices:admin/resolve/index"]},
+      {index_patterns: ["asox-metrics"],
+       allowed_actions: ["read", "indices:admin/get", "indices:admin/mappings/get", "indices:admin/resolve/index"]}
+    ]
+  }'
+}
+# n8n (C11 writer, C13 lookups): documents of asox-metrics by id (index,
+# update, delete; bulk) and read; wazuh-alerts-* read only. Cluster: only the
+# multi-request entry points of search and bulk (not cluster_composite_ops,
+# which adds alias administration and reindex). No index creation (an index
+# call on a missing index is refused, not auto-created) and no mapping change.
+n8n_indexer_role_json() {
+  jq -nc '{
+    description: "ASOX: n8n writes asox-metrics (C11) and reads wazuh-alerts-* (C13)",
+    cluster_permissions: ["indices:data/read/msearch", "indices:data/read/scroll",
+                          "indices:data/read/scroll/clear", "indices:data/write/bulk"],
+    index_permissions: [
+      {index_patterns: ["asox-metrics"],
+       allowed_actions: ["read", "indices:data/write/index", "indices:data/write/update",
+                         "indices:data/write/delete", "indices:data/write/bulk[s]"]},
+      {index_patterns: ["wazuh-alerts-*"], allowed_actions: ["read"]}
+    ]
+  }'
+}
 
-  resp=$(indexer_api PUT "/_plugins/_security/api/roles/$GRAFANA_ROLE" '{
-    "description": "ASOX: Grafana read-only access to Wazuh alerts (C8)",
-    "cluster_permissions": ["cluster_composite_ops_ro", "cluster:monitor/main", "cluster:monitor/health"],
-    "index_permissions": [{
-      "index_patterns": ["wazuh-alerts-*"],
-      "allowed_actions": ["read", "indices:admin/get", "indices:admin/mappings/get", "indices:admin/resolve/index"]
-    }]
-  }')
-  jq -e '.status == "OK" or .status == "CREATED"' >/dev/null <<<"$resp" \
-    || { fail "indexer role $GRAFANA_ROLE: $resp"; return; }
-
-  resp=$(indexer_api PUT "/_plugins/_security/api/internalusers/$user" \
-    "$(jq -nc --arg p "$pw" '{password: $p, description: "ASOX: Grafana datasource (C8)"}')")
-  jq -e '.status == "OK" or .status == "CREATED"' >/dev/null <<<"$resp" \
-    || { fail "indexer user $user: $resp"; return; }
-
-  resp=$(indexer_api PUT "/_plugins/_security/api/rolesmapping/$GRAFANA_ROLE" \
-    "$(jq -nc --arg u "$user" '{users: [$u]}')")
-  jq -e '.status == "OK" or .status == "CREATED"' >/dev/null <<<"$resp" \
-    || { fail "indexer role mapping $GRAFANA_ROLE: $resp"; return; }
-  pass "indexer: user $user with role $GRAFANA_ROLE"
-
-  # Check: it can search the alerts, and nothing else.
-  local url count denied
-  url=$(core_env WAZUH_INDEXER_URL)
-  count=$(compose core exec -T wazuh-indexer curl -s --cacert /usr/share/wazuh-indexer/config/certs/root-ca.pem \
-    -u "$user:$pw" "$url/wazuh-alerts-*/_count" | jq -r '.count // empty')
-  denied=$(compose core exec -T wazuh-indexer curl -s -o /dev/null -w '%{http_code}' \
-    --cacert /usr/share/wazuh-indexer/config/certs/root-ca.pem \
-    -u "$user:$pw" "$url/.opendistro_security/_search")
-  if [[ -n $count && $denied == 403 ]]; then
-    pass "indexer: $user reads wazuh-alerts-* ($count alerts) and is denied elsewhere"
-  else
-    fail "indexer: $user access check (count='$count', other index HTTP $denied)"
+# indexer_security_put <path> <json>: PUT a role or role mapping unless the
+# one at <path> already has these values. Sets INDEXER_STATE to created,
+# updated or unchanged; returns 1 (with INDEXER_STATE = the response) on error.
+INDEXER_STATE=""
+indexer_security_put() {
+  local path=$1 want=$2 cur resp
+  # The API adds empty fls / masked_fields to index permissions: compare
+  # patterns and actions only.
+  cur=$(indexer_api GET "$path" | jq -c --arg n "${path##*/}" '.[$n] // empty' 2>/dev/null || true)
+  if [[ -n $cur ]] && jq -e --argjson w "$want" '
+      def norm: if type == "array" then map(if type == "object" then {index_patterns, allowed_actions} else . end) else . end;
+      . as $c | $w | to_entries | all(($c[.key] | norm) == (.value | norm))' >/dev/null <<<"$cur"; then
+    INDEXER_STATE=unchanged; return 0
   fi
+  resp=$(indexer_api PUT "$path" "$want")
+  if jq -e '.status == "OK" or .status == "CREATED"' >/dev/null 2>&1 <<<"$resp"; then
+    if [[ -n $cur ]]; then INDEXER_STATE=updated; else INDEXER_STATE=created; fi
+    return 0
+  fi
+  INDEXER_STATE=$resp; return 1
+}
+
+# bootstrap_indexer_user <user> <password> <role> <role json> <description>:
+# role, internal user (password set only when the one in .env doesn't log
+# in) and role mapping (exactly this user).
+bootstrap_indexer_user() {
+  local user=$1 pw=$2 role=$3 role_json=$4 desc=$5 role_state user_state map_state r
+  indexer_security_put "/_plugins/_security/api/roles/$role" "$role_json" \
+    || { fail "indexer role $role: $INDEXER_STATE"; return 1; }
+  role_state=$INDEXER_STATE
+
+  r=$(indexer_as "$user" "$pw" GET /_plugins/_security/authinfo)
+  if [[ $(http_code "$r") == 200 ]]; then
+    user_state=unchanged
+  else
+    r=$(indexer_api PUT "/_plugins/_security/api/internalusers/$user" \
+      "$(jq -nc --arg p "$pw" --arg d "$desc" '{password: $p, description: $d}')")
+    jq -e '.status == "OK" or .status == "CREATED"' >/dev/null 2>&1 <<<"$r" \
+      || { fail "indexer user $user: $r"; return 1; }
+    user_state="created or password set"
+  fi
+
+  indexer_security_put "/_plugins/_security/api/rolesmapping/$role" "$(jq -nc --arg u "$user" '{users: [$u]}')" \
+    || { fail "indexer role mapping $role: $INDEXER_STATE"; return 1; }
+  map_state=$INDEXER_STATE
+  pass "indexer: user $user with role $role (role $role_state, user $user_state, mapping $map_state)"
+}
+
+# The asox-metrics index template (C11), then the index itself, empty, so
+# that Grafana's datasource health check passes before n8n writes anything.
+# An existing index gets new template fields added to its mapping; a field
+# whose type changed can't be, and is a failure (reindex by hand).
+bootstrap_metrics_index() {
+  local i=$ASOX_METRICS_INDEX want cur resp state
+  want=$(asox_metrics_template)
+  # Settings come back as strings: compare everything as strings.
+  cur=$(indexer_api GET "/_index_template/$i" \
+    | jq -c --arg n "$i" '.index_templates[]? | select(.name == $n) | .index_template' 2>/dev/null || true)
+  if [[ -n $cur ]] && jq -e --argjson w "$want" '
+      def s: walk(if type == "number" or type == "boolean" then tostring else . end);
+      ({index_patterns, priority, template, _meta} | s) == ($w | s)' >/dev/null <<<"$cur"; then
+    state=unchanged
+  else
+    resp=$(indexer_api PUT "/_index_template/$i" "$want")
+    jq -e '.acknowledged == true' >/dev/null 2>&1 <<<"$resp" \
+      || { fail "indexer: index template $i: $resp"; return 1; }
+    if [[ -n $cur ]]; then state=updated; else state=created; fi
+  fi
+  pass "indexer: index template $i ($state; 1 shard, 0 replicas, strict mapping of $(jq '.template.mappings.properties | length' <<<"$want") fields)"
+
+  resp=$(indexer_api GET "/$i/_settings")
+  if jq -e '.error.type == "index_not_found_exception"' >/dev/null 2>&1 <<<"$resp"; then
+    resp=$(indexer_api PUT "/$i")
+    jq -e '.acknowledged == true' >/dev/null 2>&1 <<<"$resp" \
+      || { fail "indexer: create index $i: $resp"; return 1; }
+    state=created
+  elif jq -e --arg n "$i" '.[$n].settings.index.number_of_shards' >/dev/null 2>&1 <<<"$resp"; then
+    state=unchanged
+    if [[ $(jq -r --arg n "$i" '.[$n].settings.index.number_of_replicas' <<<"$resp") != 0 ]]; then
+      indexer_api PUT "/$i/_settings" '{"index": {"number_of_replicas": 0}}' | jq -e '.acknowledged == true' >/dev/null \
+        || { fail "indexer: index $i: setting 0 replicas failed"; return 1; }
+      state="replicas set to 0"
+    fi
+    cur=$(indexer_api GET "/$i/_mapping" | jq -c --arg n "$i" '.[$n].mappings')
+    if ! jq -e --argjson w "$(jq -c '.template.mappings' <<<"$want")" '. == $w' >/dev/null <<<"$cur"; then
+      resp=$(indexer_api PUT "/$i/_mapping" "$(jq -c '.template.mappings' <<<"$want")")
+      jq -e '.acknowledged == true' >/dev/null 2>&1 <<<"$resp" \
+        || { fail "indexer: index $i: its mapping differs from the template and can't be updated in place (reindex needed): $(jq -c '.error.reason // .' <<<"$resp" | cut -c1-200)"; return 1; }
+      state="mapping updated"
+    fi
+  else
+    fail "indexer: index $i: $resp"; return 1
+  fi
+  resp=$(indexer_api GET "/$i/_settings")
+  if [[ $(jq -r --arg n "$i" '.[$n].settings.index | "\(.number_of_shards)/\(.number_of_replicas)"' <<<"$resp") != 1/0 ]]; then
+    fail "indexer: index $i must have 1 shard and 0 replicas (has $(jq -r --arg n "$i" '.[$n].settings.index | "\(.number_of_shards)/\(.number_of_replicas)"' <<<"$resp"); a shard count can't change in place)"
+    return 1
+  fi
+  pass "indexer: index $i ($state; $(indexer_api GET "/$i/_count" | jq -r '.count') documents)"
+}
+
+bootstrap_indexer() {
+  local gro gro_pw n8u n8u_pw idx u r count denied
+  gro=$(core_env GRAFANA_INDEXER_USER) gro_pw=$(core_env GRAFANA_INDEXER_PASSWORD)
+  n8u=$(core_env N8N_INDEXER_USER) n8u_pw=$(core_env N8N_INDEXER_PASSWORD)
+  [[ -n $n8u && -n $n8u_pw ]] || { fail "indexer: N8N_INDEXER_USER / N8N_INDEXER_PASSWORD empty in nodes/core/.env (run scripts/render-env.sh)"; return; }
+
+  bootstrap_metrics_index || return
+  bootstrap_indexer_user "$gro" "$gro_pw" "$GRAFANA_ROLE" "$(grafana_role_json)" "ASOX: Grafana datasources (C8, C11)" || return
+  bootstrap_indexer_user "$n8u" "$n8u_pw" "$N8N_INDEXER_ROLE" "$(n8n_indexer_role_json)" "ASOX: n8n (C11 writer, C13 lookups)" || return
+
+  # Checks, read-only: each user reads what it should and nothing else.
+  idx=$ASOX_METRICS_INDEX
+  for u in "$gro:$gro_pw" "$n8u:$n8u_pw"; do
+    r=$(indexer_as "${u%%:*}" "${u#*:}" GET "/wazuh-alerts-*/_count")
+    count=$(http_body "$r" | jq -r '.count // empty' 2>/dev/null || true)
+    r=$(indexer_as "${u%%:*}" "${u#*:}" GET "/$idx/_count")
+    [[ $(http_code "$r") == 200 ]] || count=""
+    denied=$(http_code "$(indexer_as "${u%%:*}" "${u#*:}" GET /.opendistro_security/_search)")
+    if [[ -n $count && $denied == 403 ]]; then
+      pass "indexer: ${u%%:*} reads wazuh-alerts-* ($count alerts) and $idx, and is denied elsewhere"
+    else
+      fail "indexer: ${u%%:*} access check (wazuh-alerts-* count '$count', $idx HTTP $(http_code "$r"), other index HTTP $denied)"
+    fi
+  done
 }
 
 bootstrap_n8n() {

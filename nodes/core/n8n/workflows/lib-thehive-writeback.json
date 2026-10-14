@@ -5,8 +5,8 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## lib-thehive-writeback (N8N-2.2)\n**Trigger:** called by playbooks through Execute Workflow, waiting for the result.\n**Inputs:** `{thehive_alert_id, wazuh_alert_id, config, context: {playbook, n8n_execution_id}, actions: [text]}`.\n**Actions taken:** comments on the TheHive alert: first line `[asox-n8n writeback] wazuh-alert-id=<id>`, then playbook, n8n execution id and the actions taken. Idempotent: if a comment by n8n@asox.local with that first line exists, nothing is written. Each TheHive call has lib-config's timeout and is retried on a connection error, timeout or 5xx, never on 4xx (N8N-6.2); a failed post is retried through a new comment listing, so a post that timed out but was written isn't written twice. Failures, or the last call failing, go to lib-error (parked, with the number of calls).\n**Systems changed:** TheHive (one comment on the alert).\n**Approval:** not needed (no system changes outside TheHive).\n**Owner:** n8n.\nSuccessful executions are not saved (N8N-6.5): the calling playbook records the result; failed ones are kept.",
-        "height": 300,
+        "content": "## lib-thehive-writeback (N8N-2.2)\n**Trigger:** called by playbooks through Execute Workflow, waiting for the result.\n**Inputs:** `{thehive_alert_id, wazuh_alert_id, config, context: {playbook, n8n_execution_id}, actions: [text], metrics: {mode, alert_id, source, fields, attack_run_id}}`.\n**Actions taken:** first writes the C11 asox-metrics document through lib-metrics-upsert (On Error = continue: never parks, never blocks the comment) and adds its line to the actions (`metrics: ok | skipped (<why>) | failed (<class>)`); then comments on the TheHive alert: first line `[asox-n8n writeback] wazuh-alert-id=<id>`, then playbook, n8n execution id and the actions taken. Idempotent: if a comment by n8n@asox.local with that first line exists, nothing is written. Each TheHive call has lib-config's timeout and is retried on a connection error, timeout or 5xx, never on 4xx (N8N-6.2); a failed post is retried through a new comment listing, so a post that timed out but was written isn't written twice. Failures, or the last call failing, go to lib-error (parked, with the number of calls).\n**Systems changed:** TheHive (one comment on the alert); Wazuh indexer (the alert's asox-metrics document).\n**Approval:** not needed (no system changes outside TheHive).\n**Owner:** n8n.\nSuccessful executions are not saved (N8N-6.5): the calling playbook records the result; failed ones are kept.",
+        "height": 360,
         "width": 520
       },
       "id": "4bc7a11b-6973-52c3-b5bc-c40a14852c71",
@@ -55,7 +55,7 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        260,
+        1040,
         0
       ],
       "credentials": {
@@ -68,14 +68,14 @@
     },
     {
       "parameters": {
-        "jsCode": "// A writeback exists when a comment's first line is exactly the marker line\n// and its author is n8n's account (lib-config), not by fuzzy text.\nconst r = $input.first().json;\nconst input = $('Called by a workflow').first().json;\nconst wb = input.config.writeback;\nconst firstLine = `${wb.marker} wazuh-alert-id=${input.wazuh_alert_id}`;\nif (r.statusCode !== 200 || !Array.isArray(r.body)) {\n  return [{ json: { status: 'failed', http_status: r.statusCode, stage: 'List TheHive comments',\n    message: `HTTP ${r.statusCode}: ${JSON.stringify(r.body)}`.slice(0, 1000), attempts: r.attempts } }];\n}\nconst existing = r.body.find((cm) => (cm.createdBy ?? cm._createdBy) === wb.author\n  && typeof cm.message === 'string' && cm.message.split('\\n')[0] === firstLine);\nif (existing) return [{ json: { status: 'already', comment_id: existing._id } }];\nconst lines = [\n  firstLine,\n  '',\n  `n8n playbook **${input.context.playbook}**, execution ${input.context.n8n_execution_id}.`,\n  '',\n  'Actions taken:',\n  ...input.actions.map((a) => `- ${a}`),\n];\nreturn [{ json: { status: 'write', message: lines.join('\\n') } }];\n"
+        "jsCode": "// A writeback exists when a comment's first line is exactly the marker line\n// and its author is n8n's account (lib-config), not by fuzzy text.\nconst r = $input.first().json;\nconst input = $('Called by a workflow').first().json;\nconst wb = input.config.writeback;\nconst firstLine = `${wb.marker} wazuh-alert-id=${input.wazuh_alert_id}`;\nif (r.statusCode !== 200 || !Array.isArray(r.body)) {\n  return [{ json: { status: 'failed', http_status: r.statusCode, stage: 'List TheHive comments',\n    message: `HTTP ${r.statusCode}: ${JSON.stringify(r.body)}`.slice(0, 1000), attempts: r.attempts } }];\n}\nconst existing = r.body.find((cm) => (cm.createdBy ?? cm._createdBy) === wb.author\n  && typeof cm.message === 'string' && cm.message.split('\\n')[0] === firstLine);\nif (existing) return [{ json: { status: 'already', comment_id: existing._id } }];\nconst lines = [\n  firstLine,\n  '',\n  `n8n playbook **${input.context.playbook}**, execution ${input.context.n8n_execution_id}.`,\n  '',\n  'Actions taken:',\n  ...$('Actions with metrics').first().json.actions.map((a) => `- ${a}`),\n];\nreturn [{ json: { status: 'write', message: lines.join('\\n') } }];\n"
       },
       "id": "ab0f91f8-0af4-5be5-ac1c-9b31d19a7649",
       "name": "Check existing writeback",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1300,
+        2080,
         -100
       ]
     },
@@ -109,7 +109,7 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        1560,
+        2340,
         -100
       ]
     },
@@ -137,7 +137,7 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        1820,
+        2600,
         -200
       ],
       "credentials": {
@@ -150,14 +150,14 @@
     },
     {
       "parameters": {
-        "jsCode": "const r = $input.first().json;\nif (r.statusCode === 201) return [{ json: { ok: true, written: true, comment_id: r.body._id } }];\nreturn [{ json: { ok: false, status: 'failed', http_status: r.statusCode, stage: 'Post TheHive comment',\n  message: `HTTP ${r.statusCode}: ${JSON.stringify(r.body)}`.slice(0, 1000), attempts: r.attempts } }];\n"
+        "jsCode": "const r = $input.first().json;\nif (r.statusCode === 201) return [{ json: { ok: true, written: true, comment_id: r.body._id, metrics: $('Actions with metrics').first().json.metrics_line } }];\nreturn [{ json: { ok: false, status: 'failed', http_status: r.statusCode, stage: 'Post TheHive comment',\n  message: `HTTP ${r.statusCode}: ${JSON.stringify(r.body)}`.slice(0, 1000), attempts: r.attempts, metrics: $('Actions with metrics').first().json.metrics_line } }];\n"
       },
       "id": "47d01c0a-3095-5157-81cf-e125fc2e3dd6",
       "name": "Written result",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        2860,
+        3640,
         -300
       ]
     },
@@ -191,7 +191,7 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        3120,
+        3900,
         -300
       ]
     },
@@ -202,7 +202,7 @@
       "type": "n8n-nodes-base.noOp",
       "typeVersion": 1,
       "position": [
-        3380,
+        4160,
         -380
       ]
     },
@@ -236,20 +236,20 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        2600,
+        3380,
         0
       ]
     },
     {
       "parameters": {
-        "jsCode": "return [{ json: { ok: true, written: false, reason: 'writeback already on the alert', comment_id: $input.first().json.comment_id } }];\n"
+        "jsCode": "return [{ json: { ok: true, written: false, reason: 'writeback already on the alert', comment_id: $input.first().json.comment_id, metrics: $('Actions with metrics').first().json.metrics_line } }];\n"
       },
       "id": "2fd73c65-b6ec-5432-9be7-31bced2db17e",
       "name": "Already written result",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        2860,
+        3640,
         -60
       ]
     },
@@ -262,7 +262,7 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        3120,
+        3900,
         400
       ]
     },
@@ -283,20 +283,20 @@
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.2,
       "position": [
-        3380,
+        4160,
         400
       ]
     },
     {
       "parameters": {
-        "jsCode": "// Handed to lib-error (parked there); the caller stops without further actions.\nconst e = $('Error input').first().json;\nreturn [{ json: { ok: false, parked: true, stage: e.stage, http_status: e.http_status, message: e.message } }];\n"
+        "jsCode": "// Handed to lib-error (parked there); the caller stops without further actions.\nconst e = $('Error input').first().json;\nreturn [{ json: { ok: false, parked: true, stage: e.stage, http_status: e.http_status, message: e.message, metrics: $('Actions with metrics').first().json.metrics_line } }];\n"
       },
       "id": "08a357a2-ea46-5a3f-84bc-e5174cc47c63",
       "name": "Failed result",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        3640,
+        4420,
         400
       ]
     },
@@ -309,7 +309,7 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        520,
+        1300,
         0
       ]
     },
@@ -343,7 +343,7 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        780,
+        1560,
         0
       ]
     },
@@ -358,7 +358,7 @@
       "type": "n8n-nodes-base.wait",
       "typeVersion": 1.1,
       "position": [
-        780,
+        1560,
         -200
       ],
       "webhookId": "bd4c6afe-fb50-5937-b659-0ddd0dc31d29"
@@ -393,7 +393,7 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        1040,
+        1820,
         60
       ]
     },
@@ -406,7 +406,7 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        2080,
+        2860,
         -200
       ]
     },
@@ -440,7 +440,7 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        2340,
+        3120,
         -200
       ]
     },
@@ -455,7 +455,7 @@
       "type": "n8n-nodes-base.wait",
       "typeVersion": 1.1,
       "position": [
-        2340,
+        3120,
         -400
       ],
       "webhookId": "4406acce-a4ad-559d-8a02-6daa1627e1fc"
@@ -490,8 +490,56 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        2600,
+        3380,
         -140
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// C11 (N8N-2.9): the asox-metrics document first, so its result is in the\n// comment. lib-metrics-upsert never parks; On Error = continue, so even an\n// unexpected failure there never stops the writeback.\nconst i = $input.first().json;\nreturn [{ json: { ...(i.metrics ?? {}), config: i.config } }];\n"
+      },
+      "id": "8565a0b0-f391-551d-9ca0-d66291d56f79",
+      "name": "Metrics input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        260,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "asoxLibMetricsUp",
+          "cachedResultName": "lib-metrics-upsert"
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "ce8b7fd0-766c-5e49-9b75-d7cc6e76895f",
+      "name": "Metrics (lib-metrics-upsert)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        520,
+        0
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// One summary line: metrics: ok | skipped (<why>) | failed (<class>).\nconst r = $input.first().json;\nconst line = typeof r.line === 'string' ? r.line : 'metrics: failed (unexpected)';\nreturn [{ json: { actions: [...$('Called by a workflow').first().json.actions, line], metrics_line: line } }];\n"
+      },
+      "id": "3a026b20-a3f4-5350-90e1-6b7861cb7d15",
+      "name": "Actions with metrics",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        780,
+        0
       ]
     }
   ],
@@ -500,7 +548,7 @@
       "main": [
         [
           {
-            "node": "List TheHive comments",
+            "node": "Metrics input",
             "type": "main",
             "index": 0
           }
@@ -747,6 +795,39 @@
       ]
     },
     "Wait, then re-list before re-posting": {
+      "main": [
+        [
+          {
+            "node": "List TheHive comments",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Metrics input": {
+      "main": [
+        [
+          {
+            "node": "Metrics (lib-metrics-upsert)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Metrics (lib-metrics-upsert)": {
+      "main": [
+        [
+          {
+            "node": "Actions with metrics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Actions with metrics": {
       "main": [
         [
           {

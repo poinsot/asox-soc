@@ -115,6 +115,11 @@ compose() {
   docker compose --project-directory "$dir" --env-file "$dir/.env" "${files[@]}" "$@"
 }
 
+# For responses printed as the body plus a last line with the HTTP status
+# (cases.sh's _call, wazuh.sh's indexer_as).
+http_body() { sed '$d' <<<"$1"; }
+http_code() { tail -n 1 <<<"$1"; }
+
 # Exit with the conventional status after a series of pass/fail checks.
 finish() {
   if (( FAILURES > 0 )); then

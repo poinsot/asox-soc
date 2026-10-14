@@ -1,0 +1,447 @@
+{
+  "id": "asoxLibMetricsUp",
+  "name": "lib-metrics-upsert",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## lib-metrics-upsert (C11, N8N-2.9)\n**Trigger:** called through Execute Workflow by lib-thehive-writeback (mode create, or update on a duplicate) and recv-thehive-event (mode update), waiting for the result.\n**Inputs:** `{alert_id, mode: create | update, fields, source, attack_run_id, config}` (config = lib-config, `metrics`).\n**Actions taken:** one `POST asox-metrics/_update/<Wazuh alert id>?retry_on_conflict=3` as `n8n-indexer` (credential \"Wazuh indexer (n8n-indexer)\", certificate verified). Only the 18 template fields (strict mapping), nulls dropped, times ISO 8601 UTC, alert_id a string; a painless script sets the fields and writes the first-time ones (`t_event`, `t_alert`, `t_ack`, `t_case`, `t_contained`, `t_closed`, `t_attack_start`) only when the document doesn't have them. **create:** scripted upsert (builds a missing document); with `attack_run_id`, first reads the attack-start marker (rule 100101, `data.run_id`) in `wazuh-alerts-*` for `t_attack_start`. **update:** no upsert; a missing document (404) is skipped, nothing is created. Sources `asox-test` and `contract-check` are skipped (C11 clarification).\n**Failures:** never parks, never throws. Connection error, timeout or 5xx: 2 more calls (lib-config `metrics.retry_waits_s`), then `{ok: false, class: unreachable | server_error}`; 400 / 401 / 403 / 404 on the index: `class: config`, not retried. Every result has `line`: `metrics: ok`, `metrics: skipped (<why>)` or `metrics: failed (<class>)`.\n**Systems changed:** Wazuh indexer, `asox-metrics` (one document per Wazuh alert).\n**Approval:** not needed.\n**Owner:** n8n.\nSuccessful executions are not saved (N8N-6.5): the caller records the result.",
+        "height": 440,
+        "width": 620
+      },
+      "id": "387a6df7-8ed5-548e-ae4c-68f1b76d7525",
+      "name": "About this workflow",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -40,
+        -520
+      ]
+    },
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "id": "b3e53093-8517-5e8a-b437-79161776bc03",
+      "name": "Called by a workflow",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// C11 (N8N-2.9): what to write to asox-metrics, pure (no call here).\n// Input: {alert_id, mode: 'create' | 'update', fields, source, attack_run_id,\n// config}. Only the template's fields go out (the mapping is strict: any other\n// field is a 400), nulls dropped, times as ISO 8601 UTC, alert_id a string.\n// Fields in lib-config metrics.first_time_fields are written only when the\n// document doesn't have them yet (painless script, \"Request\").\nfunction toIso(v) {\n  let x = v;\n  if (typeof x === 'string' && /^\\d+$/.test(x.trim())) x = Number(x);\n  // Wazuh writes \"+0000\"; JavaScript wants \"+00:00\".\n  if (typeof x === 'string') x = x.trim().replace(/([+-]\\d{2})(\\d{2})$/, '$1:$2');\n  if (typeof x !== 'number' && typeof x !== 'string') return null;\n  const d = new Date(x);\n  return Number.isNaN(d.getTime()) ? null : d.toISOString();\n}\n// The filter: template fields only, typed as the template types them.\nfunction cleanFields(fields, types) {\n  const out = {};\n  const dropped = [];\n  for (const [k, v] of Object.entries(fields ?? {})) {\n    const t = types[k];\n    if (!t) { dropped.push(`${k} (not in the template)`); continue; }\n    if (v === null || v === undefined || v === '') continue;\n    let c = null;\n    if (t === 'keyword') c = ['string', 'number', 'boolean'].includes(typeof v) ? String(v) : null;\n    else if (t === 'integer') {\n      const n = typeof v === 'string' && /^-?\\d+$/.test(v.trim()) ? Number(v) : v;\n      c = Number.isInteger(n) ? n : null;\n    } else if (t === 'boolean') c = typeof v === 'boolean' ? v : null;\n    else if (t === 'date') c = toIso(v);\n    if (c === null) { dropped.push(`${k} (not a valid ${t})`); continue; }\n    out[k] = c;\n  }\n  return { out, dropped };\n}\n\nconst input = $input.first().json;\nconst m = input.config?.metrics;\nconst alertId = input.alert_id === null || input.alert_id === undefined ? '' : String(input.alert_id).trim();\nconst done = (result) => [{ json: { action: 'done', result: { alert_id: alertId || null, mode: input.mode ?? null, ...result } } }];\nconst failed = (cls, message) => done({ ok: false, class: cls, message, line: `metrics: failed (${cls})` });\nconst skipped = (why) => done({ ok: true, skipped: why, line: `metrics: skipped (${why})` });\nif (!m || !m.fields) return failed('invalid_input', 'lib-metrics-upsert needs the lib-config output as `config`');\nif (m.enabled === false) return skipped('disabled in lib-config');\nconst mode = input.mode;\nif (mode !== 'create' && mode !== 'update') return failed('invalid_input', `mode must be \"create\" or \"update\", not ${JSON.stringify(mode)}`);\nif (!alertId) return skipped('no Wazuh alert id');\nconst source = typeof input.source === 'string' ? input.source : null;\n// C11 clarification: no document for test alerts (asox-test, the C3 check's\n// contract-check alert); chk-metrics writes its own test document itself.\nif (source !== null && m.skip_sources.includes(source)) return skipped(`test source ${source}`);\n\nconst { out, dropped } = cleanFields({ ...(input.fields ?? {}), alert_id: alertId }, m.fields);\nconst set = {};\nconst once = {};\nfor (const [k, v] of Object.entries(out)) (m.first_time_fields.includes(k) ? once : set)[k] = v;\nif (mode === 'update' && Object.keys(set).length + Object.keys(once).length <= 1) return skipped('nothing to write');\nconst run = mode === 'create' && m.attack_start?.enabled === true && typeof input.attack_run_id === 'string'\n  && /^[0-9A-Za-z-]{8,64}$/.test(input.attack_run_id) && once.t_attack_start === undefined ? input.attack_run_id : null;\nreturn [{ json: {\n  action: 'write', alert_id: alertId, mode, set, once, dropped, attack_run_id: run,\n  attack: m.attack_start ?? null,\n  policy: { index: m.index, timeout_ms: m.timeout_ms, retry_waits_s: m.retry_waits_s },\n} }];\n"
+      },
+      "id": "71a0adf7-ca5a-5daf-bf8c-17b436900c57",
+      "name": "Prepare",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        260,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "1de10d09-359d-5fcb-998b-406b7f9c8b36",
+              "leftValue": "={{ $json.action === 'write' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "877dc203-a399-5eb8-95db-4e4240c928e5",
+      "name": "Write?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        520,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Skipped (test source, nothing to write, disabled) or invalid input: no call.\nreturn [{ json: $input.first().json.result }];\n"
+      },
+      "id": "4bbd6975-1c76-5bfe-b0d9-3adce1fe5f45",
+      "name": "Done result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        780,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "d529593b-ce5b-5cc2-b741-9baa5a2485fc",
+              "leftValue": "={{ $json.attack_run_id !== null }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "09a2e8f8-4bd7-579a-b6d0-3013578695b2",
+      "name": "Attack start lookup?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        780,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.WAZUH_INDEXER_URL }}/{{ $json.attack.indices }}/_search",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ size: 1, sort: [ { timestamp: { order: 'asc', unmapped_type: 'date' } } ], _source: ['timestamp'], query: { bool: { filter: [ { term: { 'rule.id': $json.attack.rule_id } }, { term: { 'data.run_id': $json.attack_run_id } } ] } } }) }}",
+        "options": {
+          "timeout": "={{ $json.attack.timeout_ms }}",
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "f6ca9fa5-98e7-5d24-a746-c65aa6fd9792",
+      "name": "Find attack start",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1040,
+        -260
+      ],
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "asoxIndexerN8n01",
+          "name": "Wazuh indexer (n8n-indexer)"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// The update request. One painless script for both modes: `set` fields are\n// written, `once` fields only when the document doesn't have them (t_alert is\n// never overwritten, t_ack stays the first acknowledgement). mode create =\n// scripted upsert (the script also builds a missing document); mode update =\n// no upsert, so a missing document is a 404 and nothing is created.\nconst p = $('Prepare').first().json;\nconst once = { ...p.once };\nconst notes = [];\nif ($('Find attack start').isExecuted) {\n  // t_attack_start (lab scenarios, X-32): the first attack-start marker (rule\n  // 100101) whose data.run_id is the asox_run id in the alert's log line. The\n  // input is the lookup's answer from either output (error output: {error}).\n  const r = $input.first().json;\n  const ts = r.statusCode === 200 ? r.body?.hits?.hits?.[0]?._source?.timestamp : undefined;\n  const d = typeof ts === 'string' ? new Date(ts.trim().replace(/([+-]\\d{2})(\\d{2})$/, '$1:$2')) : null;\n  if (d && !Number.isNaN(d.getTime())) once.t_attack_start = d.toISOString();\n  else notes.push(r.statusCode === 200\n    ? `attack start: no marker for run ${p.attack_run_id} (yet)`\n    : `attack start: lookup failed (${r.statusCode ?? 'connection error'})`);\n}\nconst SCRIPT = [\n  'boolean changed = false;',\n  'for (e in params.set.entrySet()) { if (ctx._source[e.getKey()] != e.getValue()) { ctx._source[e.getKey()] = e.getValue(); changed = true; } }',\n  'for (e in params.once.entrySet()) { if (ctx._source[e.getKey()] == null) { ctx._source[e.getKey()] = e.getValue(); changed = true; } }',\n  \"if (!changed) { ctx.op = 'noop'; }\",\n].join(' ');\nconst body = { script: { lang: 'painless', source: SCRIPT, params: { set: p.set, once } } };\nif (p.mode === 'create') { body.scripted_upsert = true; body.upsert = {}; }\nreturn [{ json: { body, notes, once_fields: Object.keys(once) } }];\n"
+      },
+      "id": "8867a37a-22ec-57d8-be30-88863ddf008f",
+      "name": "Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1300,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.WAZUH_INDEXER_URL }}/{{ $('Prepare').first().json.policy.index }}/_update/{{ encodeURIComponent($('Prepare').first().json.alert_id) }}?retry_on_conflict=3",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($('Request').first().json.body) }}",
+        "options": {
+          "timeout": "={{ $('Prepare').first().json.policy.timeout_ms }}",
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "76b5ba4d-4a73-5a28-9c3c-c6c329a08c51",
+      "name": "Update document",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1560,
+        -100
+      ],
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "asoxIndexerN8n01",
+          "name": "Wazuh indexer (n8n-indexer)"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Retry policy for the indexer (C11; lib-config metrics): a connection error,\n// a timeout or HTTP 5xx -> wait and call again (retry_waits_s: 2 more calls);\n// anything else is answered and classified in \"Result\". A certificate error\n// is a configuration problem (CA not mounted, wrong host name): not retried.\nconst r = $input.first().json;\nconst policy = $('Prepare').first().json.policy;\nconst attempt = $runIndex + 1; // this node runs once per call\nconst status = typeof r.statusCode === 'number' ? r.statusCode : null;\nconst thrown = r.error !== undefined && status === null; // HTTP node error output\nconst text = thrown ? JSON.stringify(r.error) : '';\nconst TLS = /CERT|certificate|self[- ]signed|UNABLE_TO_VERIFY|ALTNAME/i;\nconst NETWORK = /ECONNREFUSED|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|ECONNRESET|EHOSTUNREACH|ENETUNREACH|ECONNABORTED|timeout|timed out|socket hang up|connection cannot be established/i;\nconst cls = thrown ? (TLS.test(text) ? 'config' : (NETWORK.test(text) ? 'unreachable' : 'error'))\n  : (status >= 500 ? 'server_error' : null);\nconst transient = cls === 'unreachable' || cls === 'server_error';\nconst calls = policy.retry_waits_s.length + 1;\nif (transient && attempt < calls) {\n  return [{ json: { decision: 'retry', attempt, wait_s: policy.retry_waits_s[attempt - 1], reason: cls } }];\n}\nif (cls !== null) {\n  const e = r.error;\n  const detail = thrown\n    ? (typeof e === 'string' ? e : [e?.message, e?.description].filter(Boolean).join(': ') || text)\n    : `HTTP ${status}: ${typeof r.body === 'string' ? r.body : JSON.stringify(r.body)}`;\n  return [{ json: { decision: 'error', class: cls, attempts: attempt, http_status: status,\n    message: `${detail}`.slice(0, 500) + (transient ? ` (${attempt} calls)` : '') } }];\n}\nreturn [{ json: { decision: 'response', statusCode: status, body: r.body, attempts: attempt } }];\n"
+      },
+      "id": "fe01c9f6-c2aa-5223-8a2f-ac209877015c",
+      "name": "Assess: Update document",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1820,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "223be656-d9fa-5335-adf3-be640613d3a4",
+              "leftValue": "={{ $json.decision === 'retry' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "b11657bd-da74-5747-816e-781d351fc0d9",
+      "name": "Retry: Update document?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2080,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "resume": "timeInterval",
+        "amount": "={{ $json.wait_s }}",
+        "unit": "seconds"
+      },
+      "id": "e8c2386a-f875-57e8-b2a2-09e6e2df2afc",
+      "name": "Wait before retry: Update document",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        2080,
+        -300
+      ],
+      "webhookId": "a106457c-b05b-5467-beb4-a030fe78907e"
+    },
+    {
+      "parameters": {
+        "jsCode": "// {ok, line} for the caller's summary: \"metrics: ok\", \"metrics: skipped\n// (<why>)\" or \"metrics: failed (<class>)\". Never throws: a metrics failure\n// must not stop a playbook or an event route (N8N-2.9).\nconst p = $('Prepare').first().json;\nconst q = $('Request').first().json;\nconst a = $input.first().json;\nconst base = { alert_id: p.alert_id, mode: p.mode, attempts: a.attempts ?? null, dropped: p.dropped, notes: q.notes };\nconst fail = (cls, extra) => [{ json: { ok: false, class: cls, ...base, ...extra, line: `metrics: failed (${cls})` } }];\nif (a.decision === 'error') return fail(a.class, { http_status: a.http_status, message: a.message });\nconst st = a.statusCode;\nconst err = a.body?.error ?? null;\nconst message = `HTTP ${st}: ${err?.type ?? ''} ${err?.reason ?? (typeof a.body === 'string' ? a.body : '')}`.trim().slice(0, 500);\nif (st === 200 || st === 201) {\n  return [{ json: { ok: true, result: a.body?.result ?? null, ...base,\n    written: { set: Object.keys(p.set), once_if_missing: q.once_fields }, line: 'metrics: ok' } }];\n}\n// mode update: no document for this Wazuh alert (an alert from before\n// N8N-2.9, or one n8n didn't create): nothing to update, nothing created.\nif (st === 404 && err?.type === 'document_missing_exception') {\n  return [{ json: { ok: true, skipped: 'no-document', ...base, line: 'metrics: skipped (no document)' } }];\n}\n// 400 (strict mapping, bad value), 401 / 403 (credential, role), 404 on the\n// index (missing: bootstrap.sh core creates it, never n8n): configuration\n// errors, not retried.\nif ([400, 401, 403, 404].includes(st)) return fail('config', { http_status: st, message });\nif (st === 409) return fail('conflict', { http_status: st, message });\nreturn fail(`http_${st}`, { http_status: st, message });\n"
+      },
+      "id": "ac2914ed-b9ba-5ab3-8954-ed9f476e6999",
+      "name": "Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2340,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Called by a workflow": {
+      "main": [
+        [
+          {
+            "node": "Prepare",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare": {
+      "main": [
+        [
+          {
+            "node": "Write?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write?": {
+      "main": [
+        [
+          {
+            "node": "Attack start lookup?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Done result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Attack start lookup?": {
+      "main": [
+        [
+          {
+            "node": "Find attack start",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find attack start": {
+      "main": [
+        [
+          {
+            "node": "Request",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Request": {
+      "main": [
+        [
+          {
+            "node": "Update document",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update document": {
+      "main": [
+        [
+          {
+            "node": "Assess: Update document",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Assess: Update document",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Assess: Update document": {
+      "main": [
+        [
+          {
+            "node": "Retry: Update document?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Retry: Update document?": {
+      "main": [
+        [
+          {
+            "node": "Wait before retry: Update document",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait before retry: Update document": {
+      "main": [
+        [
+          {
+            "node": "Update document",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataSuccessExecution": "none",
+    "saveDataErrorExecution": "all",
+    "saveManualExecutions": true
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "nodeGroups": [],
+  "tags": [],
+  "pinData": {}
+}

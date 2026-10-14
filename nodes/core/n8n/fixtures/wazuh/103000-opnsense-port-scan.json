@@ -1,0 +1,57 @@
+{
+  "timestamp": "2026-10-14T19:33:51.500+0000",
+  "rule": {
+    "level": 10,
+    "description": "ASOX firewall: port scan from 203.0.113.77 (10 blocked ports in 60 s)",
+    "id": "103000",
+    "mitre": {
+      "id": [
+        "T1046"
+      ],
+      "tactic": [
+        "Discovery"
+      ],
+      "technique": [
+        "Network Service Discovery"
+      ]
+    },
+    "frequency": 10,
+    "firedtimes": 1,
+    "mail": true,
+    "groups": [
+      "asox",
+      "opnsense",
+      "pfsense",
+      "firewall_block",
+      "recon"
+    ]
+  },
+  "agent": {
+    "id": "000",
+    "name": "wazuh-manager"
+  },
+  "manager": {
+    "name": "wazuh-manager"
+  },
+  "id": "1792006431.8168",
+  "previous_output": "Oct 14 12:33:50 opnsense filterlog[25908]: 84,,,02f4bab031b57d1e30553ce08e0ec131,vtnet0,match,block,in,4,0x0,,64,13567,0,DF,6,tcp,60,203.0.113.77,192.168.1.1,44322,445,0,S,1406233372,,64240,,mss asox_run=f0475203-3a85-451d-8ddc-a9305ce44823\nOct 14 12:33:50 opnsense filterlog[25908]: 84,,,02f4bab031b57d1e30553ce08e0ec131,vtnet0,match,block,in,4,0x0,,64,13567,0,DF,6,tcp,60,203.0.113.77,192.168.1.1,44322,443,0,S,1406233372,,64240,,mss asox_run=f0475203-3a85-451d-8ddc-a9305ce44823\nOct 14 12:33:50 opnsense filterlog[25908]: 84,,,02f4bab031b57d1e30553ce08e0ec131,vtnet0,match,block,in,4,0x0,,64,13567,0,DF,6,tcp,60,203.0.113.77,192.168.1.1,44322,139,0,S,1406233372,,64240,,mss asox_run=f0475203-3a85-451d-8ddc-a9305ce44823\nOct 14 12:33:50 opnsense filterlog[25908]: 84,,,02f4bab031b57d1e30553ce08e0ec131,vtnet0,match,block,in,4,0x0,,64,13567,0,DF,6,tcp,60,203.0.113.77,192.168.1.1,44322,110,0,S,1406233372,,64240,,mss asox_run=f0475203-3a85-451d-8ddc-a9305ce44823\nOct 14 12:33:50 opnsense filterlog[25908]: 84,,,02f4bab031b57d1e30553ce08e0ec131,vtnet0,match,block,in,4,0x0,,64,13567,0,DF,6,tcp,60,203.0.113.77,192.168.1.1,44322,80,0,S,1406233372,,64240,,mss asox_run=f0475203-3a85-451d-8ddc-a9305ce44823\nOct 14 12:33:50 opnsense filterlog[25908]: 84,,,02f4bab031b57d1e30553ce08e0ec131,vtnet0,match,block,in,4,0x0,,64,13567,0,DF,6,tcp,60,203.0.113.77,192.168.1.1,44322,25,0,S,1406233372,,64240,,mss asox_run=f0475203-3a85-451d-8ddc-a9305ce44823\nOct 14 12:33:50 opnsense filterlog[25908]: 84,,,02f4bab031b57d1e30553ce08e0ec131,vtnet0,match,block,in,4,0x0,,64,13567,0,DF,6,tcp,60,203.0.113.77,192.168.1.1,44322,23,0,S,1406233372,,64240,,mss asox_run=f0475203-3a85-451d-8ddc-a9305ce44823\nOct 14 12:33:50 opnsense filterlog[25908]: 84,,,02f4bab031b57d1e30553ce08e0ec131,vtnet0,match,block,in,4,0x0,,64,13567,0,DF,6,tcp,60,203.0.113.77,192.168.1.1,44322,22,0,S,1406233372,,64240,,mss asox_run=f0475203-3a85-451d-8ddc-a9305ce44823\nOct 14 12:33:50 opnsense filterlog[25908]: 84,,,02f4bab031b57d1e30553ce08e0ec131,vtnet0,match,block,in,4,0x0,,64,13567,0,DF,6,tcp,60,203.0.113.77,192.168.1.1,44322,21,0,S,1406233372,,64240,,mss asox_run=f0475203-3a85-451d-8ddc-a9305ce44823",
+  "full_log": "Oct 14 12:33:50 opnsense filterlog[25908]: 84,,,02f4bab031b57d1e30553ce08e0ec131,vtnet0,match,block,in,4,0x0,,64,13567,0,DF,6,tcp,60,203.0.113.77,192.168.1.1,44322,3389,0,S,1406233372,,64240,,mss asox_run=f0475203-3a85-451d-8ddc-a9305ce44823",
+  "predecoder": {
+    "program_name": "filterlog",
+    "timestamp": "Oct 14 12:33:50",
+    "hostname": "opnsense"
+  },
+  "decoder": {
+    "name": "pf"
+  },
+  "data": {
+    "protocol": "tcp",
+    "action": "block",
+    "srcip": "203.0.113.77",
+    "srcport": "44322",
+    "dstip": "192.168.1.1",
+    "dstport": "3389",
+    "id": "02f4bab031b57d1e30553ce08e0ec131"
+  },
+  "location": "172.18.0.7"
+}

@@ -5,9 +5,9 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## recv-thehive-event (C4, N8N-1.5)\n**Trigger:** `POST /webhook/thehive-event` from TheHive's webhook (every event of the SOC organisation), token as `Authorization: Bearer` (C4).\n**Inputs:** the TheHive audit event (`operation`, `objectType`, `objectId`, top-level `_createdBy` = the actor, `details`, `object`).\n**Actions taken:** records a summary of every event (operation, object type and id, actor, request id, source, sourceRef), then routes it (first match wins): (1) actor n8n@asox.local (lib-config): ignored, loop prevention; (2) delete: ignored (open question, N8N-1.5); (3) alert update with caseId: promoted; (4) alert update with status; (5) case create; (6) case update with status/stage (closing); (7) Task / Log / Comment: analyst activity; (8) anything else: recorded, no handler. Routes 3-7 end in labelled **no-op stubs** where N8N-5.3 and C11 (N8N-2.9) attach.\n**Systems changed:** none.\n**Approval:** not applicable.\n**Owner:** n8n.\nThe C4 check's test alert is created by n8n's account, so its event ends at (1); the execution is still saved. Error workflow: recv-n8n-error.\nEvents caused by n8n's own account are ignored right after the summary, before lib-config (fast path, N8N-1.4); the execution is still saved.",
-        "height": 360,
-        "width": 620
+        "content": "## recv-thehive-event (C4, N8N-1.5; C11 writer, N8N-2.9)\n**Trigger:** `POST /webhook/thehive-event` from TheHive's webhook (every event of the SOC organisation), token as `Authorization: Bearer` (C4).\n**Inputs:** the TheHive audit event (`operation`, `objectType`, `objectId`, top-level `_createdBy` = the actor, top-level `_createdAt` = the event time, `details`, `object`).\n**Actions taken:** records a summary of every event (operation, object type and id, actor, request id, source, sourceRef), then routes it (first match wins): (1) actor n8n@asox.local (lib-config): ignored, loop prevention; (2) delete: ignored (decided 2026-10-14, N8N-1.5); (3) alert update with caseId: promoted or merged; (4) alert update with status; (5) case create; (6) case update with status/stage (closing); (7) alert or case update with severity; (8) Task / Log / Comment: analyst activity (no-op stub, N8N-7.2); (9) anything else: recorded, no handler.\n**C11 (routes 3-7):** updates the asox-metrics documents of the alerts concerned through lib-metrics-upsert (mode update: a missing document is skipped, never created), with the event's own time (`_createdAt`): status leaves New -> `t_ack`; Ignored / closed -> `resolution` (the status), `t_closed`; promoted, merged or case created from it -> `case_id`, `t_case`; case closed -> `resolution` (the case status) and `t_closed` on each of the case's alerts (read from TheHive); severity -> `severity`. First-time times are kept when already set. Never parks; the execution's `Event result` lists `<Wazuh alert id>: metrics: ok | skipped (<why>) | failed (<class>)`. Routes 3, 5 and 6 are also where N8N-5.3 attaches.\n**Systems changed:** Wazuh indexer (asox-metrics documents).\n**Approval:** not applicable.\n**Owner:** n8n.\nThe C4 check's test alert is created by n8n's account, so its event ends at (1); the execution is still saved. Error workflow: recv-n8n-error.\nEvents caused by n8n's own account are ignored right after the summary, before lib-config (fast path, N8N-1.4); the execution is still saved.",
+        "height": 480,
+        "width": 700
       },
       "id": "e77fb3fd-3eba-5bd8-b08a-b9d441bd95a6",
       "name": "About this workflow",
@@ -15,7 +15,7 @@
       "typeVersion": 1,
       "position": [
         -40,
-        -300
+        -560
       ]
     },
     {
@@ -122,7 +122,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Routing table (N8N-1.5), first match wins. The summary above is kept in this\n// execution for every event, routed or not.\nconst s = $('Event summary').first().json;\nconst body = $('TheHive event').first().json.body ?? {};\nconst cfg = $input.first().json;\nconst details = body.details !== null && typeof body.details === 'object' ? body.details : {};\nconst op = s.operation;\nconst type = s.object_type;\nconst has = (k) => Object.prototype.hasOwnProperty.call(details, k);\nlet route;\nlet status;\nif (s.actor === cfg.thehive.n8n_user) {\n  // TheHive's webhook reports n8n's own writes back to n8n: stop here.\n  route = 'loop'; status = `ignored: caused by ${cfg.thehive.n8n_user} (loop prevention)`;\n} else if (op === 'delete') {\n  // No object and no useful details (ALERT-TO-THEHIVE §6): open question, N8N-1.5.\n  route = 'delete'; status = 'ignored: delete (open question, N8N-1.5)';\n} else if (type === 'Alert' && op === 'update' && has('caseId')) {\n  route = 'alert-promoted'; status = 'stub: alert promoted to a case';\n} else if (type === 'Alert' && op === 'update' && has('status')) {\n  route = 'alert-status'; status = 'stub: alert status changed';\n} else if (type === 'Case' && op === 'create') {\n  route = 'case-created'; status = 'stub: case created';\n} else if (type === 'Case' && op === 'update' && (has('status') || has('stage'))) {\n  route = 'case-status'; status = 'stub: case status changed (closing included)';\n} else if (['Task', 'Log', 'Comment'].includes(type)) {\n  route = 'analyst-activity'; status = 'stub: analyst activity (task, log, comment)';\n} else {\n  route = 'other'; status = 'recorded: no handler';\n}\nreturn [{ json: { ...s, route, status, details_keys: Object.keys(details) } }];\n"
+        "jsCode": "// Routing table (N8N-1.5), first match wins. The summary above is kept in this\n// execution for every event, routed or not.\nconst s = $('Event summary').first().json;\nconst body = $('TheHive event').first().json.body ?? {};\nconst cfg = $input.first().json;\nconst details = body.details !== null && typeof body.details === 'object' ? body.details : {};\nconst op = s.operation;\nconst type = s.object_type;\nconst has = (k) => Object.prototype.hasOwnProperty.call(details, k);\nlet route;\nlet status;\nif (s.actor === cfg.thehive.n8n_user) {\n  // TheHive's webhook reports n8n's own writes back to n8n: stop here.\n  route = 'loop'; status = `ignored: caused by ${cfg.thehive.n8n_user} (loop prevention)`;\n} else if (op === 'delete') {\n  // No object and no useful details (ALERT-TO-THEHIVE §6): open question, N8N-1.5.\n  route = 'delete'; status = 'ignored: delete (open question, N8N-1.5)';\n} else if (type === 'Alert' && op === 'update' && has('caseId')) {\n  route = 'alert-promoted'; status = 'alert promoted to a case (C11; N8N-5.3 stub)';\n} else if (type === 'Alert' && op === 'update' && has('status')) {\n  route = 'alert-status'; status = 'alert status changed (C11)';\n} else if (type === 'Case' && op === 'create') {\n  route = 'case-created'; status = 'case created (C11; N8N-5.3 stub)';\n} else if (type === 'Case' && op === 'update' && (has('status') || has('stage'))) {\n  route = 'case-status'; status = 'case status changed, closing included (C11; N8N-5.3 stub)';\n} else if ((type === 'Alert' || type === 'Case') && op === 'update' && has('severity')) {\n  route = 'severity-changed'; status = 'severity changed (C11)';\n} else if (['Task', 'Log', 'Comment'].includes(type)) {\n  route = 'analyst-activity'; status = 'stub: analyst activity (task, log, comment)';\n} else {\n  route = 'other'; status = 'recorded: no handler';\n}\nreturn [{ json: { ...s, route, status, details_keys: Object.keys(details) } }];\n"
       },
       "id": "8aa55ad4-0fc8-5414-bc95-e3832191e71e",
       "name": "Route",
@@ -328,6 +328,30 @@
               },
               "renameOutput": true,
               "outputKey": "other"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "cfa99b71-064b-52e0-b2d1-053d8eba9fcb",
+                    "leftValue": "={{ $json.route }}",
+                    "rightValue": "severity-changed",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "severity-changed"
             }
           ]
         },
@@ -367,7 +391,7 @@
     {
       "parameters": {},
       "id": "079104f7-c873-5073-8dd1-8ee78984767d",
-      "name": "STUB no-op: alert promoted (N8N-5.3; C11 t_case, N8N-2.9)",
+      "name": "Alert promoted (N8N-5.3 stub)",
       "type": "n8n-nodes-base.noOp",
       "typeVersion": 1,
       "position": [
@@ -378,7 +402,7 @@
     {
       "parameters": {},
       "id": "d9b81622-4495-595b-bb32-1d7d3f17d911",
-      "name": "STUB no-op: alert status (C11 t_ack, N8N-2.9)",
+      "name": "Alert status",
       "type": "n8n-nodes-base.noOp",
       "typeVersion": 1,
       "position": [
@@ -389,7 +413,7 @@
     {
       "parameters": {},
       "id": "9bba85c5-23b2-5b6c-81f8-5e7c892ce1b6",
-      "name": "STUB no-op: case created (N8N-5.3; C11 t_case, N8N-2.9)",
+      "name": "Case created (N8N-5.3 stub)",
       "type": "n8n-nodes-base.noOp",
       "typeVersion": 1,
       "position": [
@@ -400,7 +424,7 @@
     {
       "parameters": {},
       "id": "18803db8-4828-5063-b925-155862bca117",
-      "name": "STUB no-op: case status or closed (N8N-5.3; C11 t_closed/resolution, N8N-2.9)",
+      "name": "Case status or closed (N8N-5.3 stub)",
       "type": "n8n-nodes-base.noOp",
       "typeVersion": 1,
       "position": [
@@ -476,6 +500,258 @@
         760,
         -300
       ]
+    },
+    {
+      "parameters": {},
+      "id": "8e6f4446-9241-5ce3-8917-a7bc58c5f861",
+      "name": "Severity changed",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1360,
+        540
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// C11 (N8N-2.9): which asox-metrics fields this event sets, and on which\n// documents. Times are the event's own: the audit record's top-level\n// _createdAt (ms), never n8n's clock. First-time fields (t_ack, t_case,\n// t_closed) are kept by lib-metrics-upsert when the document has them already.\n// Alert events: the alert's sourceRef is the Wazuh alert id (D-N1). Case\n// created from an alert: details.fromAlert. Other case events: the case's\n// alerts are read from TheHive (\"Get case alerts\").\nconst s = $input.first().json;\nconst body = $('TheHive event').first().json.body ?? {};\nconst details = body.details !== null && typeof body.details === 'object' ? body.details : {};\nconst obj = body.object !== null && typeof body.object === 'object' ? body.object : {};\nconst has = (k) => Object.prototype.hasOwnProperty.call(details, k);\nconst t = typeof body._createdAt === 'number' ? body._createdAt : null;\nconst fields = {};\nconst alertTarget = () => [{ alert_id: obj.sourceRef ?? null, source: obj.source ?? null, thehive_alert_id: obj._id ?? body.objectId ?? null }];\nlet targets = [];\nlet caseLookup = null;\nif (s.route === 'alert-status') {\n  const stage = details.stage ?? obj.stage ?? null;\n  // Leaves New: acknowledged. Closed (Ignored, or any closing status):\n  // resolution = the status, t_closed; t_ack too when it went straight there.\n  if (details.status !== 'New' && stage !== 'New') fields.t_ack = t;\n  if (stage === 'Closed' || details.status === 'Ignored') { fields.resolution = details.status; fields.t_closed = t; }\n  targets = alertTarget();\n} else if (s.route === 'alert-promoted') {\n  // Promoted, or merged into a case (ALERT-FORMAT §6 R4).\n  if (details.caseId) { fields.case_id = details.caseId; fields.t_case = t; fields.t_ack = t; }\n  targets = alertTarget();\n} else if (s.route === 'case-created') {\n  const from = details.fromAlert ?? obj.fromAlert ?? null;\n  fields.case_id = obj._id ?? body.objectId ?? details._id;\n  fields.t_case = t;\n  fields.t_ack = t;\n  targets = from ? [{ alert_id: from.sourceRef ?? null, source: from.source ?? null, thehive_alert_id: from._id ?? null }] : [];\n} else if (s.route === 'case-status') {\n  // TheHive 5.7 has no separate resolution: a closed case has stage Closed and\n  // status = the resolution (TruePositive, FalsePositive, Duplicated, ...).\n  if (details.stage === 'Closed') { fields.resolution = details.status; fields.t_closed = t; }\n}\n// An analyst's severity change, on the alert or the case (whatever the route).\nif ((s.object_type === 'Alert' || s.object_type === 'Case') && has('severity')) fields.severity = details.severity;\nif (s.route === 'severity-changed' && s.object_type === 'Alert') targets = alertTarget();\nif (s.object_type === 'Case' && ['case-status', 'severity-changed'].includes(s.route) && Object.keys(fields).length > 0) {\n  caseLookup = body.objectId ?? obj._id ?? null;\n}\nif (t === null) Object.keys(fields).filter((k) => k.startsWith('t_')).forEach((k) => delete fields[k]);\nconst nothing = Object.keys(fields).length === 0;\nreturn [{ json: {\n  ...s, event_time_ms: t, metrics_fields: fields,\n  targets: nothing ? [] : targets, case_lookup: nothing ? null : caseLookup,\n  nothing_to_write: nothing || (caseLookup === null && targets.length === 0),\n  nothing_reason: nothing ? 'nothing to write for this event' : 'no alert for this event',\n} }];\n"
+      },
+      "id": "10fe6bb6-f424-5d97-ae0f-7aadae22a62e",
+      "name": "Metrics plan (C11)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1620,
+        60
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "11046ff2-cd0a-53d3-a2b7-5e39e52b775b",
+              "leftValue": "={{ $json.case_lookup !== null }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "9f904cf4-4e82-5d2b-8f52-e5d64779d064",
+      "name": "Case alerts needed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1880,
+        60
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.THEHIVE_URL }}/api/v1/query",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "theHiveProjectApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ query: [ { _name: 'getCase', idOrName: $('Metrics plan (C11)').first().json.case_lookup }, { _name: 'alerts' }, { _name: 'page', from: 0, to: 100 } ] }) }}",
+        "options": {
+          "timeout": "={{ $('Config (lib-config)').first().json.thehive_http.timeout_ms }}",
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "9ae6a33a-3cba-5702-991b-faaad79fe723",
+      "name": "Get case alerts",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2140,
+        -100
+      ],
+      "credentials": {
+        "theHiveProjectApi": {
+          "id": "asoxTheHiveApi01",
+          "name": "TheHive API (n8n)"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Retry policy for TheHive calls (N8N-6.2; lib-config thehive_http): a\n// connection error, a timeout or HTTP 5xx -> wait and call again; anything\n// else (2xx, and 4xx, which a retry never fixes) -> passed on. A transient\n// failure on the last call goes to lib-error with the number of calls.\nconst r = $input.first().json;\nconst policy = $('Config (lib-config)').first().json.thehive_http;\nconst NODE = 'Get case alerts';\nconst attempt = $runIndex + 1; // this node runs once per call\nconst status = typeof r.statusCode === 'number' ? r.statusCode : null;\nconst thrown = r.error !== undefined && status === null; // HTTP node error output\nconst NETWORK = /ECONNREFUSED|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|ECONNRESET|EHOSTUNREACH|ENETUNREACH|ECONNABORTED|timeout|timed out|socket hang up|connection cannot be established/i;\nconst transient = thrown ? NETWORK.test(JSON.stringify(r)) : status >= 500;\nconst calls = policy.retry_waits_s.length + 1;\nif (transient && attempt < calls) {\n  return [{ json: { decision: 'retry', stage: NODE, attempt, wait_s: policy.retry_waits_s[attempt - 1],\n    reason: thrown ? 'connection error or timeout' : `HTTP ${status}` } }];\n}\nif (thrown || transient) {\n  const e = r.error;\n  const detail = thrown\n    ? (typeof e === 'string' ? e : [e?.message, e?.description].filter(Boolean).join(': ') || JSON.stringify(r))\n    : `HTTP ${status}: ${typeof r.body === 'string' ? r.body : JSON.stringify(r.body)}`;\n  return [{ json: { decision: 'error', stage: NODE, node: NODE, attempts: attempt, retry_exhausted: transient,\n    http_status: status, error_code: e?.code ?? e?.cause?.code ?? null,\n    message: `${detail}`.slice(0, 1000) + (transient ? ` (${attempt} calls)` : '') } }];\n}\nreturn [{ json: { ...r, decision: 'response', attempts: attempt } }];\n\n"
+      },
+      "id": "1612686d-98aa-5508-aa1b-3e2dc8d582b5",
+      "name": "Assess: Get case alerts",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2400,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "a1522e0a-7077-551d-953e-321bdb3baa92",
+              "leftValue": "={{ $json.decision === 'retry' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "91d5884d-ea53-504d-9f92-a7a1265e4757",
+      "name": "Retry: Get case alerts?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2660,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "resume": "timeInterval",
+        "amount": "={{ $json.wait_s }}",
+        "unit": "seconds"
+      },
+      "id": "f0006281-a481-53d3-8a25-ea92fdcd6333",
+      "name": "Wait before retry: Get case alerts",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        2660,
+        -300
+      ],
+      "webhookId": "5bcd94cb-c30d-5f59-9938-4924f5880f7b"
+    },
+    {
+      "parameters": {
+        "jsCode": "// One lib-metrics-upsert call per document (mode update: no document is ever\n// created from a C4 event). A case's alerts come from \"Get case alerts\".\nconst p = $('Metrics plan (C11)').first().json;\nconst config = $('Config (lib-config)').first().json;\nlet targets = p.targets;\nif (p.case_lookup !== null) {\n  const a = $input.first().json; // \"Assess: Get case alerts\"\n  if (a.decision !== 'response' || a.statusCode !== 200 || !Array.isArray(a.body)) {\n    const cls = a.decision === 'error' ? (a.retry_exhausted ? 'thehive_unreachable' : 'thehive_error') : `thehive_${a.statusCode}`;\n    return [{ json: { no_write: true, line: `metrics: failed (${cls})`, message: a.message ?? null } }];\n  }\n  targets = a.body.map((al) => ({ alert_id: al.sourceRef ?? null, source: al.source ?? null, thehive_alert_id: al._id ?? null }));\n  if (targets.length === 0) return [{ json: { no_write: true, line: 'metrics: skipped (no alert in this case)' } }];\n}\nif (p.nothing_to_write || targets.length === 0) return [{ json: { no_write: true, line: `metrics: skipped (${p.nothing_reason})` } }];\nreturn targets.map((tg) => ({ json: {\n  mode: 'update', alert_id: tg.alert_id, source: tg.source, thehive_alert_id: tg.thehive_alert_id,\n  fields: p.metrics_fields, config,\n} }));\n"
+      },
+      "id": "cf34c327-8559-5f83-88e2-96aa4a1a464c",
+      "name": "Metrics targets",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2920,
+        60
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "24d10845-5d98-54ca-9a0e-a75cefc0a363",
+              "leftValue": "={{ $json.no_write !== true }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "4e1f3516-75ec-554a-8acc-d2d6b042ba28",
+      "name": "Anything to write?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        3180,
+        60
+      ]
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "id": "829d41bb-e8bb-5bdc-8140-8d7dfc184ef1",
+      "name": "One document at a time",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        3440,
+        -60
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "asoxLibMetricsUp",
+          "cachedResultName": "lib-metrics-upsert"
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "95b5d774-4c45-59ac-bb06-36af3e253278",
+      "name": "Metrics (lib-metrics-upsert)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        3700,
+        -200
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// What this event did to asox-metrics, kept on the execution: one line per\n// document (\"<wazuh alert id>: metrics: ok | skipped (<why)> | failed (<class>)\").\nconst p = $('Metrics plan (C11)').first().json;\nconst items = $input.all().map((i) => i.json);\nconst { targets, case_lookup, nothing_to_write, nothing_reason, ...summary } = p;\nif (items.length === 1 && items[0].no_write === true) {\n  return [{ json: { ...summary, metrics: [items[0].line], metrics_message: items[0].message ?? null } }];\n}\nreturn [{ json: { ...summary, metrics: items.map((r) => `${r.alert_id ?? '(no id)'}: ${typeof r.line === 'string' ? r.line : 'metrics: failed (unexpected)'}`),\n  metrics_results: items.map(({ config, ...r }) => r) } }];\n"
+      },
+      "id": "42557a77-d25d-5da2-9834-33f297b38dee",
+      "name": "Event result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3960,
+        60
+      ]
     }
   ],
   "connections": {
@@ -541,28 +817,28 @@
         ],
         [
           {
-            "node": "STUB no-op: alert promoted (N8N-5.3; C11 t_case, N8N-2.9)",
+            "node": "Alert promoted (N8N-5.3 stub)",
             "type": "main",
             "index": 0
           }
         ],
         [
           {
-            "node": "STUB no-op: alert status (C11 t_ack, N8N-2.9)",
+            "node": "Alert status",
             "type": "main",
             "index": 0
           }
         ],
         [
           {
-            "node": "STUB no-op: case created (N8N-5.3; C11 t_case, N8N-2.9)",
+            "node": "Case created (N8N-5.3 stub)",
             "type": "main",
             "index": 0
           }
         ],
         [
           {
-            "node": "STUB no-op: case status or closed (N8N-5.3; C11 t_closed/resolution, N8N-2.9)",
+            "node": "Case status or closed (N8N-5.3 stub)",
             "type": "main",
             "index": 0
           }
@@ -577,6 +853,13 @@
         [
           {
             "node": "Recorded, no handler",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Severity changed",
             "type": "main",
             "index": 0
           }
@@ -606,6 +889,206 @@
         [
           {
             "node": "Ignored: caused by n8n (loop prevention)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Alert promoted (N8N-5.3 stub)": {
+      "main": [
+        [
+          {
+            "node": "Metrics plan (C11)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Alert status": {
+      "main": [
+        [
+          {
+            "node": "Metrics plan (C11)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Case created (N8N-5.3 stub)": {
+      "main": [
+        [
+          {
+            "node": "Metrics plan (C11)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Case status or closed (N8N-5.3 stub)": {
+      "main": [
+        [
+          {
+            "node": "Metrics plan (C11)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Severity changed": {
+      "main": [
+        [
+          {
+            "node": "Metrics plan (C11)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Metrics plan (C11)": {
+      "main": [
+        [
+          {
+            "node": "Case alerts needed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Case alerts needed?": {
+      "main": [
+        [
+          {
+            "node": "Get case alerts",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Metrics targets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get case alerts": {
+      "main": [
+        [
+          {
+            "node": "Assess: Get case alerts",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Assess: Get case alerts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Assess: Get case alerts": {
+      "main": [
+        [
+          {
+            "node": "Retry: Get case alerts?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Retry: Get case alerts?": {
+      "main": [
+        [
+          {
+            "node": "Wait before retry: Get case alerts",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Metrics targets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait before retry: Get case alerts": {
+      "main": [
+        [
+          {
+            "node": "Get case alerts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Metrics targets": {
+      "main": [
+        [
+          {
+            "node": "Anything to write?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anything to write?": {
+      "main": [
+        [
+          {
+            "node": "One document at a time",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Event result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "One document at a time": {
+      "main": [
+        [
+          {
+            "node": "Event result",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Metrics (lib-metrics-upsert)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Metrics (lib-metrics-upsert)": {
+      "main": [
+        [
+          {
+            "node": "One document at a time",
             "type": "main",
             "index": 0
           }

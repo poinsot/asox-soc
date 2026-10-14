@@ -1,6 +1,6 @@
 {
   "Event": {
-    "info": "ASOX seed event: test IOC 203.0.113.66",
+    "info": "ASOX seed event: test IOC 101.99.75.184",
     "distribution": "0",
     "threat_level_id": "4",
     "analysis": "2",
@@ -11,10 +11,10 @@
       {
         "type": "ip-dst",
         "category": "Network activity",
-        "value": "203.0.113.66",
-        "to_ids": false,
+        "value": "101.99.75.184",
+        "to_ids": true,
         "distribution": "5",
-        "comment": "Harmless test IOC (TEST-NET-3 documentation range) for contract C7: Cortex's MISP analyzer must find this event."
+        "comment": "Test IOC for C7 (Cortex's MISP analyzer must find this event) and C14 (Wazuh's CDB lists must contain it). A Loki-Bot malspam address from Botvrij's \"3 examples of malspam pushing Loki-Bot malware\" event, kept here so the tests don't depend on the feed; on no warninglist (X-36). Only ever written into test logs, never contacted."
       }
     ]
   }

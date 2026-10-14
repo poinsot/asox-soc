@@ -5,6 +5,9 @@
   "n8n": {
     "user": "n8n@asox.local"
   },
+  "wazuh": {
+    "user": "wazuh@asox.local"
+  },
   "feeds": [
     {
       "name": "The Botvrij.eu Data",
