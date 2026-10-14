@@ -1,0 +1,55 @@
+{
+  "timestamp": "2026-10-09T20:38:28.620+0000",
+  "rule": {
+    "level": 10,
+    "description": "ASOX: SSH login as root from 198.51.100.25",
+    "id": "100200",
+    "mitre": {
+      "id": [
+        "T1078.003"
+      ],
+      "tactic": [
+        "Defense Evasion",
+        "Persistence",
+        "Privilege Escalation",
+        "Initial Access"
+      ],
+      "technique": [
+        "Local Accounts"
+      ]
+    },
+    "firedtimes": 2,
+    "mail": true,
+    "groups": [
+      "asox",
+      "linux",
+      "sshd",
+      "authentication_success"
+    ]
+  },
+  "agent": {
+    "id": "001",
+    "name": "lab-agent",
+    "ip": "172.18.0.7"
+  },
+  "manager": {
+    "name": "wazuh-manager"
+  },
+  "id": "1791578308.19341",
+  "full_log": "Oct  9 13:38:26 lab-agent sshd[7944]: Accepted password for root from 198.51.100.25 port 43001 ssh2 asox_run=1a270fa8-b420-4ff9-a1cf-e05294a44399",
+  "predecoder": {
+    "program_name": "sshd",
+    "timestamp": "Oct  9 13:38:26",
+    "hostname": "lab-agent"
+  },
+  "decoder": {
+    "parent": "sshd",
+    "name": "sshd"
+  },
+  "data": {
+    "srcip": "198.51.100.25",
+    "srcport": "43001",
+    "dstuser": "root"
+  },
+  "location": "/var/log/asox-lab/test.log"
+}

@@ -5,7 +5,7 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## recv-thehive-event (C4, N8N-1.5)\n**Trigger:** `POST /webhook/thehive-event` from TheHive's webhook (every event of the SOC organisation), token as `Authorization: Bearer` (C4).\n**Inputs:** the TheHive audit event (`operation`, `objectType`, `objectId`, top-level `_createdBy` = the actor, `details`, `object`).\n**Actions taken:** records a summary of every event (operation, object type and id, actor, request id, source, sourceRef), then routes it (first match wins): (1) actor n8n@asox.local (lib-config): ignored, loop prevention; (2) delete: ignored (open question, N8N-1.5); (3) alert update with caseId: promoted; (4) alert update with status; (5) case create; (6) case update with status/stage (closing); (7) Task / Log / Comment: analyst activity; (8) anything else: recorded, no handler. Routes 3-7 end in labelled **no-op stubs** where N8N-5.3 and C11 (N8N-2.9) attach.\n**Systems changed:** none.\n**Approval:** not applicable.\n**Owner:** n8n.\nThe C4 check's test alert is created by n8n's account, so its event ends at (1); the execution is still saved. Error workflow: recv-n8n-error.",
+        "content": "## recv-thehive-event (C4, N8N-1.5)\n**Trigger:** `POST /webhook/thehive-event` from TheHive's webhook (every event of the SOC organisation), token as `Authorization: Bearer` (C4).\n**Inputs:** the TheHive audit event (`operation`, `objectType`, `objectId`, top-level `_createdBy` = the actor, `details`, `object`).\n**Actions taken:** records a summary of every event (operation, object type and id, actor, request id, source, sourceRef), then routes it (first match wins): (1) actor n8n@asox.local (lib-config): ignored, loop prevention; (2) delete: ignored (open question, N8N-1.5); (3) alert update with caseId: promoted; (4) alert update with status; (5) case create; (6) case update with status/stage (closing); (7) Task / Log / Comment: analyst activity; (8) anything else: recorded, no handler. Routes 3-7 end in labelled **no-op stubs** where N8N-5.3 and C11 (N8N-2.9) attach.\n**Systems changed:** none.\n**Approval:** not applicable.\n**Owner:** n8n.\nThe C4 check's test alert is created by n8n's account, so its event ends at (1); the execution is still saved. Error workflow: recv-n8n-error.\nEvents caused by n8n's own account are ignored right after the summary, before lib-config (fast path, N8N-1.4); the execution is still saved.",
         "height": 360,
         "width": 620
       },
@@ -429,6 +429,53 @@
         1360,
         420
       ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "a7e9b6a9-5b99-516a-94a9-a62642f2f5db",
+              "leftValue": "={{ $json.actor === 'n8n@asox.local' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "be041169-bd1f-580d-8e0e-8e66df83c9cf",
+      "name": "Caused by n8n? (fast path)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        520,
+        -220
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// n8n's own writes (alert, observables, comments, tags) come back as C4\n// events: each pb-generic run causes several. Ignored here, before\n// lib-config, so a burst doesn't double the work (N8N-1.4). The account is\n// lib-config thehive.n8n_user; if they ever differ, \"Route\" still ignores\n// these events, only more slowly. The execution is still saved (C4 check).\nconst s = $input.first().json;\nreturn [{ json: { ...s, route: 'loop', status: `ignored: caused by ${s.actor} (loop prevention, fast path)` } }];\n"
+      },
+      "id": "5997ef19-bb28-5887-b134-078d650efa62",
+      "name": "Loop prevention (fast path)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        760,
+        -300
+      ]
     }
   ],
   "connections": {
@@ -447,7 +494,7 @@
       "main": [
         [
           {
-            "node": "Config (lib-config)",
+            "node": "Caused by n8n? (fast path)",
             "type": "main",
             "index": 0
           }
@@ -530,6 +577,35 @@
         [
           {
             "node": "Recorded, no handler",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Caused by n8n? (fast path)": {
+      "main": [
+        [
+          {
+            "node": "Loop prevention (fast path)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Config (lib-config)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop prevention (fast path)": {
+      "main": [
+        [
+          {
+            "node": "Ignored: caused by n8n (loop prevention)",
             "type": "main",
             "index": 0
           }

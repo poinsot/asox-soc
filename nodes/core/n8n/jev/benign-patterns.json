@@ -1,0 +1,26 @@
+{
+  "version": "benign-patterns-3",
+  "status": "draft",
+  "description": "Known benign patterns written by analysts in plain language (doc 6.4). Added by pull request only, reviewed by a second owner (R7). `applies_to` is optional and filters in code which descriptions are sent: `agents` (Wazuh agent names) and `rule_ids`; a pattern without it is sent with every alert. `verify` is optional and is evaluated in code, never by Jev: type `source_ip_in` holds when the address in the alert field named by `field` (for example `data.srcip`) is inside the CIDR list file named by `list` (a path in this folder). Only that field is read. No alert is closed automatically unless a verify block of an applicable pattern holds (gate G4).",
+  "patterns": [
+    {
+      "id": "bp-example-lab-test-event",
+      "example": true,
+      "description": "Synthetic test events written by the asox-test program on the lab agent, fired on purpose by the SOC team to test the pipeline.",
+      "applies_to": {
+        "agents": [
+          "lab-agent"
+        ],
+        "rule_ids": [
+          "100100"
+        ]
+      },
+      "added": "2026-10-12",
+      "verify": {
+        "type": "source_ip_in",
+        "field": "data.srcip",
+        "list": "ip-lists/example-lab-test-sources.json"
+      }
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "version": "example-lab-test-sources-1",
+  "status": "draft",
+  "example": true,
+  "description": "Example CIDR list for the `source_ip_in` check of benign-patterns.json: the documentation range the lab's test events carry as their source address. A real list names the addresses of one authorized source (a scanner, an uptime monitor) and is reviewed by pull request like the patterns.",
+  "cidrs": [
+    "203.0.113.0/24"
+  ]
+}

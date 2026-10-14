@@ -1,0 +1,36 @@
+{
+  "timestamp": "2026-09-26T22:20:41.052+0000",
+  "rule": {
+    "level": 10,
+    "description": "ASOX test rule: synthetic test event received",
+    "id": "100100",
+    "firedtimes": 1,
+    "mail": false,
+    "groups": [
+      "asox",
+      "test"
+    ]
+  },
+  "agent": {
+    "id": "001",
+    "name": "lab-agent",
+    "ip": "172.18.0.7"
+  },
+  "manager": {
+    "name": "wazuh-manager"
+  },
+  "id": "1790461241.14189",
+  "full_log": "Sep 26 15:20:40 lab-agent asox-test: ASOX_TEST_EVENT id=trig-1790461240-31252",
+  "predecoder": {
+    "program_name": "asox-test",
+    "timestamp": "Sep 26 15:20:40",
+    "hostname": "lab-agent"
+  },
+  "decoder": {},
+  "location": "/var/log/asox-lab/test.log",
+  "data": {
+    "srcip": "8.8.8.8",
+    "dstip": "185.220.101.1",
+    "hostname": "github.com"
+  }
+}
