@@ -80,6 +80,12 @@ services:
       # Extra syslog sources (R-06, from SYSLOG_ALLOWED_IPS in topology.env),
       # written into ossec.conf by config/entrypoint-scripts (W1.1).
       WAZUH_SYSLOG_ALLOWED_IPS: ${WAZUH_SYSLOG_ALLOWED_IPS:-}
+      # MISP IOCs as CDB lists (C14), lists/misp-sync.py. The URL defaults to
+      # core's MISP_URL (C10, R-13: misp-nginx, or INTEL_HOST:9443 when
+      # distributed); the key stays empty until R-08: C14 is off until then.
+      WAZUH_MISP_URL: ${WAZUH_MISP_URL:-${MISP_URL:-}}
+      WAZUH_MISP_API_KEY: ${WAZUH_MISP_API_KEY:-}
+      WAZUH_MISP_SYNC_INTERVAL: ${WAZUH_MISP_SYNC_INTERVAL:-3600}
     volumes:
       - wazuh_api_configuration:/var/ossec/api/configuration
       - wazuh_etc:/var/ossec/etc
@@ -99,9 +105,13 @@ services:
       - ./config/ossec.conf:/wazuh-config-mount/etc/ossec.conf:ro
       - ./rules:/wazuh-config-mount/etc/rules:ro
       - ./decoders:/wazuh-config-mount/etc/decoders:ro
+      # Agent groups as code (W5.1): groups/<name>/agent.conf -> etc/shared/<name>/.
+      - ./groups:/wazuh-config-mount/etc/shared:ro
       - ./integrations:/wazuh-config-mount/integrations:ro
       # Scripts run by the image before Wazuh starts.
       - ./config/entrypoint-scripts:/entrypoint-scripts:ro
+      # misp-sync.py, run by entrypoint-scripts/40-misp-sync.sh (C14).
+      - ./lists:/asox/lists:ro
     healthcheck:
       # The API answers (401 without credentials) and the daemons that
       # receive, analyse and enroll agents are running.

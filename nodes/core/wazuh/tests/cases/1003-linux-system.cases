@@ -1,0 +1,16 @@
+# Cases for rules/1003-linux-system.xml. The FIM rules (100300-100303) can't
+# be replayed by wazuh-logtest: they are checked live by tests/e2e.sh
+# (scenario persistence). The disconnection rule (W5.6) can.
+
+case sensor agent disconnected (naming sensor-*)
+expect rule=100400 level=10 groups=asox,agent_disconnected
+log ossec: Agent disconnected: 'sensor-suricata-any'.
+
+case server agent disconnected (naming srv-*)
+expect rule=100400 level=10
+log ossec: Agent disconnected: 'srv-web01-any'.
+
+case desktop agent disconnected stays at the built-in level
+expect rule=504 level=3
+expect not=100400
+log ossec: Agent disconnected: 'YOGA-any'.

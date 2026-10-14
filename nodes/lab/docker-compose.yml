@@ -21,6 +21,8 @@ services:
     volumes:
       # Keeps client.keys (the enrollment) across restarts and recreation.
       - lab-agent-etc:/var/ossec/etc
+      # Suricata's eve.json, read by the agent (W3.3).
+      - suricata-log:/var/log/suricata:ro
     healthcheck:
       # Connected, and done reloading after the first shared configuration.
       test: ["CMD", "/opt/asox/healthcheck.sh"]
@@ -29,5 +31,32 @@ services:
       retries: 20
       start_period: 60s
 
+  # Network IDS (W3.2, D49): sees the lab agent's traffic by sharing its
+  # network namespace. Alerts only, in eve.json on a volume the agent reads.
+  # Image and memory become .env values with R-07; the defaults apply until then.
+  suricata:
+    image: ${SURICATA_IMAGE:-jasonish/suricata:8.0.7}
+    network_mode: service:lab-agent
+    depends_on:
+      - lab-agent
+    restart: unless-stopped
+    mem_limit: ${SURICATA_MEM:-750m}
+    memswap_limit: ${SURICATA_MEM:-750m}  # no swap: an undersized limit fails visibly (D40)
+    cap_add: [NET_ADMIN, NET_RAW, SYS_NICE]
+    entrypoint: ["/asox/start.sh"]
+    volumes:
+      - ./suricata:/asox:ro
+      - suricata-log:/var/log/suricata
+      - suricata-lib:/var/lib/suricata
+    healthcheck:
+      # Answers on its command socket once the rules are loaded.
+      test: ["CMD-SHELL", "suricatasc -c uptime >/dev/null 2>&1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 300s
+
 volumes:
   lab-agent-etc:
+  suricata-log:
+  suricata-lib:

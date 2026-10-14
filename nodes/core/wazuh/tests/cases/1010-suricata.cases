@@ -1,0 +1,26 @@
+# Cases for rules/1010-suricata.xml and Suricata tuning in rules/1090-tuning.xml.
+# Lines are Suricata eve.json alert records, as the lab agent reads them.
+
+case severity 2 (GPL id check returned root, the ids-test scenario)
+expect rule=101001 level=10 groups=asox,suricata,ids
+log {"timestamp":"2026-10-08T20:00:00.000000+0000","flow_id":1,"in_iface":"eth0","event_type":"alert","src_ip":"172.20.0.2","src_port":56920,"dest_ip":"198.51.100.40","dest_port":80,"proto":"TCP","alert":{"action":"allowed","gid":1,"signature_id":2100498,"rev":7,"signature":"GPL ATTACK_RESPONSE id check returned root","category":"Potentially Bad Traffic","severity":2}}
+
+case severity 1 (trojan activity)
+expect rule=101000 level=12 groups=asox,suricata,ids
+log {"timestamp":"2026-10-08T20:00:00.000000+0000","flow_id":1,"in_iface":"eth0","event_type":"alert","src_ip":"172.20.0.2","src_port":56920,"dest_ip":"198.51.100.40","dest_port":80,"proto":"TCP","alert":{"action":"allowed","gid":1,"signature_id":2024792,"rev":7,"signature":"ET MALWARE Test Trojan Checkin","category":"A Network Trojan was detected","severity":1}}
+
+case severity 3 stays below the threshold
+expect rule=101002 level=6
+log {"timestamp":"2026-10-08T20:00:00.000000+0000","flow_id":1,"in_iface":"eth0","event_type":"alert","src_ip":"172.20.0.2","src_port":56920,"dest_ip":"198.51.100.40","dest_port":80,"proto":"TCP","alert":{"action":"allowed","gid":1,"signature_id":2013028,"rev":7,"signature":"ET POLICY curl User-Agent Outbound","category":"Attempted Information Leak","severity":3}}
+
+case ET SCAN at severity 2 gets T1046 and recon
+expect rule=101010 level=10 groups=asox,suricata,ids,recon
+log {"timestamp":"2026-10-08T20:00:00.000000+0000","flow_id":1,"in_iface":"eth0","event_type":"alert","src_ip":"172.20.0.2","src_port":56920,"dest_ip":"198.51.100.40","dest_port":22,"proto":"TCP","alert":{"action":"allowed","gid":1,"signature_id":2009582,"rev":7,"signature":"ET SCAN NMAP -sS window 1024","category":"Attempted Information Leak","severity":2}}
+
+case Suricata engine stream event is silenced
+expect rule=109010 level=0
+log {"timestamp":"2026-10-08T20:00:00.000000+0000","flow_id":1,"in_iface":"eth0","event_type":"alert","src_ip":"172.20.0.2","src_port":56920,"dest_ip":"198.51.100.40","dest_port":80,"proto":"TCP","alert":{"action":"allowed","gid":1,"signature_id":2210045,"rev":7,"signature":"SURICATA STREAM Packet with invalid ack","category":"Generic Protocol Command Decode","severity":3}}
+
+case IDS alert from a MISP indicator (C14 list loaded) or a plain ET SCAN
+expect rule=101010|108010
+log {"timestamp":"2026-10-10T20:00:00.000000+0000","flow_id":1,"in_iface":"eth0","event_type":"alert","src_ip":"203.0.113.66","src_port":51000,"dest_ip":"172.20.0.2","dest_port":22,"proto":"TCP","alert":{"action":"allowed","gid":1,"signature_id":2009582,"rev":3,"signature":"ET SCAN NMAP -sS window 1024","category":"Attempted Information Leak","severity":2}}

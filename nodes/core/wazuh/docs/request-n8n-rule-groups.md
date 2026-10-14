@@ -4,7 +4,7 @@
 **From:** Daniel (@dmelgar1110), Wazuh owner
 **Date:** 2026-10-05
 **Refs:** W1.3, X-04, D-N2 (n8n routing key), N8N-1.3 (router), ALERT-FORMAT.md §3 and T2.6 (case templates), ALERT-TO-THEHIVE.md §3
-**Status:** sent (2026-10-07, with the checkpoint PR)
+**Status:** done: Park agreed the plan, groups, IDs and A1–A5 (`nodes/cases/thehive/docs/reply-wazuh-2026-10-08.md`, merged 2026-10-14; template `login-bruteforce` for 103011)
 
 ## What I need
 
@@ -53,6 +53,18 @@ Now in `rules/1002-linux-auth.xml` (catalog: README "Detection catalog"):
 | 100212 gpasswd: user added to a privileged group | 10 | same | T1098 | `account-change` |
 
 `new-user` now ends with 100211 (the new account goes into `sudo`), and there's a new scenario, `root-login` (100200), for fixtures. Privileged groups: sudo, wheel, admin, root, docker, lxd.
+
+## Update 2026-10-08 (2): Suricata and OPNsense rules
+
+The firewall is **OPNsense**, not pfSense. Its packet filter is decoded by Wazuh's pfSense ruleset, so our rules carry both `opnsense` and `pfsense`, and **the `network-scan` row (`groups_all: ['pfsense']` + T1046) works unchanged**.
+
+| Rule | Level | Groups | MITRE | Route |
+|---|---|---|---|---|
+| 101000 / 101001 | 12 / 10 | `asox,suricata,ids` | — | `ids-network-alert` |
+| 101010 Suricata ET SCAN | 10 | `asox,suricata,ids,recon` | T1046 | `ids-network-alert` (first match). Fine; or `network-scan` if you prefer scans together |
+| 103000 OPNsense port scan | 10 | `asox,opnsense,pfsense,firewall_block,recon` | T1046 | `network-scan` |
+| 103011 OPNsense web GUI brute force | 10 | `asox,opnsense,pfsense,authentication_failures` | T1110 | `ssh-bruteforce` through T1110. A web login isn't SSH: Park, do you want a generic brute-force template? |
+| 87702 18 blocks in 45 s (built-in) | 10 | `pfsense,multiple_blocks` | **removed** (it had T1110, which sent firewall blocks to `ssh-bruteforce`) | `wazuh-generic`, or `network-scan` if you add `multiple_blocks` |
 
 ## Why
 

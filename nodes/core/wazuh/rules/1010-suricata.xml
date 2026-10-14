@@ -1,0 +1,50 @@
+<!--
+  ASOX Suricata rules (owner: Wazuh, W3.5, D49). Range 101000-101999.
+  Built-in 86601 ("Suricata: Alert - <signature>") rates every Suricata alert
+  at level 3, below WAZUH_ALERT_MIN_LEVEL, so none would reach n8n or
+  TheHive. These children set the level from Suricata's own severity (the
+  priority of the rule's classtype: 1 high, 2 medium, 3 low), the mapping
+  TheHive's ALERT-FORMAT.md already cites: 1 -> 12, 2 -> 10, 3 -> 6.
+  Fields keep Suricata's names (data.src_ip, data.dest_ip, data.dest_port,
+  data.alert.*; n8n memo item 3). Noise is silenced in 1090-tuning.xml.
+  Tests: tests/cases/1010-suricata.cases. Copied into /var/ossec/etc/rules/.
+-->
+<group name="asox,suricata,ids,">
+
+  <!-- Severity 1: e.g. exploits, trojan activity. Critical (README "Alert levels"). -->
+  <rule id="101000" level="12">
+    <if_sid>86601</if_sid>
+    <field name="alert.severity">^1$</field>
+    <description>ASOX IDS: $(alert.signature) ($(src_ip) -> $(dest_ip):$(dest_port))</description>
+  </rule>
+
+  <!-- Severity 2: e.g. attempted recon, potentially bad traffic. -->
+  <rule id="101001" level="10">
+    <if_sid>86601</if_sid>
+    <field name="alert.severity">^2$</field>
+    <description>ASOX IDS: $(alert.signature) ($(src_ip) -> $(dest_ip):$(dest_port))</description>
+  </rule>
+
+  <!-- Severity 3 (or 4): policy and informational signatures. Context only. OS_Regex has no [3-9] ranges. -->
+  <rule id="101002" level="6">
+    <if_sid>86601</if_sid>
+    <field name="alert.severity">^3$|^4$</field>
+    <description>ASOX IDS (low): $(alert.signature) ($(src_ip) -> $(dest_ip):$(dest_port))</description>
+  </rule>
+
+  <!--
+    Network scans (ET SCAN, classtype attempted-recon / network-scan): same
+    level as their severity, plus MITRE T1046 and group recon, so n8n and
+    TheHive can route them like pfSense scans (network-scan template).
+  -->
+  <rule id="101010" level="10">
+    <if_sid>101000, 101001</if_sid>
+    <field name="alert.signature">^ET SCAN </field>
+    <description>ASOX IDS scan: $(alert.signature) from $(src_ip)</description>
+    <mitre>
+      <id>T1046</id>
+    </mitre>
+    <group>recon,</group>
+  </rule>
+
+</group>

@@ -1,0 +1,29 @@
+<!--
+  ASOX OPNsense decoders (owner: Wazuh, W4.2). Range 1030xx.
+  Copied into /var/ossec/etc/decoders/ at every manager start.
+
+  OPNsense must send remote syslog in BSD format (RFC 3164): Wazuh doesn't
+  parse its RFC 5424 option (README "OPNsense").
+
+  Already decoded by the built-in ruleset, so nothing here:
+  - filterlog (the packet filter): built-in decoder "pf" (pfSense's), same CSV
+    format; gives srcip, dstip, srcport, dstport, protocol, action.
+  - sshd on the firewall: built-in sshd decoders.
+
+  Web GUI logins are logged by program "audit", which the built-in decoder
+  solaris_bsm claims (program_name ^audit$). A parent decoder can't be
+  overridden, so these are children of it.
+-->
+<decoder name="asox-opnsense-gui-fail">
+  <parent>solaris_bsm</parent>
+  <prematch>Web GUI authentication error for </prematch>
+  <regex offset="after_prematch">^'(\S+)' from (\S+)</regex>
+  <order>dstuser,srcip</order>
+</decoder>
+
+<decoder name="asox-opnsense-gui-login">
+  <parent>solaris_bsm</parent>
+  <prematch>Successful login for user </prematch>
+  <regex offset="after_prematch">^'(\S+)' from: (\S+)</regex>
+  <order>dstuser,srcip</order>
+</decoder>

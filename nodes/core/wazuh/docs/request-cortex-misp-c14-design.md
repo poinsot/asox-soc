@@ -4,7 +4,7 @@
 **From:** Daniel (@dmelgar1110), Wazuh owner
 **Date:** 2026-10-07
 **Refs:** C14, W6.1–W6.5, X-24, R-08, D12, D25, D45 (C10); Inigo's memo item 9 (`n8n-requests-2026-09-30.md`)
-**Status:** draft
+**Status:** sent (2026-10-08, with the second checkpoint PR)
 
 ## What C14 does
 
@@ -74,6 +74,21 @@ With option b, n8n would run the export as a scheduled workflow reusing C10's ke
 - the `<list>` entries in `ossec.conf`;
 - the rules and their test cases;
 - measuring the manager's memory with the lists loaded (`WAZUH_MANAGER_MEM` 700m).
+
+## Update 2026-10-10: built and tested on the Wazuh side
+
+Everything on my side of the proposal is built (branch `wazuh`) and tested live. See the README, "MISP IOCs as CDB lists (C14)".
+- The sync runs as an s6 service in the manager, and lists change with a hot reload.
+- A failed fetch keeps the lists.
+- `ioc-ip` gives 108000, an IOC file hash gives 108020, and both reached n8n.
+
+The test used a **local** MISP event and Cortex's read-only key as a stand-in. What's still needed to switch it on everywhere:
+1. **Diego:** the Read Only user `wazuh@asox.local` with its own key (`MISP_WAZUH_API_KEY`), and the seed IOC decision (X-36, `request-n8n-c1-delivery.md`).
+2. **Inigo (R-08):** `WAZUH_MISP_URL`, `WAZUH_MISP_API_KEY` (`__from:intel__`) and `WAZUH_MISP_SYNC_INTERVAL` in `nodes/core/.env.example`. The compose file already passes them, with C14 off while they're empty. Then the C14 row in PROJECT.md 5 and a C14 check in `contracts-check.sh`: sync, then `trigger.sh --scenario ioc-ip`, then expect 108000.
+
+## Update 2026-10-11: R-08 is now one value
+
+Since R-13, core's `.env` has `MISP_URL` (for C10), and C14's `WAZUH_MISP_URL` defaults to it in `compose.yml`. So **R-08 is just `WAZUH_MISP_API_KEY=__from:intel__`**, the key of `wazuh@asox.local`, plus optionally `WAZUH_MISP_SYNC_INTERVAL`. On X-36, `trigger.sh` takes `ASOX_IOC_IP`, so a new test IOC is a one-line change on my side.
 
 ## By
 

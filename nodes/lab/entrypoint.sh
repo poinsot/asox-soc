@@ -20,7 +20,9 @@ printf '%s\n' "$WAZUH_ENROLLMENT_PASSWORD" > "$OSSEC/etc/authd.pass"
 chown root:wazuh "$OSSEC/etc/authd.pass"
 
 # ossec.conf from the package default.
-enrollment="    <enrollment>\n      <enabled>yes</enabled>\n      <agent_name>${AGENT_NAME}</agent_name>\n      <authorization_pass_path>etc/authd.pass</authorization_pass_path>\n    </enrollment>"
+# Enrolls into agent group linux-servers (W5.3), like a real Linux server
+# (ENROLLMENT.md); the manager pushes that group's agent.conf.
+enrollment="    <enrollment>\n      <enabled>yes</enabled>\n      <agent_name>${AGENT_NAME}</agent_name>\n      <groups>${WAZUH_AGENT_GROUP:-linux-servers}</groups>\n      <authorization_pass_path>etc/authd.pass</authorization_pass_path>\n    </enrollment>"
 sed -e "s|<address>MANAGER_IP</address>|<address>${WAZUH_MANAGER_ADDR}</address>|" \
     -e "0,/^  <\/client>/s||${enrollment}\n  </client>|" \
     /opt/asox/ossec.conf.dist > "$OSSEC/etc/ossec.conf"
@@ -32,6 +34,11 @@ cat >> "$OSSEC/etc/ossec.conf" <<CONF
     <log_format>syslog</log_format>
     <location>${TEST_LOG}</location>
   </localfile>
+  <!-- Suricata alerts (W3.3): built-in rule 86601 -->
+  <localfile>
+    <log_format>json</log_format>
+    <location>/var/log/suricata/eve.json</location>
+  </localfile>
 </ossec_config>
 CONF
 chown root:wazuh "$OSSEC/etc/ossec.conf"
@@ -40,6 +47,12 @@ chmod 640 "$OSSEC/etc/ossec.conf"
 umask 022
 mkdir -p "$(dirname "$TEST_LOG")"
 touch "$TEST_LOG"
+# Folders a real Linux server has, which group linux-servers watches in real
+# time (W5.2). Real-time FIM only watches folders that exist when the agent
+# starts; the persistence scenario writes into them.
+mkdir -p /root/.ssh /etc/sudoers.d
+chmod 700 /root/.ssh
+chmod 750 /etc/sudoers.d
 
 # A stop during the previous start can leave this lock behind.
 rm -rf "$OSSEC/var/start-script-lock"

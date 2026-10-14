@@ -36,3 +36,38 @@
   </rule>
 
 </group>
+
+<!--
+  W3.5: Suricata engine events. "SURICATA STREAM ..." and "SURICATA ...
+  invalid/truncated" signatures (gid 1, sid 22xxxxx) report TCP/IP oddities
+  of Suricata's own stream tracking, not attacks; in a container lab they
+  come from offloading and checksums. Silenced (level 0, not indexed).
+-->
+<group name="asox,suricata,ids,tuning,">
+
+  <rule id="109010" level="0">
+    <if_sid>101000, 101001, 101002</if_sid>
+    <field name="alert.signature">^SURICATA STREAM |^SURICATA TCPv4 invalid checksum|^SURICATA UDPv4 invalid checksum</field>
+    <description>ASOX tuning: Suricata engine event silenced: $(alert.signature)</description>
+  </rule>
+
+</group>
+
+<!--
+  W4.3: built-in 87702 (0540-pfsense_rules.xml), 18 firewall blocks in 45 s
+  from one source, carries MITRE T1110 (brute force). Repeated blocks are
+  scans, floods or a misconfigured client as often as brute force, and with
+  T1110 n8n and TheHive would route every one to the ssh-bruteforce template.
+  Same rule without the MITRE block; port scans have their own rule (103000,
+  T1046). Overwrites repeat the whole rule; groups as in the built-in file.
+-->
+<group name="pfsense,">
+
+  <rule id="87702" level="10" frequency="18" timeframe="45" ignore="240" overwrite="yes">
+    <if_matched_sid>87701</if_matched_sid>
+    <same_source_ip />
+    <description>Multiple pfSense firewall blocks events from same source.</description>
+    <group>multiple_blocks,pci_dss_1.4,pci_dss_10.6.1,gpg13_4.12,hipaa_164.312.a.1,hipaa_164.312.b,nist_800_53_SC.7,nist_800_53_AU.6,tsc_CC6.7,tsc_CC6.8,tsc_CC7.2,tsc_CC7.3,</group>
+  </rule>
+
+</group>
