@@ -8,8 +8,8 @@
 # Usage: nodes/cases/thehive/scripts/thehive-test-alert.sh [SCENARIO...] [--critical-asset] [--promote]
 #        nodes/cases/thehive/scripts/thehive-test-alert.sh --cleanup
 #   SCENARIO          ssh, malware, ids, generic (the 4 base templates), login,
-#                     sudo, newuser, ioc, portscan (templates for the Wazuh
-#                     detections in progress), or all (default: ssh)
+#                     sudo, newuser, ioc, portscan, fwlogin (templates for the
+#                     Wazuh detections in progress), or all (default: ssh)
 #   --critical-asset  mark the host as critical (severity +1, as in the mapping)
 #   --promote         also promote each alert to a case with n8n's account, as
 #                     n8n's auto-promotion will (D-N4), and check the case got
@@ -23,7 +23,7 @@ set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 TEST_SOURCE=asox-test
-SCENARIOS=(ssh malware ids generic login sudo newuser ioc portscan)
+SCENARIOS=(ssh malware ids generic login sudo newuser ioc portscan fwlogin)
 
 CLEANUP=0 PROMOTE=0 CRITICALITY=medium
 wanted=()
@@ -34,7 +34,7 @@ for a in "$@"; do
     --critical-asset) CRITICALITY=critical ;;
     --promote) PROMOTE=1 ;;
     all) wanted+=("${SCENARIOS[@]}") ;;
-    ssh|malware|ids|generic|login|sudo|newuser|ioc|portscan) wanted+=("$a") ;;
+    ssh|malware|ids|generic|login|sudo|newuser|ioc|portscan|fwlogin) wanted+=("$a") ;;
     *) die "unknown argument: $a (scenarios: ${SCENARIOS[*]} all; options: --critical-asset --promote --cleanup)" ;;
   esac
 done
@@ -84,9 +84,12 @@ fi
 # One line each: template, rule id, level, rule description, agent, MITRE
 # technique (may be empty), observables (JSON). 203.0.113.66 is the seed IOC
 # published in MISP (C7), so the MISP analyzer finds it when intel runs.
-# login / sudo / newuser / ioc / portscan use rule IDs from Wazuh's built-in
-# ruleset or the ranges of Daniel's rule plan (W1.3); update them when his
-# rules are merged.
+# Rule IDs, groups and fields as seen in live alerts (Wazuh 4.14.8) and
+# Daniel's rule plan (W1.3): 1002xx Linux auth, 103xxx pfSense, 108xxx MISP
+# IOC matches. portscan is a syslog alert: agent 000, so the host is the
+# firewall's predecoder.hostname and its address the syslog sender (location).
+# ioc / portscan rules don't exist yet (C14, W4.3); their IDs are placeholders
+# in the right range.
 scenario() {
   case $1 in
     ssh) printf '%s\n' ssh-bruteforce 5712 10 \
@@ -111,20 +114,24 @@ scenario() {
           '[{"dataType":"ip","data":"203.0.113.66","tags":["src"]},{"dataType":"user-account","data":"admin","tags":["target"]},{"dataType":"hostname","data":"lab-agent","tags":["agent"]}]' ;;
     sudo) printf '%s\n' privilege-escalation 5404 10 \
           "Three failed attempts to run sudo." \
-          lab-agent T1548 \
-          '[{"dataType":"user-account","data":"intern","tags":["src"]},{"dataType":"hostname","data":"lab-agent","tags":["agent"]}]' ;;
+          lab-agent T1548.003 \
+          '[{"dataType":"user-account","data":"labuser","tags":["src"],"message":"data.srcuser (ran sudo)"},{"dataType":"user-account","data":"root","tags":["target"]},{"dataType":"hostname","data":"lab-agent","tags":["agent"]}]' ;;
     newuser) printf '%s\n' account-change 5902 8 \
           "New user added to the system." \
           lab-agent T1136 \
           '[{"dataType":"user-account","data":"backup2","tags":["new"]},{"dataType":"hostname","data":"lab-agent","tags":["agent"]}]' ;;
-    ioc) printf '%s\n' ioc-match 103001 12 \
+    ioc) printf '%s\n' ioc-match 108001 12 \
           "IOC match: source IP found in MISP list misp-ip." \
           lab-agent "" \
           '[{"dataType":"ip","data":"203.0.113.66","tags":["src"],"message":"Seed IOC published in MISP","ioc":true},{"dataType":"hostname","data":"lab-agent","tags":["agent"]}]' ;;
-    portscan) printf '%s\n' network-scan 104010 10 \
+    fwlogin) printf '%s\n' login-bruteforce 103011 10 \
+          "OPNsense: multiple failed web GUI logins from the same source." \
+          opnsense T1110 \
+          '[{"dataType":"ip","data":"198.51.100.40","tags":["src"]},{"dataType":"user-account","data":"root","tags":["target"]},{"dataType":"ip","data":"10.99.0.1","tags":["agent"],"message":"location (syslog sender)"},{"dataType":"hostname","data":"opnsense","tags":["agent"],"message":"predecoder.hostname (syslog alert, agent 000)"}]' ;;
+    portscan) printf '%s\n' network-scan 103010 10 \
           "pfSense: multiple blocked connections from the same source (port scan)." \
-          pfsense-fw T1046 \
-          '[{"dataType":"ip","data":"198.51.100.23","tags":["src"]},{"dataType":"hostname","data":"pfsense-fw","tags":["agent"]}]' ;;
+          pfsense T1046 \
+          '[{"dataType":"ip","data":"198.51.100.23","tags":["src"]},{"dataType":"ip","data":"10.99.0.50","tags":["agent"],"message":"location (syslog sender)"},{"dataType":"hostname","data":"pfsense","tags":["agent"],"message":"predecoder.hostname (syslog alert, agent 000)"}]' ;;
   esac
 }
 

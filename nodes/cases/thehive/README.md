@@ -11,7 +11,7 @@ Alert triage and case management for analysts. **Apply your Community license be
 | `compose.yml` | `thehive` (TheHive 5, served on port 9000 at the root path) |
 | `config/application.conf` | TheHive configuration; secrets come from the environment (`${VAR}`), never from this file |
 | `scripts/` | `thehive-export.sh` / `thehive-import.sh` (UI configuration ↔ `entities/`), `thehive-test-alert.sh` (test alerts) and their shared `lib.sh` |
-| `entities/` | Exported configuration: 9 custom fields, observable types (+ `user-account`), 4 case templates (JSON, committed) |
+| `entities/` | Exported configuration: 9 custom fields, observable types (+ `user-account`), 10 case templates (JSON, committed) |
 | `BACKLOG.md` | TheHive's backlog: milestones M0–M7 to the 2026-12-01 delivery, tasks `T0.1`… with priority, "done when" and links to the integration register (`X-nn`) |
 | `docs/` | [ALERT-FORMAT.md](docs/ALERT-FORMAT.md) (alert format, severity / TLP / PAP, template routing, alert-to-case rules), [TRIAGE.md](docs/TRIAGE.md) (triage procedure, users and roles) |
 | `../storage.yml` (integrator-owned) | `cassandra` (TheHive's database) and `elasticsearch` (search index, shared with Cortex) |
@@ -124,7 +124,7 @@ The plan and the features of this component are in [BACKLOG.md](BACKLOG.md): wha
 
 ```bash
 nodes/cases/thehive/scripts/thehive-import.sh                  # load the templates and fields (fresh machine)
-nodes/cases/thehive/scripts/thehive-test-alert.sh all          # 9 test alerts, one per case template
+nodes/cases/thehive/scripts/thehive-test-alert.sh all          # 10 test alerts, one per case template
 nodes/cases/thehive/scripts/thehive-test-alert.sh all --promote  # same, and promote each to a case as n8n would
 # triage them in the UI (docs/TRIAGE.md), then:
 nodes/cases/thehive/scripts/thehive-test-alert.sh --cleanup    # delete the test alerts and test cases
@@ -135,7 +135,7 @@ nodes/cases/thehive/scripts/thehive-fp-report.sh --days 30     # false positives
 |---|---|
 | `thehive-export.sh` | Saves custom fields, observable types and case templates from TheHive into `entities/` |
 | `thehive-import.sh` | Loads `entities/` into TheHive (creates / updates, never deletes; `--dry-run`) |
-| `thehive-test-alert.sh` | Test alerts shaped like n8n's (`ssh malware ids generic login sudo newuser ioc portscan`), `--critical-asset`, `--promote`, `--cleanup` |
+| `thehive-test-alert.sh` | Test alerts shaped like n8n's (`ssh malware ids generic login sudo newuser ioc portscan fwlogin`), `--critical-asset`, `--promote`, `--cleanup` |
 | `thehive-fp-report.sh` | Cases and alerts closed as false positive / ignored, grouped by `wazuh-rule-id`, for Wazuh tuning (`--days N`, `--out FILE`) |
 
 ## Design discussion: direct links between Wazuh and TheHive (decided 2026-09-30)
