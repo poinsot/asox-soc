@@ -111,7 +111,8 @@ The data every other component relies on, agreed and merged at checkpoint 1 (mil
   - With: Inigo, Daniel (W2.1), Diego (X-08)
 - [ ] **T2.6** Agree the template routing (by 2026-10-20) · P1, X-04
   - Done when: `docs/ALERT-FORMAT.md` §3 matches Daniel's rule-ID plan and rule groups (W1.3, W2.5), including Suricata's `suricata` / `ids` groups (D49), and Inigo's routing map (D-N2, data in an n8n `lib-` workflow) sets `caseTemplate` from it.
-  - Status (2026-10-08): §3 rewritten from Daniel's live alerts (answers A1–A6) and rules of 2026-10-08: `ioc-match` first (`misp_ioc`, 108xxx), `suspicious-login` before `ssh-bruteforce` on rule IDs 40112 / 100200, `privilege-escalation` on `T1548`, `account-change` on `adduser` only, `network-scan` on `pfsense` + `T1046` (103xxx). Left: Inigo's `lib-config` rows match it; Daniel's W4.3 / C14 rule IDs when built.
+  - Status (2026-10-13): §3 matches n8n's table of 2026-10-09 (adds rule 5404 and `T1136` clauses; `ioc-match` / `network-scan` proposed in n8n until their rules exist).
+  - Earlier (2026-10-08): §3 rewritten from Daniel's live alerts (answers A1–A6) and rules of 2026-10-08: `ioc-match` first (`misp_ioc`, 108xxx), `suspicious-login` before `ssh-bruteforce` on rule IDs 40112 / 100200, `privilege-escalation` on `T1548`, `account-change` on `adduser` only, `network-scan` on `pfsense` + `T1046` (103xxx). Left: Inigo's `lib-config` rows match it; Daniel's W4.3 / C14 rule IDs when built.
   - With: Inigo (router), Daniel (rule groups)
 - [ ] **T2.7** Checkpoint 1 pull request (by 2026-10-20) · P1, C3, C4, C5
   - Done when: `git pull --no-rebase --no-edit origin main`, `healthcheck.sh` green, `contracts-check.sh --only C5` passes (C3, C4 in `full`), `ci-checks.sh all` passes, pull request `thehive` → `main` opened and merged by the integrator.
@@ -173,6 +174,10 @@ TheHive and n8n work together without loops, duplicates or unapproved actions.
   - With: Inigo (n8n owner)
 - [x] ~~**T4.6** Answer n8n's ALERT-FORMAT questions~~ · closed 2026-09-30
   - Answered in ALERT-FORMAT.md: `rule.mitre_techniques` fallback and prefix match (§3), non-atomic dedup (§1), `customFields` as an array and `rule.id` cast (§4), `data.hostname` → `fqdn` / `ip` / `hostname` and `range:` tags (§5); TRIAGE.md: never delete a real case.
+- [ ] **T4.7** Jev (AI triage judge) fields in TheHive · P3, C16 (proposed), X-39, X-41
+  - Done when: Once C16 is accepted (after C11): the custom fields `jev-verdict`, `jev-p-fp`, `jev-confidence`, `jev-decision`, `jev-mode` are in `entities/custom-fields.json` and created with `thehive-import.sh` (TheHive's part per `docs/jev-implementation.md` §18); ALERT-FORMAT §4–§5 list them and the `jev:` tags; Q6 answered (severity threshold 3).
+  - Status (2026-10-13): proposal only (Jev v0.2, branch `n8n`); C16 waits for C11. Q6 answered: yes, 3 (High) fits ALERT-FORMAT §2.
+  - With: Inigo (n8n owner)
 ## M5 · Intel and metrics (target: 2026-11-17)
 
 The direct Wazuh ↔ TheHive links were decided on 2026-09-30: link A rejected (C12), link B replaced by C13. What remains here are the intel flows.
