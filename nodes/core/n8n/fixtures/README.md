@@ -52,10 +52,24 @@ Same method (the `recv-wazuh-alert` execution's `.body`, no headers, no token). 
 
 `ioc-ip` gave only 108000 (one a minute; it absorbs that minute's events, so no 5712 this time). Its `full_log` is the sshd line, ending with ` asox_run=<run id>`.
 
-**Not captured on 2026-10-15** (no alert reached Wazuh, so nothing to save; not invented):
-- **FIM 100300, 100301, 100302** (`--scenario persistence`): the lab agent `001` is in the agent group `default` only; `linux-servers`, which has the real-time FIM directories, has 0 agents on the build instance, so no FIM alert at all (not even built-in 550/554) within 2 min. Also, the lab agent has no `/etc/sudoers.d` (no `sudo` package): the scenario's sudoers step fails ("Directory nonexistent"), so 100300 can't fire there even with the group. The authorized_keys and cron.d files were written.
-- **Suricata 101001 / 101010** (`--scenario ids-test`, `ids-scan`): Suricata **did** alert (in its `eve.json`: 2100498 "GPL ATTACK_RESPONSE id check returned root" at 19:35:10, and 2009582, 2010935, 2010936, 2010937 ET SCAN at 19:37:32), but `eve.json` is read through the `network-sensors` group's `agent.conf`, and that group has 0 agents too: no 1010xx alert in the indexer, no delivery.
-- Both wait on the lab agent's group assignment (Wazuh owner); to capture once it is fixed.
+**Not captured in that first run** (no alert reached Wazuh): FIM and Suricata. The lab agent then had a stale enrollment (agent `001`, group `default` only, no `/etc/sudoers.d`), so no FIM alert fired and Suricata's `eve.json` alerts weren't read. Captured later the same day, after the lab node was reset (below).
+
+### From the Wazuh lab scenarios (2026-10-15, after the lab reset): FIM and Suricata
+
+The lab node was reset and re-initialised on 2026-10-15: `lab-agent` is now agent `002` in group `linux-servers` (real-time FIM), `/etc/sudoers.d` exists, and the agent's own `ossec.conf` reads `/var/log/suricata/eve.json` (localfile, `log_format json`), so Suricata alerts don't depend on the `network-sensors` group. Same method as above (the `recv-wazuh-alert` execution's `.body`, no headers, no token). Route = `lib-config` `routing` version `2026-10-15`, checked live on the TheHive alert (`caseTemplate`, writeback `Route:` line, `metrics: ok`); `100300` and `101010` also by a `--fresh-id` replay of the saved file (one alert each, `privilege-escalation` / `ids-network-alert`, severity 3, one writeback, `metrics: ok`).
+
+| File | Rule | Level | Groups | MITRE | Scenario | Route | recv execution | Alert time (UTC) |
+|---|---|---|---|---|---|---|---|---|
+| `wazuh/100300-fim-sudoers-added.json` | 100300 ASOX: sudoers changed (`/etc/sudoers.d/90-svc-backup-<run>`, `syscheck.event` `added`; decoder `syscheck_new_entry`, `location` `syscheck`, no `data`) | 10 | `asox`, `linux`, `syscheck` | T1548.003 | `persistence` | `privilege-escalation` | 29741 | 2026-10-15 19:53:28 |
+| `wazuh/100301-fim-authorized-keys-added.json` | 100301 ASOX: SSH authorized_keys changed (`/root/.ssh/authorized_keys`, `added`: the file didn't exist on the fresh agent; a later run appends, so `modified`, not captured) | 10 | `asox`, `linux`, `syscheck` | T1098.004 | `persistence` | `wazuh-generic` | 29737 | 2026-10-15 19:53:28 |
+| `wazuh/100302-fim-cron-added.json` | 100302 ASOX: system cron job added or changed (`/etc/cron.d/asox-update-<run>`, `added`) | 10 | `asox`, `linux`, `syscheck` | T1053.003 | `persistence` | `wazuh-generic` | 29740 | 2026-10-15 19:53:28 |
+| `wazuh/101001-suricata-id-check-root.json` | 101001 ASOX IDS (Suricata 2100498 "GPL ATTACK_RESPONSE id check returned root", severity `2`); decoder `json`, `location` `/var/log/suricata/eve.json`; `data.src_ip` `172.22.0.2` (the lab agent itself, on the lab network), `data.dest_ip` `104.20.23.154` (example.com, Cloudflare), `data.dest_port` `"80"` | 10 | `asox`, `suricata`, `ids` | — | `ids-test` | `ids-network-alert` | 29813 | 2026-10-15 19:54:02 |
+| `wazuh/101010-suricata-nmap-syn-scan.json` | 101010 ASOX IDS scan (Suricata 2009582 "ET SCAN NMAP -sS window 1024"); `data.src_ip` `172.22.0.3` (the throwaway nmap container), `data.dest_ip` `172.22.0.2` (the lab agent) | 10 | `asox`, `suricata`, `ids`, `recon` | T1046 | `ids-scan` | `ids-network-alert` | 29848 | 2026-10-15 19:54:27 |
+
+- `ids-test`'s alert reached n8n within the poll (no need to fall back on `eve.json`). `ids-scan` gave four 101010 alerts in the same second (ET SCAN 2009582 nmap -sS, 2010935 MSSQL, 2010936 Oracle, 2010937 MySQL; recv 29847–29850), all routed `ids-network-alert`; only the nmap one is kept.
+- FIM and Suricata lines carry **no ` asox_run=<run id>`** (`full_log` is Wazuh's FIM text, or Suricata's raw EVE line), so these alerts get no `t_attack_start` in `asox-metrics` (C11, MTTD null): finding in `../BACKLOG.md` N8N-0.2.
+- The Suricata `full_log` is the raw EVE line (numbers as JSON numbers), while the decoded `data.*` values are all strings; `data.flow_id` arrives float-formatted (`"472442805756262.000000"`): never use it as an identifier.
+- These are real alerts from a reset lab: the sudoers and cron file names end with the run id's first 8 characters, the authorized_keys line contains a fake key (`AAAAC3...ASOXlabTESTkeyNOTreal`, not in the alert). No credentials.
 
 Also produced, not saved: the attack-start marker 100101 (level 3, never sent by C1), and 5710 / 5760 (single failures, level 5). A syslog line in RFC 5424 format (`logger` without `--rfc3164`) arrives with no `predecoder` at all: n8n then has only `location`.
 
@@ -63,13 +77,13 @@ These are all the rule types at level 7 or above in the indexer on 2026-09-30 (l
 
 ### Missing (to come from Wazuh)
 
-Not produced by the lab yet at any level (or not on the build instance), so not captured and **not invented**. sshd, sudo, account changes and `rule.mitre.id` arrived with the scenarios (2026-10-09), OPNsense on 2026-10-14 and the MISP IOC rule 108000 on 2026-10-15 (above).
+Not produced by the lab yet at any level (or not on the build instance), so not captured and **not invented**. sshd, sudo, account changes and `rule.mitre.id` arrived with the scenarios (2026-10-09), OPNsense on 2026-10-14, the MISP IOC rule 108000, FIM and Suricata on 2026-10-15 (above).
 
 | Needed for | Rule type (built-in examples) | Comes with |
 |---|---|---|
-| `pb-malware-hash` (N8N-4.3), `syscheck.*` | FIM / syscheck (e.g. 550, 553, 554; ASOX 100300–100302 from `--scenario persistence`) | in the lab, but not produced on the build instance on 2026-10-15 (agent not in `linux-servers`; no `/etc/sudoers.d` for 100300), see above |
+| ~~`syscheck.*`~~ captured 2026-10-15 (100300–100302, `added`, above); still missing for `pb-malware-hash` (N8N-4.3): a `modified` and a `deleted` event, built-in FIM rules (550, 553, 554), a hash on a MISP list (108020/108021) | FIM / syscheck | `persistence` re-runs (modified), Wazuh M5 |
 | `malware-detection` template | rootcheck (e.g. 510), VirusTotal (87105), YARA / ClamAV | Wazuh M5 |
-| `pb-ids-alert` (N8N-4.4), `data.alert.*`, `data.src_ip`, `data.dest_ip`, `data.dest_port` | Suricata (ASOX 101001, 101010 from `--scenario ids-test` / `ids-scan`) | in the lab, but not ingested on the build instance on 2026-10-15 (agent not in `network-sensors`), see above |
+| ~~`data.alert.*`, `data.src_ip`, `data.dest_ip`, `data.dest_port`~~ captured 2026-10-15 (101001, 101010, above); still missing for `pb-ids-alert` (N8N-4.4): a severity-1 signature (level 12), a Suricata alert from a MISP IOC (108010/108011), a sensor on its own machine (group `network-sensors`, Phase 2) | Suricata | Wazuh M3 / Phase 2 |
 | ~~`network-scan` row, `data.dstip`, syslog device alerts~~ captured 2026-10-14 (103000, 103011, above); still missing: routers (102xxx), a real OPNsense (the lab sends the lines itself) | pfSense / router (103xxx, 102xxx) | Wazuh M4 (2026-11-10) |
 | ~~`ioc-match` row~~ captured 2026-10-15 (108000, above); still missing: 108001 (destination), 108010/108011 (Suricata), 108020/108021 (hash) | MISP IOC matches (108xxx, C14) | 108000 done; the others with their sources |
 | C11 `t_attack_start` | the attack-start marker 100101 (level 3: read from the indexer, never sent by C1) | in the lab now; captured by N8N-2.9 from the indexer |
