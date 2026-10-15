@@ -14,6 +14,7 @@ n8n is the platform's SOAR and integration hub, and the **only** component that 
 | `workflows/*.json` | Workflows as code, one file per workflow (exported by `scripts/n8n-export.sh`) |
 | `fixtures/` | Real payloads for tests (N8N-0.2): Wazuh alerts (`wazuh/`) and TheHive webhook events (`thehive/`), described in `fixtures/README.md` with the list of missing rule types |
 | `fixtures/replay.sh` | POSTs fixtures to `wazuh-alert` / `thehive-event` with the right token header; `--all`, `--times N` with `--delay S` (idempotency), `--fresh-id` (new Wazuh alert id, so a replay is a new alert), `--no-token` (must get 403) (N8N-0.6) |
+| `scripts/lint-workflows.sh` | Workflow lint (N8N-0.7): naming, header note, credentials by ID, no secrets, hosts or pinData, error workflow and execution saving; see "Workflow lint" |
 | `docs/WAZUH-FIELDS.md` | Wazuh alert fields n8n relies on, with types and which are optional, verified against the fixtures (N8N-0.3; reviewed with Wazuh and applied 2026-10-09; fields not seen yet stay open, X-01) |
 | `docs/ALERT-TO-THEHIVE.md` | n8n's side of `nodes/cases/thehive/docs/ALERT-FORMAT.md`: the Wazuh path behind each TheHive field, gaps, duplicate `sourceRef` handling, C4 event shapes, questions for TheHive (N8N-0.4) |
 | `docs/reply-wazuh-x10.md`, `docs/reply-grafana-c11.md` | n8n's answers of 2026-10-14: C1 retries (X-10, N8N-1.9: yes after checkpoint 1, with conditions) and Grafana's C11 assumptions with the dates (N8N-2.9) |
@@ -205,6 +206,29 @@ scripts/n8n-import.sh            # workflows/*.json -> n8n (after git pull); OVE
 - `n8n-import.sh` takes files or a **directory** (every `*.json` in it; no argument = `workflows/`). It activates the workflows whose file says `"active": true`, sub-workflows before their callers whatever the file order: it retries the refused ones until all are active (an `....` line says how many it tries again; the 25 workflows take two passes) and ends with `PASS  n8n: all <N> workflow(s) marked active are active on the server`. A workflow that still can't be activated gets a `FAIL` line with its name and n8n's reason, and the script exits 1 (R-25).
 - **After a checkpoint merge** that brings new workflows or a changed `compose.yml`: follow [CONTRIBUTING.md](../../../CONTRIBUTING.md), "After a checkpoint merge" (`soc.sh up <mode>` first, so Compose recreates n8n with the new environment, then `n8n-import.sh`, then the three checks). Verified on the build instance 2026-10-10 from this branch: Compose recreated n8n on its own, the import activated every workflow (23 today), `N8N_EVENTBUS_RECOVERY_MODE=simple` was in the container, the queue tables were found, C1 and C3 passed.
 - Exported files keep credential references (ID and name), never credential data, and drop pinned test data and volatile fields.
+
+### Workflow lint (N8N-0.7)
+
+`scripts/lint-workflows.sh` checks the workflow files against the conventions of this README, statically: no containers, no n8n, only bash and python3. Run it before each commit that touches `workflows/`:
+
+```bash
+nodes/core/n8n/scripts/lint-workflows.sh                      # every workflows/*.json
+nodes/core/n8n/scripts/lint-workflows.sh --file path/to/x.json  # one file (repeatable; --dir DIR for a folder)
+```
+
+One `FAIL` or `WARN` line per finding (`<file> [<rule>]: <what>`), `PASS` per clean file, a summary line; exit 1 on any `FAIL`. `WARN` marks a judgement call and doesn't fail. Once the integrator hooks it in, `scripts/ci-checks.sh` runs it too (check `n8n-lint`).
+
+| Rule | Checks | Level |
+|---|---|---|
+| a | Valid JSON with `id`, `name`, `nodes`; `name` = file name; prefix `recv-`, `pb-`, `lib-`, `sched-` or `chk-` ("Playbook conventions"); IDs unique across files; every Execute Workflow ID and the error workflow ID exist ("Sub-workflows") | FAIL; an ID that isn't 16 letters/digits, or a stale cached sub-workflow name: WARN |
+| b | A sticky note with **Trigger**, **Inputs**, **Actions taken**, **Systems changed**, **Approval**, **Owner** (bold labels) | FAIL; a label with nothing after it: WARN |
+| c | Every node credential has an `id`, one that `scripts/bootstrap.sh` creates (`scripts/lib/n8n.sh`), with the same type; webhooks use Header Auth with a webhook-token credential; MISP calls set "Ignore SSL Issues", Wazuh indexer calls never do ("Credentials, URLs and secrets") | FAIL; a credential name that differs from bootstrap's, or the Bearer token outside `recv-thehive-event`: WARN |
+| d | No secrets in parameters, notes, sticky notes, `pinData`, `staticData`: an `Authorization` / `X-ASOX-Token` / API-key header with a literal value, a literal `Bearer`/`Basic` value, a JWT, a private key, `$env.<…_KEY / _PASSWORD / _TOKEN / _SECRET / _FILE>` (D37) | FAIL; a literal assigned to a secret-like key, or a long random-looking string: WARN |
+| e | No hardcoded hosts outside sticky notes: a literal URL, `localhost`, `wazuh.indexer` and the other container names with or without a port | FAIL; an HTTP Request URL not starting with `={{ $env.<…_URL> }}`, a `$env` variable not documented above, an IPv4 literal not in the allow list (`8.8.8.8` in `chk-misp-api`, the seed IOCs in `lib-config`; CIDR ranges are data): WARN |
+| f | `pinData` empty | FAIL |
+| g | `recv-*` and `pb-*` set the error workflow `recv-n8n-error` (A77; `recv-n8n-start` is a WARN, decision pending), `lib-*` never do (N8N-6.1); `lib-*` save failed executions only, `recv-*` / `pb-*` / `chk-*` every execution, with the documented exceptions `lib-alert-queue-drain` and `sched-alert-queue` (N8N-6.5, N8N-1.4); `lib-*` and `pb-*` are active | FAIL |
+
+Usual findings and fixes: **a/name** rename the workflow in the UI or the file so both match, then export; **b** add the missing bold label to the sticky note (copy one from `pb-generic`); **c/credential** pick the bootstrap credential in the node (a credential created only in your UI has a random ID; ask the integrator for a new one in `bootstrap.sh`); **d** move the value into a credential; **e** use `{{ $env.THEHIVE_URL }}` and the other URL variables; **f** unpin the node's data in the UI and export again; **g** set "Error workflow" / "Save successful executions" in the workflow settings, then export. A new allowed exception (an IP that is data, an entry point without the error workflow) goes into the lists at the top of the script's Python part, with the reason.
 
 ### Merge notes (checkpoint 1, for teammates running `core`)
 
