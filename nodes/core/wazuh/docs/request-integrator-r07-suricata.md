@@ -4,7 +4,7 @@
 **From:** Daniel (@dmelgar1110), Wazuh owner
 **Date:** 2026-10-08
 **Refs:** R-07, W3.1, W3.2, W3.6, D49, D39, D40; README "Network IDS: Suricata"
-**Status:** draft
+**Status:** sent (2026-10-14, with PR #20, merged)
 
 ## What exists (branch `wazuh`, tested live 2026-10-08)
 

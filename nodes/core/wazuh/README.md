@@ -83,7 +83,8 @@ Every custom rule carries three kinds of groups:
 | Detects | Standard groups | Case template (ALERT-FORMAT.md §3) |
 |---|---|---|
 | SSH failures, brute force | `sshd`, `authentication_failed` / `authentication_failures`, `invalid_login` | `ssh-bruteforce` |
-| Successful login | `authentication_success`; failures then success: built-in 40112 (`attacks`, T1078 + T1110, level 12) | `suspicious-login` (40112 only) |
+| Brute force on other logins (web GUI, `su`, …) | T1110 without `sshd`: e.g. 103011, built-ins 40111 and 2502 | `login-bruteforce` |
+| Successful login | `authentication_success`; failures then success: built-in 40112 (`attacks`, T1078 + T1110, level 12); root login 100200 | `suspicious-login` (rule IDs 40112 and 100200) |
 | sudo | `sudo` (built-in 5404 has no `authentication_*` group; its MITRE is T1548.003) | `privilege-escalation` |
 | New, deleted or changed user or group | `adduser` (Wazuh uses it for all of them: 5901 new group, 5902 new user, 5903, 5904) | `account-change` |
 | File integrity | `syscheck` | `wazuh-generic` |
@@ -105,7 +106,7 @@ Example:
 </group>
 ```
 
-Routing (D-N2): n8n routes on these groups first, and on a short map of specific rule IDs where a group is too broad.
+Routing (D-N2): n8n routes on these groups first, and on a short map of specific rule IDs where a group is too broad. **Agreed three-way on 2026-10-14** (n8n's routing table in `lib-config`, TheHive's ALERT-FORMAT §3, PR #23 and #19; X-04). First match wins, in this order: `ioc-match`, `suspicious-login`, `ssh-bruteforce`, `login-bruteforce`, `malware-detection`, `ids-network-alert`, `privilege-escalation`, `account-change`, `network-scan`, `wazuh-generic`.
 
 ### Detection catalog (W2.5)
 
@@ -115,14 +116,14 @@ Every custom rule, the alert it produces and how to fire it. Built-in rules the 
 |---|---|---|---|---|---|---|---|
 | 100100 | `local_rules.xml` | 10 | `test` | — | Synthetic test event (C1, C8) | `trigger.sh` (no option) | `wazuh-generic` |
 | 100101 | `local_rules.xml` | 3 | `test`, `attack_start` | — | A lab scenario started (`data.scenario`, `data.run_id`; C11's `t_attack_start`) | every `--scenario` | — (not forwarded) |
-| 100200 | `1002-linux-auth.xml` | 10 | `sshd`, `authentication_success` | T1078.003 | SSH login as root (built-in 5715 rates it 3) | `root-login` | `wazuh-generic` (proposed: `suspicious-login`) |
+| 100200 | `1002-linux-auth.xml` | 10 | `sshd`, `authentication_success` | T1078.003 | SSH login as root (built-in 5715 rates it 3) | `root-login` | `suspicious-login` (by rule ID, with 40112) |
 | 100210 | `1002-linux-auth.xml` | 3 | `adduser`, `account_changed` | T1098 | `usermod` added a user to a group (Wazuh doesn't decode usermod) | — | — (not forwarded) |
 | 100211 | `1002-linux-auth.xml` | 10 | `adduser`, `account_changed` | T1098 | …to a privileged group: sudo, wheel, admin, root, docker, lxd | `new-user` | `account-change` |
 | 100212 | `1002-linux-auth.xml` | 10 | `adduser`, `account_changed` | T1098 | `gpasswd` added a user to a privileged group (built-in 2960/2961 rate it 2/5) | — | `account-change` |
 | 101000 | `1010-suricata.xml` | 12 | `suricata`, `ids` | — | Suricata alert of severity 1 (built-in 86601 rates every Suricata alert 3) | — | `ids-network-alert` |
 | 101001 | `1010-suricata.xml` | 10 | `suricata`, `ids` | — | Suricata alert of severity 2 | `ids-test` | `ids-network-alert` |
 | 101002 | `1010-suricata.xml` | 6 | `suricata`, `ids` | — | Suricata alert of severity 3 (context) | — | — (not forwarded) |
-| 101010 | `1010-suricata.xml` | 10 | `suricata`, `ids`, `recon` | T1046 | `ET SCAN` signature (severity 1 or 2) | `ids-scan` | `ids-network-alert` (or `network-scan`) |
+| 101010 | `1010-suricata.xml` | 10 | `suricata`, `ids`, `recon` | T1046 | `ET SCAN` signature (severity 1 or 2) | `ids-scan` | `ids-network-alert` (first match, before `network-scan`) |
 | 109010 | `1090-tuning.xml` | 0 | `suricata`, `ids`, `tuning` | — | Suricata engine events (`SURICATA STREAM`, invalid checksums) silenced | — | — |
 | 100300 | `1003-linux-system.xml` | 10 | `syscheck` | T1548.003 | sudoers file added or changed (FIM) | `persistence` | `privilege-escalation` |
 | 100301 | `1003-linux-system.xml` | 10 | `syscheck` | T1098.004 | SSH `authorized_keys` added or changed (FIM) | `persistence` | `wazuh-generic` |
@@ -130,7 +131,7 @@ Every custom rule, the alert it produces and how to fire it. Built-in rules the 
 | 100303 | `1003-linux-system.xml` | 10 | `syscheck` | T1543.002 | New systemd service (FIM) | — | `wazuh-generic` |
 | 103000 | `1030-opnsense.xml` | 10 | `opnsense`, `pfsense`, `firewall_block`, `recon` | T1046 | Port scan: one source blocked on 10 different ports in 60 s | `opnsense-scan` | `network-scan` |
 | 103010 | `1030-opnsense.xml` | 5 | `opnsense`, `pfsense`, `authentication_failed` | T1110.001 | Web GUI login failure (context) | — | — (not forwarded) |
-| 103011 | `1030-opnsense.xml` | 10 | `opnsense`, `pfsense`, `authentication_failures` | T1110 | Web GUI brute force: 5 failures in 2 min from one source | `opnsense-gui-bruteforce` | `ssh-bruteforce` (through T1110) |
+| 103011 | `1030-opnsense.xml` | 10 | `opnsense`, `pfsense`, `authentication_failures` | T1110 | Web GUI brute force: 5 failures in 2 min from one source | `opnsense-gui-bruteforce` | `login-bruteforce` (T1110 without `sshd`) |
 | 103012 | `1030-opnsense.xml` | 3 | `opnsense`, `pfsense`, `authentication_success` | T1078 | Web GUI login (context) | — | — |
 | 87702 | `1090-tuning.xml` | 10 | `pfsense`, `multiple_blocks` | (removed) | Built-in "18 blocks in 45 s", without its T1110, which misrouted it to brute force | — | `wazuh-generic` |
 | 108000 / 108001 | `1080-misp-ioc.xml` | 12 | `misp_ioc` | — | Source / destination address of a log event is a MISP IOC (C14); one a minute, absorbs that minute's events | `ioc-ip` (once synced) | `ioc-match` |
@@ -261,7 +262,7 @@ MISP (published, to_ids, not on a warninglist) --REST, read-only key--> misp-syn
 ```
 
 - **Start** (`config/entrypoint-scripts/40-misp-sync.sh`): the three lists always exist (empty until synced, so Wazuh starts with or without MISP); one sync runs before Wazuh starts; then an s6 service (like the image's filebeat) syncs every `WAZUH_MISP_SYNC_INTERVAL` seconds (default 3600). `docker logs <instance>-core-wazuh-manager-1 | grep misp-sync` shows each run.
-- **Off until R-08:** without `WAZUH_MISP_URL` and `WAZUH_MISP_API_KEY` in `nodes/core/.env`, C14 is off and the lists stay as they are. Run one sync by hand with any read-only MISP key:
+- **On with R-08 (2026-10-14):** `compose.yml` passes core's `MISP_URL` and `MISP_WAZUH_API_KEY` (the Read Only user `wazuh@asox.local`, created by `bootstrap.sh intel` and copied by `render-env.sh`, `__from:intel__`) as `WAZUH_MISP_URL` and `WAZUH_MISP_API_KEY`. With an empty key (no `intel` bootstrapped on this machine yet), C14 is off and the lists stay as they are. Run one sync by hand with any read-only MISP key:
   ```bash
   docker exec -e WAZUH_MISP_URL=https://misp-nginx:8443 -e WAZUH_MISP_API_KEY=<read-only key> \
     <instance>-core-wazuh-manager-1 /var/ossec/framework/python/bin/python3 /asox/lists/misp-sync.py --once
@@ -274,7 +275,12 @@ MISP (published, to_ids, not on a warninglist) --REST, read-only key--> misp-syn
   - with MISP's front end stopped, the lists were kept;
   - `trigger.sh --scenario ioc-ip` gave **108000**; a file with the IOC hash in `/etc/cron.d` gave **108020**; both reached n8n's `recv-wazuh-alert`. A Suricata alert from the IOC gives 108010 (`tests/cases/1010-suricata.cases`).
   - The manager stayed at 255 MiB anonymous (peak 623 MiB of its 700m) with the lists loaded.
-- **The seed IOC:** MISP's own seed attribute has `to_ids: false`, and `203.0.113.0/24` is on MISP's "RFC 5735" warninglist (X-36), so neither reaches the lists as it stands. Diego decides (`docs/request-n8n-c1-delivery.md`). The lab machine's lists keep the test IOCs above.
+- **Live with Diego's user (2026-10-14, `core` + `intel` on `low`):**
+  - `bootstrap.sh intel` (`misp-config.sh apply`) created `wazuh@asox.local`, and `render-env.sh` copied its key to core. C14 started by itself.
+  - With MISP's seed event and the Botvrij feed (406 events), the filter (`to_ids`, published, no warninglist) kept **4,466** of Botvrij's ~29,000 attributes: misp-ip 373, misp-domain 914, misp-hash 3,121.
+  - `trigger.sh --scenario ioc-ip` gave **108000** ("source 101.99.75.184 is a MISP indicator", level 12), and n8n received it. No other `misp_ioc` alert appeared, so there were no false positives from the real IOCs.
+  - **Memory (W6.5):** the lists cost almost nothing (`wazuh-analysisd` 62 MiB). The manager was at 514 MiB anonymous of its 700m, mostly `wazuh-modulesd` (241 MiB: vulnerability detection and inventory, more with the Windows agent). No OOM kill. misp-core reached its 900m limit while it imported the feed (Cortex + MISP owner).
+- **The seed IOC:** since 2026-10-14 MISP's seed attribute is **`101.99.75.184`** (X-36: a Botvrij Loki-Bot address, `to_ids: true`, on no warninglist; `misp-config.sh apply` checks both). C14's filter exports it, so `trigger.sh --scenario ioc-ip`, which uses it by default (`ASOX_IOC_IP` overrides), gives 108000 once the lists are synced. Until 2026-10-13 it was `203.0.113.66`, a documentation address on MISP's RFC 5735 warninglist.
 
 ## Lab agent (`nodes/lab/`)
 

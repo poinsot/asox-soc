@@ -82,9 +82,10 @@ services:
       WAZUH_SYSLOG_ALLOWED_IPS: ${WAZUH_SYSLOG_ALLOWED_IPS:-}
       # MISP IOCs as CDB lists (C14), lists/misp-sync.py. The URL defaults to
       # core's MISP_URL (C10, R-13: misp-nginx, or INTEL_HOST:9443 when
-      # distributed); the key stays empty until R-08: C14 is off until then.
+      # distributed); the key is MISP_WAZUH_API_KEY (R-08, __from:intel__, the
+      # Read Only user wazuh@asox.local). C14 is off while it's empty.
       WAZUH_MISP_URL: ${WAZUH_MISP_URL:-${MISP_URL:-}}
-      WAZUH_MISP_API_KEY: ${WAZUH_MISP_API_KEY:-}
+      WAZUH_MISP_API_KEY: ${MISP_WAZUH_API_KEY:-}
       WAZUH_MISP_SYNC_INTERVAL: ${WAZUH_MISP_SYNC_INTERVAL:-3600}
     volumes:
       - wazuh_api_configuration:/var/ossec/api/configuration

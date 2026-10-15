@@ -9,7 +9,7 @@
 # With --scenario: the attack-start marker (rule 100101, level 3:
 # "ASOX_ATTACK_START scenario=<name> id=<run id>"), then, a second later,
 # realistic log lines of that attack, each ending in "asox_run=<run id>".
-# Attacker addresses are documentation ranges; ioc-ip uses the MISP seed IOC.
+# Attacker addresses are documentation ranges; ioc-ip uses MISP's seed IOC.
 #
 #   scenario                expected alerts (built-in rules, Wazuh 4.14.8)
 #   ssh-bruteforce          5763 level 10: 10 failed SSH passwords for root from 198.51.100.23
@@ -34,7 +34,7 @@
 # The opnsense-* lines travel as real syslog from the lab container to
 # WAZUH_MANAGER_ADDR:514 (W4.5), so they also test the allowed sources (W1.1).
 #   ioc-ip                  5712 level 10 (108000, level 12, once C14 lists it): 10 failed
-#                           SSH logins for invalid users from the IOC, 203.0.113.66 or ASOX_IOC_IP
+#                           SSH logins for invalid users from the IOC, 101.99.75.184 or ASOX_IOC_IP
 # The brute-force rules (5763, 5712) stay quiet for 60 s after they fire, for
 # every source address. So wait a minute before repeating a scenario, and
 # between ssh-bruteforce and ssh-success-after-fail (both use 5763).
@@ -53,10 +53,11 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TEST_LOG=/var/log/asox-lab/test.log
 SCENARIOS="ssh-bruteforce ssh-success-after-fail sudo-fail new-user ioc-ip root-login ids-test ids-scan opnsense-scan opnsense-gui-bruteforce persistence"
 NMAP_IMAGE=${NMAP_IMAGE:-instrumentisto/nmap:7.98-r2}
-# The lab's IOC: MISP's seed IOC by default. X-36: it's in a documentation
-# range, which MISP warninglists flag as common; set ASOX_IOC_IP to the test
-# IOC the Cortex + MISP owner picks instead.
-IOC_IP=${ASOX_IOC_IP:-203.0.113.66}
+# The lab's IOC: MISP's seed IOC (nodes/intel/misp/seed/seed-event.json),
+# 101.99.75.184 since 2026-10-14 (X-36: a Botvrij Loki-Bot address, to_ids,
+# on no warninglist; only ever written into test logs, never contacted).
+# ASOX_IOC_IP overrides it.
+IOC_IP=${ASOX_IOC_IP:-101.99.75.184}
 
 # The comment block at the top of this file.
 usage() { awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; }

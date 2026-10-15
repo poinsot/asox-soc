@@ -10,8 +10,8 @@
   rule in those groups, and an IOC match replaces the plain alert (e.g. a
   5710 SSH failure from a listed address becomes 108000). They load after
   every source's rules (file prefix 1080), which they depend on.
-  Tested live: nodes/lab/trigger.sh, scenario ioc-ip, once 203.0.113.66 is in
-  MISP with to_ids (FIM and Suricata matches the same way).
+  Tested live: nodes/lab/trigger.sh, scenario ioc-ip, with MISP's seed IOC
+  (101.99.75.184 since 2026-10-14, to_ids) (FIM and Suricata matches the same way).
   Copied into /var/ossec/etc/rules/ at every manager start.
 -->
 <group name="asox,misp_ioc,">
