@@ -5,7 +5,7 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## chk-wazuh-api (contract check C2)\n**Trigger:** POST /webhook/chk-wazuh-api from scripts/contracts-check.sh, header `X-ASOX-Token` required.\n**Inputs:** none.\n**Actions taken:** logs in to the Wazuh API with the \"Wazuh API (n8n-api)\" credential, lists agents, then tries an active-response call with a harmless unknown command, which the read-only role must reject (HTTP 403).\n**Systems changed:** none.\n**Approval:** not applicable.\n**Owner:** n8n (check maintained with the integrator).",
+        "content": "## chk-wazuh-api (contract check C2)\n**Trigger:** POST /webhook/chk-wazuh-api from scripts/contracts-check.sh, header `X-ASOX-Token` required.\n**Inputs:** none.\n**Actions taken:** logs in to the Wazuh API with the \"Wazuh API (n8n-api)\" credential, lists agents, then tries an active-response call with a harmless unknown command, which the read-only role must reject (HTTP 403).\n**Systems changed:** none.\n**Approval:** not needed: a contract check, no system changes.\n**Owner:** n8n (check maintained with the integrator).",
         "height": 260,
         "width": 420
       },

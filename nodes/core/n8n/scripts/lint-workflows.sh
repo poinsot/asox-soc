@@ -10,7 +10,8 @@
 #   -h, --help        show this help
 # Rules (README "Workflow lint"):
 #   a  valid JSON, n8n export shape, name = file name, name prefix
-#      (recv-, pb-, lib-, sched-, chk-), unique 16-character IDs, sub-workflow
+#      (recv-, pb-, lib-, sched-, chk-), unique 16-character IDs (listed
+#      exceptions: ID_LENGTH_EXCEPTIONS), sub-workflow
 #      and error-workflow IDs that exist
 #   b  header sticky note with Trigger, Inputs, Actions taken, Systems changed,
 #      Approval and Owner
@@ -76,10 +77,15 @@ BEARER_WEBHOOKS = {"recv-thehive-event"}  # TheHive can't send X-ASOX-Token (D43
 MISP_CRED, INDEXER_CRED = "asoxMispApi00001", "asoxIndexerN8n01"
 # Execution saving (N8N-6.5, N8N-1.4): documented exceptions only.
 SAVE_SUCCESS = {"lib-alert-queue-drain": "all", "sched-alert-queue": "none"}
-# Entry points without the error workflow, kept as WARN until decided.
-NO_ERROR_WORKFLOW_WARN = {
-    "recv-n8n-start": "n8n start-up trigger; the README lists recv-wazuh-alert, "
-                      "recv-thehive-event and pb-generic only (decision pending)",
+# Entry points without the error workflow, kept as WARN until decided (none:
+# recv-n8n-start got it on 2026-10-15).
+NO_ERROR_WORKFLOW_WARN = {}
+# Workflow IDs allowed to differ from n8n's 16 letters or digits (rule a).
+# Renaming one changes every Execute Workflow reference to it and the workflow
+# on each live instance, so known ones are accepted here, with the reason.
+ID_LENGTH_EXCEPTIONS = {
+    "asoxLibThTagObs": "lib-thehive-tag-observable, 15 characters; renaming it would change "
+                       "its callers' references and the workflow on the live instances",
 }
 # IPv4 literals that are data, not hosts (rule e); anything else is a WARN.
 IP_ALLOWED = {
@@ -193,7 +199,7 @@ for f, d in loaded:
         add("FAIL", f, "a/name", f'workflow name "{wname}" does not match the file name {base}')
     if not re.fullmatch(r"(?:%s)-[a-z0-9]+(?:-[a-z0-9]+)*" % "|".join(PREFIXES), wname):
         add("FAIL", f, "a/prefix", f'name "{wname}" must be <kind>-<lowercase-words>, kind one of {", ".join(p + "-" for p in PREFIXES)}')
-    if not re.fullmatch(r"[A-Za-z0-9]{16}", str(wid)):
+    if not re.fullmatch(r"[A-Za-z0-9]{16}", str(wid)) and wid not in ID_LENGTH_EXCEPTIONS:
         add("WARN", f, "a/id", f'ID "{wid}" is not 16 letters or digits like n8n\'s own (README "Sub-workflows"); n8n accepts it')
     other = context.get(wid)
     if other and other[1] != base:

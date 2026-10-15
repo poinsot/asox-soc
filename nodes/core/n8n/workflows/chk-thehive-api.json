@@ -5,7 +5,7 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## chk-thehive-api (contract check C3)\n**Trigger:** POST /webhook/chk-thehive-api from scripts/contracts-check.sh, header `X-ASOX-Token` required.\n**Inputs:** `{\"step\": \"create\", \"sourceRef\": \"...\"}` or `{\"step\": \"delete\", \"id\": \"...\"}`.\n**Actions taken:** with the \"TheHive API (n8n)\" credential: *create* makes a test alert (`source: contract-check`) and reads it back; *delete* deletes an alert, only if its source is `contract-check`.\n**Systems changed:** TheHive (test alert only, removed by the check).\n**Approval:** not applicable.\n**Owner:** n8n (check maintained with the integrator).",
+        "content": "## chk-thehive-api (contract check C3)\n**Trigger:** POST /webhook/chk-thehive-api from scripts/contracts-check.sh, header `X-ASOX-Token` required.\n**Inputs:** `{\"step\": \"create\", \"sourceRef\": \"...\"}` or `{\"step\": \"delete\", \"id\": \"...\"}`.\n**Actions taken:** with the \"TheHive API (n8n)\" credential: *create* makes a test alert (`source: contract-check`) and reads it back; *delete* deletes an alert, only if its source is `contract-check`.\n**Systems changed:** TheHive (test alert only, removed by the check).\n**Approval:** not needed: a contract check; it creates only its own test alert and removes it.\n**Owner:** n8n (check maintained with the integrator).",
         "height": 300,
         "width": 460
       },
