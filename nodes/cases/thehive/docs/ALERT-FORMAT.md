@@ -1,6 +1,6 @@
 # Wazuh alert → TheHive: format, mapping and alert-to-case rules
 
-Owner: TheHive (Park). **Status (2026-10-13): §1–§5 reviewed by the n8n owner (Inigo, 2026-10-06) and answered (questions A–E and G below, in each section); §3's routing matches the table n8n and Wazuh agreed on 2026-10-09 (X-04) and Daniel's live alerts (W1.3). To be marked agreed at checkpoint 1 (2026-10-20) once Inigo accepts A–E; §6 R2 (D-N4) to confirm by 2026-11-03.** Dedup by `sourceRef` (§1) is D-N1 (`docs/decisions.md`). It builds on contract C3 (n8n → TheHive, Service account `n8n@asox.local`) without changing it: C3 fixes *how* n8n authenticates; this document fixes *what* it sends.
+Owner: TheHive (Park). **Status: agreed with the n8n owner (2026-10-14, PR #19 and n8n's PR #23; X-02, X-04) and matching n8n's `lib-config` routing row for row; §3 rules confirmed with the Wazuh owner (W1.3). §6 R2 (D-N4) to confirm by 2026-11-03.** Dedup by `sourceRef` (§1) is D-N1 (`docs/decisions.md`). It builds on contract C3 (n8n → TheHive, Service account `n8n@asox.local`) without changing it: C3 fixes *how* n8n authenticates; this document fixes *what* it sends.
 
 Reference implementation: `scripts/thehive-test-alert.sh` sends alerts in exactly this format, and `scripts/lib.sh` (`th_severity`) holds the severity table.
 
@@ -50,22 +50,22 @@ Checked against live alerts (Wazuh 4.14.8, lab scenarios) and Daniel's rule-ID p
 
 | Template (`entities/case-templates.json`) | When (first match wins) | Rules today |
 |---|---|---|
-| `ioc-match` | `rule.groups` has `misp_ioc` | 108xxx (C14, W6.4); above every other row, so an IOC match wins |
+| `ioc-match` *(proposed in n8n until C14 is live)* | `rule.groups` has `misp_ioc` | 108000 (C14, W6.4; test IOC `101.99.75.184`, X-36); above every other row, so an IOC match wins |
 | `suspicious-login` | `rule.id` is `40112` or `100200` (rule IDs only: every normal SSH login, 5715, also carries `T1078`) | 40112 failures then success (level 12), 100200 SSH login as root (level 10) |
-| `ssh-bruteforce` | `rule.groups` has `sshd` and either one of `authentication_failures`, `authentication_failed`, `invalid_login`, or `rule.mitre.id` `T1110` (**`sshd` now required**: proposed 2026-10-14) | 5712, 5763 (level 10) |
-| `login-bruteforce` *(proposed 2026-10-14)* | `rule.mitre.id` has `T1110` (any other service: firewall / router admin GUI, web app, VPN) | 103011 OPNsense / pfSense GUI login brute force |
+| `ssh-bruteforce` | `rule.groups` has `sshd` and either one of `authentication_failures`, `authentication_failed`, `invalid_login`, or `rule.mitre.id` `T1110` (`sshd` required in both clauses, 2026-10-14) | 5712, 5763 (level 10) |
+| `login-bruteforce` | `rule.mitre.id` has `T1110` (any other service: firewall / router admin GUI, web app, VPN) | 103011 OPNsense / pfSense GUI login brute force; built-in 40111, 2502 |
 | `malware-detection` | `rule.groups` has one of `virustotal`, `rootcheck`, `yara`, `clamd`, `malware` | |
 | `ids-network-alert` | `rule.groups` has `suricata` or `ids` (Suricata network IDS, D49; built-in rule 86601 "Suricata: Alert - …", fields `data.alert.signature`, `data.alert.severity`, `data.src_ip`, `data.dest_ip`, `data.dest_port`) | 86601, 101xxx (M3) |
 | `privilege-escalation` | `rule.id` is `5404`, or `rule.mitre.id` has `T1548` (sudo failures carry only `syslog,sudo`, no `authentication_*` group) | 5404, three wrong sudo passwords (T1548.003, level 10) |
 | `account-change` | `rule.groups` has `adduser`, or `rule.mitre.id` has `T1136` (Wazuh files new users **and** new groups under `adduser`; `addgroup` doesn't exist, and 5901 has no MITRE ID, so the group is the main clause) | 5901 new group, 5902 new user (level 8), 5904, 100211 usermod / 100212 gpasswd: user added to a privileged group (level 10, T1098) |
-| `network-scan` | `rule.groups` has `pfsense` and either `recon` or `rule.mitre.id` `T1046` (the `pfsense` group stands for "the firewall", answer D) | 103xxx scan / repeated-block rules with groups `pfsense,recon` (W4.3, M4) |
+| `network-scan` | `rule.groups` has `pfsense` and either `recon` or `rule.mitre.id` `T1046` (the `pfsense` group stands for "the firewall", answer D) | 103000 (scan / repeated blocks, groups `pfsense,recon`, seen from `opnsense`) and further 103xxx (W4.3) |
 | `wazuh-generic` | everything else, including single pfSense blocks (`firewall_drop` without `recon`) | |
 
 **MITRE technique:** read `rule.mitre.id` (an array); when it is absent, fall back to `rule.mitre_techniques` (what SCA alerts carry). "Has `T1110`" is a prefix match: it also matches sub-techniques such as `T1110.001`. Some rules have no technique (5901, the test rule 100100, the marker 100101), so no row relies on MITRE alone where that would miss them.
 
-**Why `login-bruteforce` (proposed, to agree with Inigo and Daniel in TheHive's checkpoint PR):** rule 103011 (OPNsense login brute force) carries `T1110` but isn't SSH; with the old `ssh-bruteforce` row it got SSH-specific tasks (rule 5715, `sshd` settings). Requiring `sshd` in `ssh-bruteforce` and adding a generic row right after it keeps every SSH alert where it was (all sshd rules carry `sshd`) and gives other brute force a fitting template. Until n8n adds the row, 103011 would go to `wazuh-generic` once `ssh-bruteforce` requires `sshd`, so both changes go live together.
+**Why `login-bruteforce` (agreed 2026-10-14 with n8n and Wazuh):** rule 103011 (OPNsense login brute force) carries `T1110` but isn't SSH; with the old `ssh-bruteforce` row it got SSH-specific tasks (rule 5715, `sshd` settings). Requiring `sshd` in `ssh-bruteforce` and adding a generic row right after it keeps every SSH alert where it was (all sshd rules carry `sshd`) and gives other brute force a fitting template.
 
-**Active rows (answer B).** The first seven rows are active in n8n since 2026-10-09. `ioc-match` and `network-scan` stay *proposed* in n8n's table until Daniel's rules exist (C14; W4.3, M4): until then nothing matches them anyway, and a proposed match goes to `wazuh-generic`. The route n8n wanted is recorded even while only `pb-generic` runs (answer C: the `playbook` field says the playbook that actually ran).
+**Active rows (answer B).** Every row is active in n8n (`lib-config` routing version 2026-10-14) except `ioc-match`, which stays *proposed* until C14 is live; a proposed match goes to `wazuh-generic`. The route n8n wanted is recorded even while only `pb-generic` runs (answer C: the `playbook` field says the playbook that actually ran).
 
 The alert only *names* the template; TheHive applies its tasks and custom fields when the alert is promoted to a case.
 
@@ -108,7 +108,15 @@ Send `customFields` as an **array** of `{name, value}` objects, as `thehive-test
 
 n8n also tags each IP observable with its range, `range:internal` (RFC 1918, loopback, link-local) or `range:documentation` (192.0.2.0/24, 198.51.100.0/24, 203.0.113.0/24); nothing is dropped because of its range. `user-account` exists only once `entities/` is loaded: before that, TheHive refuses the **whole alert** (HTTP 404 "Data type not found").
 
-**Warninglist tags (C10, answer G).** Before creating the alert, n8n checks the observables against MISP's warninglists. A match adds `warninglist` once and `warninglist:<MISP list name>` for up to 3 lists (e.g. `warninglist:List of known IPv4 public DNS resolvers`); the full list is in n8n's writeback comment. A warninglist match means the value is **common** (public DNS, Tor exit, a well-known site), **not safe**: n8n never changes severity, status or `ioc` because of it. The tag names are MISP's own list names, kept as they are so they can be searched in TheHive.
+**Warninglists (C10, answer G, revised 2026-10-14 with Diego's proposal).** Before creating the alert, n8n checks the observables against MISP's warninglists. A match adds **one tag, `warninglist`**, and writes **every matching list's full name in the observable's description** (`message`):
+
+```
+On MISP warninglists (common, not safe):
+- List of known IPv4 public DNS resolvers
+- Specialized list of vpn-ipv4 addresses belonging to common VPN providers and datacenters
+```
+
+No `warninglist:<list name>` tags: TheHive cuts long tags at ~25 characters and pushes `src` / `dst` / `asox:verdict=` behind "Show more", and a value like `github.com` is on ~17 lists. The writeback comment also names the lists. A warninglist match means the value is **common** (public DNS, Tor exit, a well-known site), **not safe**: n8n never changes severity, status or `ioc` because of it.
 
 `groupadd` (5901) puts a **group** name in `data.dstuser`: n8n doesn't make a `user-account` observable from it (it stays in the description).
 
@@ -129,15 +137,16 @@ TheHive 5 has no automatic promotion rules of its own; these rules are applied b
 
 **Triage targets (lab SLAs):** Critical 15 min · High 1 h · Medium 4 h · Low next working day.
 
-## 7. To agree with the n8n owner
+## 7. Agreed with the n8n owner
 
-| Item | State (2026-10-08) |
+| Item | State (2026-10-14) |
 |---|---|
 | Fields and names, §1, §4, §5 (`source` = `wazuh`, `sourceRef` = Wazuh alert ID) | Reviewed by Inigo 2026-10-06; his questions A (Time row, optional `full_log`), C (`playbook`) answered here. F: syslog host rule (`predecoder.hostname`, else `location`) in §1 and sshd/groupadd user rules in §5, as n8n already does |
-| Template routing, §3 (D-N2: n8n keeps it as data in `lib-config`) | Rows corrected with Daniel's live alerts (A1–A6) and his 2026-10-08 rules (100200, 100211, 100212); all rows active (answer B); `network-scan` on `pfsense` + `T1046` (answer D) |
+| Template routing, §3 (D-N2: n8n keeps it as data in `lib-config`) | Rows corrected with Daniel's live alerts (A1–A6) and his 2026-10-08 rules (100200, 100211, 100212); n8n's `lib-config` routing 2026-10-14 matches §3 row for row, incl. `login-bruteforce` (103011, 40111, 2502); `network-scan` active (103000); `ioc-match` proposed until C14 is live |
 | IOC flag for MISP hits, §5 | Answer E: suspicious, `ioc: false`; Diego asked the same (his question 6) |
 | SCA, Q4 | No compliance template: W2.7 leaves only SCA regressions at level ≥ 7, routed to `wazuh-generic`; n8n's `sca` exclusion dropped 2026-10-09 |
-| Warninglist tags, §5 | Answer G: `warninglist` + `warninglist:<MISP list name>` accepted as n8n sends them (2026-10-13) |
+| Warninglists, §5 | Answer G revised 2026-10-14: only the `warninglist` tag; all list names in the observable's description (Diego's proposal, `nodes/intel/misp/request-n8n-warninglist-description.md`) |
+| `Ignored` = false positive (C11) | Confirmed 2026-10-14: an analyst ignores an alert only when it is a false positive (TRIAGE.md), so n8n's `resolution: Ignored` counts as a false positive in the FP rate |
 | Timing | Alerts are queued in n8n and processed 2 at a time (A87): a few seconds when quiet, up to ~30 s at the end of a burst; format unchanged |
 | R2 / D-N4 (auto-promotion of Critical alerts of named playbooks only) | To confirm by 2026-11-03 |
 | How a playbook reports what it did | Writeback comment `[asox-n8n writeback] wazuh-alert-id=<id>`, plus `containment-action`, `playbook`, `n8n-execution-id` |

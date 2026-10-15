@@ -104,14 +104,16 @@ The data every other component relies on, agreed and merged at checkpoint 1 (mil
 - [ ] **T2.4** Agree the alert format with the n8n owner (by 2026-10-20) · P1, C3, X-02
   - Done when: `docs/ALERT-FORMAT.md` §1, 4, 5 accepted by Inigo (fields, tags, custom fields, observables, `source` = `wazuh`, `sourceRef` = Wazuh alert ID); its status line changed from proposal to agreed. Ticking this makes D-N1 (dedup by `sourceRef`, already agreed in principle) formal.
   - Files: `nodes/cases/thehive/docs/ALERT-FORMAT.md`
-  - Status (2026-10-08): Inigo reviewed §1–§5 on 2026-10-06 and n8n follows them; his questions A–E answered in the doc (Time row, optional `full_log`, all routing rows active, `playbook` = playbook that ran, `pfsense` = firewall, MISP hit = suspicious and `ioc: false`). Syslog host rule (`predecoder.hostname` when `agent.id` = `000`) added from Daniel's fields review. Left: Inigo accepts A–E, then status → agreed.
+  - Status (2026-10-14): **agreed**, ALERT-FORMAT status line changed (n8n PR #23 applied A, F; G revised with Diego's warninglist-description proposal; `Ignored` = false positive confirmed for C11). Tick after the checkpoint merge.
+  - Earlier (2026-10-08): Inigo reviewed §1–§5 on 2026-10-06 and n8n follows them; his questions A–E answered in the doc (Time row, optional `full_log`, all routing rows active, `playbook` = playbook that ran, `pfsense` = firewall, MISP hit = suspicious and `ioc: false`). Syslog host rule (`predecoder.hostname` when `agent.id` = `000`) added from Daniel's fields review. Left: Inigo accepts A–E, then status → agreed.
   - With: Inigo (n8n owner)
 - [ ] **T2.5** Agree the severity / TLP / PAP mapping (by 2026-10-20) · P1, X-02, X-08
   - Done when: `docs/ALERT-FORMAT.md` §2 accepted: level 12–15 Critical, 10–11 High, 7–9 Medium, +1 for critical assets; TLP / PAP AMBER. Already consistent with Grafana's buckets (D-G4), Cortex's analyzer defaults (`max_tlp` / `max_pap` 2, X-08) and Daniel's Suricata mapping (W3.5: severity 1 → 12, 2 → 10); still needs Daniel's level policy (W2.1) and Inigo's agreement.
   - With: Inigo, Daniel (W2.1), Diego (X-08)
 - [ ] **T2.6** Agree the template routing (by 2026-10-20) · P1, X-04
   - Done when: `docs/ALERT-FORMAT.md` §3 matches Daniel's rule-ID plan and rule groups (W1.3, W2.5), including Suricata's `suricata` / `ids` groups (D49), and Inigo's routing map (D-N2, data in an n8n `lib-` workflow) sets `caseTemplate` from it.
-  - Status (2026-10-14): proposal for Inigo's question on rule 103011 (OPNsense login brute force): `ssh-bruteforce` requires `sshd`, new `login-bruteforce` template and row for other T1110 alerts; to agree in the checkpoint PR.
+  - Status (2026-10-14, later): **agreed and merged** (TheHive PR #19, n8n PR #23): n8n's routing matches §3 row for row; ALERT-FORMAT marked agreed. Left: `ioc-match` goes active in n8n when C14 is live.
+  - Earlier (2026-10-14): proposal for Inigo's question on rule 103011 (OPNsense login brute force): `ssh-bruteforce` requires `sshd`, new `login-bruteforce` template and row for other T1110 alerts; to agree in the checkpoint PR.
   - Earlier (2026-10-13): §3 matches n8n's table of 2026-10-09 (adds rule 5404 and `T1136` clauses; `ioc-match` / `network-scan` proposed in n8n until their rules exist).
   - Earlier (2026-10-08): §3 rewritten from Daniel's live alerts (answers A1–A6) and rules of 2026-10-08: `ioc-match` first (`misp_ioc`, 108xxx), `suspicious-login` before `ssh-bruteforce` on rule IDs 40112 / 100200, `privilege-escalation` on `T1548`, `account-change` on `adduser` only, `network-scan` on `pfsense` + `T1046` (103xxx). Left: Inigo's `lib-config` rows match it; Daniel's W4.3 / C14 rule IDs when built.
   - With: Inigo (router), Daniel (rule groups)
@@ -137,7 +139,7 @@ Analysts can work every alert type from queue to closed case.
 - [ ] **T3.5** Templates for the new detections · P2, X-12
   - Done when: A template (or a documented choice of `wazuh-generic`) for each detection Daniel adds: login success after failures, sudo failure / privilege escalation, new user, IOC match (W6.4), pfSense port scan (W4.3). Exported, and routed in ALERT-FORMAT.md §3.
   - Files: `nodes/cases/thehive/entities/case-templates.json`, `nodes/cases/thehive/docs/ALERT-FORMAT.md`
-  - Status (2026-10-14): + `login-bruteforce` (non-SSH brute force, 103011), proposed; `fwlogin` test scenario.
+  - Status (2026-10-14): + `login-bruteforce` (non-SSH brute force: 103011, 40111, 2502), agreed and routed by n8n; `fwlogin` test scenario passes on the real instance. Test IOC is now `101.99.75.184` (X-36); `ioc` uses rule 108000, `portscan` 103000.
   - Earlier (2026-10-08): 5 templates written, loaded on the build instance, and routed in §3 with Daniel's confirmed groups and rules (all rows active). Descriptions name the real rules (40112, 100200, 5404, 5901/5902, 100211/100212; ranges 103xxx, 108xxx). Left: import + export on your machine; `ioc-match` and `network-scan` get real rules with C14 and W4.3.
   - With: Daniel (W2.2, W4.3, W6.4)
 - [ ] **T3.6** Adapt `ids-network-alert` to Suricata · P2, X-34
