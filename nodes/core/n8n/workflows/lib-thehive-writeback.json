@@ -531,7 +531,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// One summary line: metrics: ok | skipped (<why>) | failed (<class>).\nconst r = $input.first().json;\nconst line = typeof r.line === 'string' ? r.line : 'metrics: failed (unexpected)';\nreturn [{ json: { actions: [...$('Called by a workflow').first().json.actions, line], metrics_line: line } }];\n"
+        "jsCode": "// One summary line: metrics: ok | skipped (<why>) | failed (<class>), then\n// one \"metrics note:\" line per note (e.g. why t_attack_start stayed empty).\nconst r = $input.first().json;\nconst line = typeof r.line === 'string' ? r.line : 'metrics: failed (unexpected)';\nconst notes = Array.isArray(r.notes) ? r.notes.filter((n) => typeof n === 'string').map((n) => `metrics note: ${n}`) : [];\nreturn [{ json: { actions: [...$('Called by a workflow').first().json.actions, line, ...notes], metrics_line: line } }];\n"
       },
       "id": "3a026b20-a3f4-5350-90e1-6b7861cb7d15",
       "name": "Actions with metrics",
