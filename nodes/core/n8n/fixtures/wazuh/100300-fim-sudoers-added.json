@@ -1,0 +1,57 @@
+{
+  "timestamp": "2026-10-15T19:53:28.337+0000",
+  "rule": {
+    "level": 10,
+    "description": "ASOX: sudoers changed: /etc/sudoers.d/90-svc-backup-86a41b1d",
+    "id": "100300",
+    "mitre": {
+      "id": [
+        "T1548.003"
+      ],
+      "tactic": [
+        "Privilege Escalation",
+        "Defense Evasion"
+      ],
+      "technique": [
+        "Sudo and Sudo Caching"
+      ]
+    },
+    "firedtimes": 1,
+    "mail": true,
+    "groups": [
+      "asox",
+      "linux",
+      "syscheck"
+    ]
+  },
+  "agent": {
+    "id": "002",
+    "name": "lab-agent",
+    "ip": "172.18.0.7"
+  },
+  "manager": {
+    "name": "wazuh-manager"
+  },
+  "id": "1792094008.1194463",
+  "full_log": "File '/etc/sudoers.d/90-svc-backup-86a41b1d' added\nMode: realtime\n",
+  "syscheck": {
+    "path": "/etc/sudoers.d/90-svc-backup-86a41b1d",
+    "mode": "realtime",
+    "size_after": "82",
+    "perm_after": "r--r-----",
+    "uid_after": "0",
+    "gid_after": "0",
+    "md5_after": "308436a2480e9f87a78b894fd83c2053",
+    "sha1_after": "70bd29c1aecbdb106666eb17a441df92a84e63ee",
+    "sha256_after": "9dec77bd7a6a45c0c073f1feee0714b082ccd498a2ed73e334b265e96f614f00",
+    "uname_after": "root",
+    "gname_after": "root",
+    "mtime_after": "2026-10-15T19:53:28",
+    "inode_after": 471709,
+    "event": "added"
+  },
+  "decoder": {
+    "name": "syscheck_new_entry"
+  },
+  "location": "syscheck"
+}

@@ -1,0 +1,58 @@
+{
+  "timestamp": "2026-10-15T19:53:28.337+0000",
+  "rule": {
+    "level": 10,
+    "description": "ASOX: system cron job added or changed: /etc/cron.d/asox-update-86a41b1d",
+    "id": "100302",
+    "mitre": {
+      "id": [
+        "T1053.003"
+      ],
+      "tactic": [
+        "Execution",
+        "Persistence",
+        "Privilege Escalation"
+      ],
+      "technique": [
+        "Cron"
+      ]
+    },
+    "firedtimes": 1,
+    "mail": true,
+    "groups": [
+      "asox",
+      "linux",
+      "syscheck"
+    ]
+  },
+  "agent": {
+    "id": "002",
+    "name": "lab-agent",
+    "ip": "172.18.0.7"
+  },
+  "manager": {
+    "name": "wazuh-manager"
+  },
+  "id": "1792094008.1193888",
+  "full_log": "File '/etc/cron.d/asox-update-86a41b1d' added\nMode: realtime\n",
+  "syscheck": {
+    "path": "/etc/cron.d/asox-update-86a41b1d",
+    "mode": "realtime",
+    "size_after": "87",
+    "perm_after": "rw-r--r--",
+    "uid_after": "0",
+    "gid_after": "0",
+    "md5_after": "354a1f8cb09bd939c66bd1fb9b0e46c3",
+    "sha1_after": "a8dbdb1f3003112ba736c35d411f84d08fd80650",
+    "sha256_after": "c1ef825c00eb9ec2de0489a87cc80f2e62e5c81e773c71df21ef2d3a4bd51fc1",
+    "uname_after": "root",
+    "gname_after": "root",
+    "mtime_after": "2026-10-15T19:53:28",
+    "inode_after": 471712,
+    "event": "added"
+  },
+  "decoder": {
+    "name": "syscheck_new_entry"
+  },
+  "location": "syscheck"
+}
