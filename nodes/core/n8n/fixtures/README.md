@@ -42,21 +42,36 @@ Same method as above (the `recv-wazuh-alert` execution's `.body`, no headers). B
 | `wazuh/103011-opnsense-gui-bruteforce.json` | 103011 OPNsense web GUI brute force (decoder `solaris_bsm`; `data.srcip` `203.0.113.51`, `data.dstuser` `root`) | 10 | `asox`, `opnsense`, `pfsense`, `authentication_failures` (no `sshd`) | T1110 | `opnsense-gui-bruteforce` | `login-bruteforce` | 25504 | 2026-10-14 19:33:48 |
 | `wazuh/103000-opnsense-port-scan.json` | 103000 OPNsense port scan (decoder `pf`; `data.srcip` `203.0.113.77`, `data.dstip` `192.168.1.1`, ports, action `block`) | 10 | `asox`, `opnsense`, `pfsense`, `firewall_block`, `recon` | T1046 | `opnsense-scan` | `network-scan` | 25505 | 2026-10-14 19:33:51 |
 
+### From the Wazuh lab scenarios (2026-10-15): MISP IOC, FIM, Suricata
+
+Same method (the `recv-wazuh-alert` execution's `.body`, no headers, no token). Route = `lib-config` `routing` version `2026-10-15`, checked live on the TheHive alert (`caseTemplate`, writeback `Route:` line) and by a `--fresh-id` replay of the saved file (one alert, `caseTemplate` `ioc-match`, severity 4, one writeback, `metrics: ok`).
+
+| File | Rule | Level | Groups | MITRE | Scenario | Route | recv execution | Alert time (UTC) |
+|---|---|---|---|---|---|---|---|---|
+| `wazuh/108000-misp-ioc-source-ip.json` | 108000 ASOX IOC: source `101.99.75.184` (the MISP seed IOC, X-36) is a MISP indicator (C14, `misp-ip` CDB list); decoder `sshd`, `data.srcip` the IOC, `data.srcuser` `admin` (an invalid user) | 12 | `asox`, `misp_ioc` (the source's `sshd` groups are **not** kept) | — | `ioc-ip` | `ioc-match` | 29389 | 2026-10-15 19:32:21 |
+
+`ioc-ip` gave only 108000 (one a minute; it absorbs that minute's events, so no 5712 this time). Its `full_log` is the sshd line, ending with ` asox_run=<run id>`.
+
+**Not captured on 2026-10-15** (no alert reached Wazuh, so nothing to save; not invented):
+- **FIM 100300, 100301, 100302** (`--scenario persistence`): the lab agent `001` is in the agent group `default` only; `linux-servers`, which has the real-time FIM directories, has 0 agents on the build instance, so no FIM alert at all (not even built-in 550/554) within 2 min. Also, the lab agent has no `/etc/sudoers.d` (no `sudo` package): the scenario's sudoers step fails ("Directory nonexistent"), so 100300 can't fire there even with the group. The authorized_keys and cron.d files were written.
+- **Suricata 101001 / 101010** (`--scenario ids-test`, `ids-scan`): Suricata **did** alert (in its `eve.json`: 2100498 "GPL ATTACK_RESPONSE id check returned root" at 19:35:10, and 2009582, 2010935, 2010936, 2010937 ET SCAN at 19:37:32), but `eve.json` is read through the `network-sensors` group's `agent.conf`, and that group has 0 agents too: no 1010xx alert in the indexer, no delivery.
+- Both wait on the lab agent's group assignment (Wazuh owner); to capture once it is fixed.
+
 Also produced, not saved: the attack-start marker 100101 (level 3, never sent by C1), and 5710 / 5760 (single failures, level 5). A syslog line in RFC 5424 format (`logger` without `--rfc3164`) arrives with no `predecoder` at all: n8n then has only `location`.
 
 These are all the rule types at level 7 or above in the indexer on 2026-09-30 (last 30 days: 100100 ×17, 19007 ×130, 19004 ×1). The 130 SCA alerts of one agent start-up were a sample of the flood the router must absorb (N8N-1.4, X-09); since W2.7 they stay at level 5 and only SCA regressions (19011, 19014) and a score below 30% (19005) reach n8n. `replay.sh --all --only wazuh` therefore creates TheHive alerts for the two SCA files too: delete them afterwards.
 
 ### Missing (to come from Wazuh)
 
-Not produced by the lab yet at any level, so not captured and **not invented**. sshd, sudo, account changes and `rule.mitre.id` arrived with the scenarios (2026-10-09, above).
+Not produced by the lab yet at any level (or not on the build instance), so not captured and **not invented**. sshd, sudo, account changes and `rule.mitre.id` arrived with the scenarios (2026-10-09), OPNsense on 2026-10-14 and the MISP IOC rule 108000 on 2026-10-15 (above).
 
 | Needed for | Rule type (built-in examples) | Comes with |
 |---|---|---|
-| `pb-malware-hash` (N8N-4.3), `syscheck.*` | FIM / syscheck (e.g. 550, 553, 554) | Wazuh M5 |
+| `pb-malware-hash` (N8N-4.3), `syscheck.*` | FIM / syscheck (e.g. 550, 553, 554; ASOX 100300–100302 from `--scenario persistence`) | in the lab, but not produced on the build instance on 2026-10-15 (agent not in `linux-servers`; no `/etc/sudoers.d` for 100300), see above |
 | `malware-detection` template | rootcheck (e.g. 510), VirusTotal (87105), YARA / ClamAV | Wazuh M5 |
-| `pb-ids-alert` (N8N-4.4), `data.alert.*`, `data.src_ip`, `data.dest_ip`, `data.dest_port` | Suricata (86601) | Wazuh M3 (2026-11-03) |
+| `pb-ids-alert` (N8N-4.4), `data.alert.*`, `data.src_ip`, `data.dest_ip`, `data.dest_port` | Suricata (ASOX 101001, 101010 from `--scenario ids-test` / `ids-scan`) | in the lab, but not ingested on the build instance on 2026-10-15 (agent not in `network-sensors`), see above |
 | ~~`network-scan` row, `data.dstip`, syslog device alerts~~ captured 2026-10-14 (103000, 103011, above); still missing: routers (102xxx), a real OPNsense (the lab sends the lines itself) | pfSense / router (103xxx, 102xxx) | Wazuh M4 (2026-11-10) |
-| `ioc-match` row | MISP IOC matches (108xxx, C14) | Wazuh M6 |
+| ~~`ioc-match` row~~ captured 2026-10-15 (108000, above); still missing: 108001 (destination), 108010/108011 (Suricata), 108020/108021 (hash) | MISP IOC matches (108xxx, C14) | 108000 done; the others with their sources |
 | C11 `t_attack_start` | the attack-start marker 100101 (level 3: read from the indexer, never sent by C1) | in the lab now; captured by N8N-2.9 from the indexer |
 
 ### Constructed invalid payloads (`invalid/`)
@@ -74,7 +89,7 @@ The only files here that are **not** real payloads: test inputs for the malforme
 | File | Changed from `wazuh/100100-asox-test-c1.json` | Exercises | Expected |
 |---|---|---|---|
 | `synthetic/100100-misp-hit.json` | `data.srcip = "101.99.75.184"` (the MISP seed IOC since 2026-10-14, X-36; `203.0.113.66` before) | enrichment (N8N-2.4): `MISP_2_1` hit; needs `full` (MISP) | `asox-test` alert, route `wazuh-generic`; `101.99.75.184` (tag `src` only: a public address, no range tag) enriched by `MISP_2_1`: `MISP:Search="2 event(s)"` (the seed event and Botvrij's Loki-Bot event), tags `asox:verdict=suspicious`, `analyzer:MISP_2_1`, `ioc` false; **no warninglist tag** (writeback: `0 of 1 checked value(s) on a warninglist`); agent IP and hostname skipped; all in the writeback. Checked 2026-10-14 |
-| `synthetic/100100-warninglist-demo.json` | `data.srcip = "8.8.8.8"`, `data.dstip = "185.220.101.1"`, `data.hostname = "github.com"` (the Cortex + MISP owner's C10 demo) | warninglist check (C10, N8N-2.11; needs `full`) | `asox-test` alert; `8.8.8.8` (`src`) tagged `warninglist`, `warninglist:List of known IPv4 public DNS resolvers`, `warninglist:Specialized list of vpn-ipv4 addresses belonging to common VPN providers and datacenters`; `185.220.101.1` (`dst`) tagged `warninglist`, `warninglist:List of known Tor exit nodes` and the vpn-ipv4 list; `github.com` (`fqdn`) tagged `warninglist` plus the first 3 of its ~17 lists by name; all three still enriched by `MISP_2_1` (`info`), `ioc` false; `lab-agent` and the agent IP unchanged; writeback: `Warninglists (MISP, C10): 3 of 3 checked value(s) ...` and three `On warninglist:` lines. The list names depend on MISP's warninglist version |
+| `synthetic/100100-warninglist-demo.json` | `data.srcip = "8.8.8.8"`, `data.dstip = "185.220.101.1"`, `data.hostname = "github.com"` (the Cortex + MISP owner's C10 demo) | warninglist check (C10, N8N-2.11; needs `full`) | `asox-test` alert; `8.8.8.8` (`src`), `185.220.101.1` (`dst`) and `github.com` (`fqdn`) each tagged `warninglist` only (answer G revised, 2026-10-15), with a `message` "On MISP warninglists (common, not safe):" listing every list: `8.8.8.8` the public DNS resolvers and vpn-ipv4 lists, `185.220.101.1` the Tor exit nodes and vpn-ipv4 lists, `github.com` 17 lists; all three still enriched by `MISP_2_1` (`info`), `ioc` false; `lab-agent` and the agent IP unchanged, no message; writeback: `Warninglists (MISP, C10): 3 of 3 checked value(s) ...` and three `On warninglist: ...; tagged warninglist.` lines. The `message` survives promotion to a case. The list names depend on MISP's warninglist version. Checked 2026-10-15 |
 | `synthetic/100100-user-account.json` | `data.srcuser = "asox-test-src"`, `data.dstuser = "asox-test-target"` | `user-account` observables (N8N-2.3; needs TheHive's `entities/` loaded, T1.3) | `asox-test` alert with `user-account` observables `asox-test-src` (tag `src`) and `asox-test-target` (tag `target`), besides the agent's `ip` and `hostname` |
 
 **Seed IOC (X-36, decided 2026-10-14):** the old seed IOC `203.0.113.66` is on MISP's "List of RFC 5735 CIDR blocks" (a documentation range), so n8n tagged it as a common value. The owners replaced it with **`101.99.75.184`** (`ip-dst`, `to_ids: true`, from a Botvrij event; on no enabled warninglist, which `misp-config.sh apply` now enforces), and the old seed event is deleted. `synthetic/100100-misp-hit.json` uses the new address. `wazuh/5712-sshd-bruteforce-invalid-users.json` keeps `203.0.113.66` as captured (a real alert of 2026-10-09); with the old seed event deleted, MISP should no longer report a hit for it (not replayed), and its route is unchanged.
