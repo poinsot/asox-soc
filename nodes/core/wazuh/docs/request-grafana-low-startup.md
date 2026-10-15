@@ -4,7 +4,7 @@
 **From:** Daniel (@dmelgar1110), Wazuh owner
 **Date:** 2026-10-14
 **Refs:** A82 (healthcheck Grafana retry), D40 (memory limits), Grafana `provisioning/dashboards/` (SOC Status, Attack Scenarios)
-**Status:** draft
+**Status:** sent (2026-10-14, with the next Wazuh PR)
 
 ## What I saw
 
