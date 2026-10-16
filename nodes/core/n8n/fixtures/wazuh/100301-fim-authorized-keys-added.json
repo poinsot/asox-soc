@@ -1,0 +1,56 @@
+{
+  "timestamp": "2026-10-15T19:53:28.290+0000",
+  "rule": {
+    "level": 10,
+    "description": "ASOX: SSH authorized_keys changed: /root/.ssh/authorized_keys",
+    "id": "100301",
+    "mitre": {
+      "id": [
+        "T1098.004"
+      ],
+      "tactic": [
+        "Persistence"
+      ],
+      "technique": [
+        "SSH Authorized Keys"
+      ]
+    },
+    "firedtimes": 1,
+    "mail": true,
+    "groups": [
+      "asox",
+      "linux",
+      "syscheck"
+    ]
+  },
+  "agent": {
+    "id": "002",
+    "name": "lab-agent",
+    "ip": "172.18.0.7"
+  },
+  "manager": {
+    "name": "wazuh-manager"
+  },
+  "id": "1792094008.1193330",
+  "full_log": "File '/root/.ssh/authorized_keys' added\nMode: realtime\n",
+  "syscheck": {
+    "path": "/root/.ssh/authorized_keys",
+    "mode": "realtime",
+    "size_after": "123",
+    "perm_after": "rw-r--r--",
+    "uid_after": "0",
+    "gid_after": "0",
+    "md5_after": "b6173e80c3c209619ea31e708c6d9450",
+    "sha1_after": "61699788cad7809c2832ca7848324a0d338ea0d7",
+    "sha256_after": "f4524843cd6af4960b024134412502d01a8e70cff7e3d10db9a4627f53970a66",
+    "uname_after": "root",
+    "gname_after": "root",
+    "mtime_after": "2026-10-15T19:53:28",
+    "inode_after": 38423,
+    "event": "added"
+  },
+  "decoder": {
+    "name": "syscheck_new_entry"
+  },
+  "location": "syscheck"
+}

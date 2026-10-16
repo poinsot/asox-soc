@@ -5,8 +5,8 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## recv-wazuh-alert (contract C1, N8N-1.1, N8N-1.8)\n**Trigger:** POST /webhook/wazuh-alert from the Wazuh `custom-n8n` integration, header `X-ASOX-Token` required (403 without it, N8N-1.6). Answers 200 **after the alert is in the queue** (C1 has a 10 s timeout and no retries): a 200 means queued (or filtered). If n8n dies first, the delivery fails and Wazuh logs it.\n**Inputs:** raw Wazuh alert JSON (body). The full alert stays in this execution (the C1 check looks for it here).\n**Actions taken:** drops alerts below WAZUH_ALERT_MIN_LEVEL (\"filtered: level ...\", 200, no row); inserts every other alert, raw, into the n8n Data Table `asox_alert_queue` (N8N-1.4) and answers 200. **Nothing else runs before the insert: no Code node, no sub-workflow** (N8N-1.8: 20 deliveries at once got n8n OOM-killed while each ran lib-config, lib-route-alert and five Code nodes). Intake exclusions and routing happen in lib-alert-queue-drain, at most `alert_queue.slots` at once. If the queue is unavailable (insert refused), it answers 200 and then, as before the queue, reads lib-config, applies the intake exclusions, routes with lib-route-alert and calls the playbook by ID without waiting; a routing failure there parks the alert with its id through lib-error.\n**Systems changed:** none here (the playbooks change TheHive).\n**Approval:** not applicable.\n**Owner:** n8n.\nError workflow: recv-n8n-error.",
-        "height": 380,
+        "content": "## recv-wazuh-alert (contract C1, N8N-1.1, N8N-1.8, N8N-1.9)\n**Trigger:** POST /webhook/wazuh-alert from the Wazuh `custom-n8n` integration, header `X-ASOX-Token` required (403 without it, N8N-1.6). Answers 200 **after the alert is in the queue** (C1 has a 10 s timeout and no retries): a 200 means queued (or filtered). If n8n dies first, the delivery fails and Wazuh logs it.\n**Inputs:** raw Wazuh alert JSON (body). The full alert stays in this execution (the C1 check looks for it here).\n**Actions taken:** drops alerts below WAZUH_ALERT_MIN_LEVEL (\"filtered: level ...\", 200, no row); looks the alert id up in `asox_alert_queue` first (N8N-1.9): a row with that id that is pending, running or done (done rows are kept `keep_done_h`, 24 h) means a repeated delivery (e.g. a C1 retry after a timeout), answered 200 `{\"status\": \"duplicate\"}` with no new row; failed rows don't count. The lookup and the insert are two separate steps, not atomic: two copies arriving at the same instant can both be inserted, and lib-alert-queue-drain then runs only one of them. Otherwise inserts the alert, raw, into the n8n Data Table `asox_alert_queue` (N8N-1.4) and answers 200. **Nothing else runs before the insert: no Code node, no sub-workflow** (N8N-1.8: 20 deliveries at once got n8n OOM-killed while each ran lib-config, lib-route-alert and five Code nodes). Intake exclusions and routing happen in lib-alert-queue-drain, at most `alert_queue.slots` at once. If the queue is unavailable (insert refused), it answers 200 and then, as before the queue, reads lib-config, applies the intake exclusions, routes with lib-route-alert and calls the playbook by ID without waiting; a routing failure there parks the alert with its id through lib-error.\n**Systems changed:** none here (the playbooks change TheHive).\n**Approval:** not applicable.\n**Owner:** n8n.\nError workflow: recv-n8n-error.",
+        "height": 440,
         "width": 520
       },
       "id": "abac45f7-10ec-54cb-be5b-6506602eaa25",
@@ -132,9 +132,9 @@
         "columns": {
           "mappingMode": "defineBelow",
           "value": {
-            "alert_id": "={{ typeof $json.body?.id === 'string' ? $json.body.id : 'no-id:recv-' + $execution.id }}",
+            "alert_id": "={{ typeof $('Wazuh alert').item.json.body?.id === 'string' ? $('Wazuh alert').item.json.body.id : 'no-id:recv-' + $execution.id }}",
             "playbook_id": "none",
-            "payload": "={{ JSON.stringify({ wazuh_alert_id: typeof $json.body?.id === 'string' ? $json.body.id : null, alert: $json.body, recv_execution_id: $execution.id }) }}",
+            "payload": "={{ JSON.stringify({ wazuh_alert_id: typeof $('Wazuh alert').item.json.body?.id === 'string' ? $('Wazuh alert').item.json.body.id : null, alert: $('Wazuh alert').item.json.body, recv_execution_id: $execution.id }) }}",
             "status": "pending",
             "claim": "none",
             "attempts": "={{ 0 }}",
@@ -156,7 +156,7 @@
       "type": "n8n-nodes-base.dataTable",
       "typeVersion": 1.1,
       "position": [
-        520,
+        1040,
         -100
       ],
       "onError": "continueErrorOutput"
@@ -172,7 +172,7 @@
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.1,
       "position": [
-        780,
+        1300,
         -220
       ]
     },
@@ -207,7 +207,7 @@
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
       "position": [
-        1040,
+        1560,
         -220
       ]
     },
@@ -222,7 +222,7 @@
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.1,
       "position": [
-        780,
+        1300,
         20
       ]
     },
@@ -235,7 +235,7 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1040,
+        1560,
         20
       ]
     },
@@ -256,7 +256,7 @@
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.2,
       "position": [
-        1300,
+        1820,
         20
       ]
     },
@@ -269,7 +269,7 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1560,
+        2080,
         20
       ]
     },
@@ -303,7 +303,7 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        1820,
+        2340,
         20
       ]
     },
@@ -335,7 +335,7 @@
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.2,
       "position": [
-        2080,
+        2600,
         -80
       ],
       "onError": "continueErrorOutput"
@@ -349,7 +349,7 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        2340,
+        2860,
         -80
       ]
     },
@@ -369,7 +369,7 @@
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.2,
       "position": [
-        2600,
+        3120,
         -80
       ]
     },
@@ -406,6 +406,131 @@
         2600,
         120
       ]
+    },
+    {
+      "parameters": {
+        "resource": "row",
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "asox_alert_queue"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "alert_id",
+              "condition": "eq",
+              "keyValue": "={{ typeof $('Wazuh alert').item.json.body?.id === 'string' ? $('Wazuh alert').item.json.body.id : 'no-id:recv-' + $execution.id }}"
+            },
+            {
+              "keyName": "status",
+              "condition": "neq",
+              "keyValue": "failed"
+            }
+          ]
+        },
+        "limit": 1,
+        "orderBy": true,
+        "orderByColumn": "id",
+        "orderByDirection": "ASC"
+      },
+      "id": "2cbcd039-7e0e-5899-895c-770e6e7831d4",
+      "name": "Known alert id? (asox_alert_queue)",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        520,
+        -100
+      ],
+      "alwaysOutputData": true,
+      "executeOnce": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "f78b6f11-ef2f-5fb7-bea7-9295fa657691",
+              "leftValue": "={{ $json.id !== undefined && $json.id !== null && $json.error === undefined }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "2b5b4bf9-d189-5075-a22a-57e2b5ed6d09",
+      "name": "Already queued?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        780,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { \"status\": \"duplicate\" } }}",
+        "options": {}
+      },
+      "id": "3f22e881-5447-5a32-a762-d8b68085f9c5",
+      "name": "Respond 200 (duplicate)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1040,
+        -460
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "972e71e5-9ee0-55e8-a9a6-0cfb7f5cca32",
+              "name": "status",
+              "value": "={{ 'duplicate delivery: row ' + $('Known alert id? (asox_alert_queue)').item.json.id + ' of asox_alert_queue (' + $('Known alert id? (asox_alert_queue)').item.json.status + ') has this Wazuh alert id; not queued again (N8N-1.9)' }}",
+              "type": "string"
+            },
+            {
+              "id": "af53b884-951e-57e2-b343-3b3ab2e67786",
+              "name": "queue_row",
+              "value": "={{ $('Known alert id? (asox_alert_queue)').item.json.id }}",
+              "type": "number"
+            },
+            {
+              "id": "1c703774-e1b9-548d-80d8-3039bc38d4cd",
+              "name": "wazuh_alert_id",
+              "value": "={{ typeof $('Wazuh alert').item.json.body?.id === 'string' ? $('Wazuh alert').item.json.body.id : '(no id)' }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "a1028966-1e91-5329-939d-e6d2666c74c1",
+      "name": "Duplicate",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1300,
+        -460
+      ]
     }
   ],
   "connections": {
@@ -431,7 +556,7 @@
         ],
         [
           {
-            "node": "Queue (asox_alert_queue)",
+            "node": "Known alert id? (asox_alert_queue)",
             "type": "main",
             "index": 0
           }
@@ -574,6 +699,46 @@
         [
           {
             "node": "Park (lib-error)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Known alert id? (asox_alert_queue)": {
+      "main": [
+        [
+          {
+            "node": "Already queued?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Already queued?": {
+      "main": [
+        [
+          {
+            "node": "Respond 200 (duplicate)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Queue (asox_alert_queue)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respond 200 (duplicate)": {
+      "main": [
+        [
+          {
+            "node": "Duplicate",
             "type": "main",
             "index": 0
           }

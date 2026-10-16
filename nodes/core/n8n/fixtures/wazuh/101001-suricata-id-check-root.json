@@ -1,0 +1,78 @@
+{
+  "timestamp": "2026-10-15T19:54:02.866+0000",
+  "rule": {
+    "level": 10,
+    "description": "ASOX IDS: GPL ATTACK_RESPONSE id check returned root (172.22.0.2 -> 104.20.23.154:80)",
+    "id": "101001",
+    "firedtimes": 1,
+    "mail": true,
+    "groups": [
+      "asox",
+      "suricata",
+      "ids"
+    ]
+  },
+  "agent": {
+    "id": "002",
+    "name": "lab-agent",
+    "ip": "172.18.0.7"
+  },
+  "manager": {
+    "name": "wazuh-manager"
+  },
+  "id": "1792094042.1195862",
+  "full_log": "{\"timestamp\":\"2026-10-15T19:54:01.359048+0000\",\"flow_id\":472442805756262,\"in_iface\":\"eth0\",\"event_type\":\"alert\",\"src_ip\":\"172.22.0.2\",\"src_port\":48362,\"dest_ip\":\"104.20.23.154\",\"dest_port\":80,\"proto\":\"TCP\",\"ip_v\":4,\"pkt_src\":\"wire/pcap\",\"alert\":{\"action\":\"allowed\",\"gid\":1,\"signature_id\":2100498,\"rev\":7,\"signature\":\"GPL ATTACK_RESPONSE id check returned root\",\"category\":\"Potentially Bad Traffic\",\"severity\":2,\"metadata\":{\"confidence\":[\"Medium\"],\"created_at\":[\"2010_09_23\"],\"signature_severity\":[\"Informational\"],\"updated_at\":[\"2019_07_26\"]}},\"app_proto\":\"http\",\"direction\":\"to_server\",\"flow\":{\"pkts_toserver\":4,\"pkts_toclient\":3,\"bytes_toserver\":413,\"bytes_toclient\":1137,\"start\":\"2026-10-15T19:54:01.306607+0000\",\"src_ip\":\"172.22.0.2\",\"dest_ip\":\"104.20.23.154\",\"src_port\":48362,\"dest_port\":80}}",
+  "decoder": {
+    "name": "json"
+  },
+  "data": {
+    "timestamp": "2026-10-15T19:54:01.359048+0000",
+    "flow_id": "472442805756262.000000",
+    "in_iface": "eth0",
+    "event_type": "alert",
+    "src_ip": "172.22.0.2",
+    "src_port": "48362",
+    "dest_ip": "104.20.23.154",
+    "dest_port": "80",
+    "proto": "TCP",
+    "ip_v": "4",
+    "pkt_src": "wire/pcap",
+    "alert": {
+      "action": "allowed",
+      "gid": "1",
+      "signature_id": "2100498",
+      "rev": "7",
+      "signature": "GPL ATTACK_RESPONSE id check returned root",
+      "category": "Potentially Bad Traffic",
+      "severity": "2",
+      "metadata": {
+        "confidence": [
+          "Medium"
+        ],
+        "created_at": [
+          "2010_09_23"
+        ],
+        "signature_severity": [
+          "Informational"
+        ],
+        "updated_at": [
+          "2019_07_26"
+        ]
+      }
+    },
+    "app_proto": "http",
+    "direction": "to_server",
+    "flow": {
+      "pkts_toserver": "4",
+      "pkts_toclient": "3",
+      "bytes_toserver": "413",
+      "bytes_toclient": "1137",
+      "start": "2026-10-15T19:54:01.306607+0000",
+      "src_ip": "172.22.0.2",
+      "dest_ip": "104.20.23.154",
+      "src_port": "48362",
+      "dest_port": "80"
+    }
+  },
+  "location": "/var/log/suricata/eve.json"
+}

@@ -2,9 +2,10 @@
 # Check the integration contracts (PROJECT.md section 5): each one must
 # connect and authenticate. Run on the machine hosting core (and lab), with
 # the nodes the checked contracts need running (full mode for C1-C8, C10;
-# core for C11).
+# core for C11; core and intel for C14).
 #
-# Usage: scripts/contracts-check.sh [--only C3,C4,E2E]
+# Usage: scripts/contracts-check.sh [--only C3,C4,C14,E2E]
+#   checks: C1-C8, C10, C11, C14, E2E (default: all, in that order)
 # One PASS/FAIL line per contract (and for E2E); exit code 1 if any contract fails.
 # C3/C4 create a test alert in TheHive (source contract-check) and delete it;
 # C1 deletes the TheHive alert n8n makes from its test alert (source asox-test).
@@ -15,6 +16,11 @@
 # C11 writes a test document (outcome contract-check) to asox-metrics through
 # n8n and deletes it; it prints SKIP while its check workflow chk-metrics is
 # neither in n8n nor in the repo (N8N-2.9).
+# C14 looks inside the Wazuh manager (s6 service misp-sync, the three CDB
+# lists, the seed IOC, the last sync's log line) and runs one synthetic sshd
+# line from the seed IOC through wazuh-logtest (no alert, no side effects);
+# SKIP when, in single-host mode, the intel node isn't running here, or when
+# core's MISP_WAZUH_API_KEY is empty or a placeholder.
 # E2E (after the contracts, not a contract; R-02) sends an sshd brute-force
 # alert on the MISP seed IOC to n8n and expects the TheHive alert, the MISP
 # verdict tag, the writeback and the asox-metrics document; it deletes what
@@ -40,11 +46,11 @@ while (( $# > 0 )); do
   esac
   shift
 done
-ALL_CONTRACTS=(C1 C2 C3 C4 C5 C6 C7 C8 C10 C11 E2E)
+ALL_CONTRACTS=(C1 C2 C3 C4 C5 C6 C7 C8 C10 C11 C14 E2E)
 if [[ -n $ONLY ]]; then
   IFS=',' read -r -a CONTRACTS <<<"${ONLY^^}"
   for c in "${CONTRACTS[@]}"; do
-    [[ " ${ALL_CONTRACTS[*]} " == *" $c "* ]] || die "unknown check: $c (C1-C8, C10, C11, E2E)"
+    [[ " ${ALL_CONTRACTS[*]} " == *" $c "* ]] || die "unknown check: $c (C1-C8, C10, C11, C14, E2E)"
   done
 else
   CONTRACTS=("${ALL_CONTRACTS[@]}")
@@ -477,6 +483,92 @@ check_C11() {
   fi
 }
 
+# C14: MISP -> Wazuh CDB lists (D50). The Wazuh owner's misp-sync runs inside
+# the manager (nodes/core/wazuh/lists/, README "MISP IOCs as CDB lists"), so
+# everything is read inside the manager container, with no side effects:
+# (a) the s6 service misp-sync is supervised (40-misp-sync.sh installs it
+# only when the manager has a MISP URL and key); (b) the three lists exist,
+# misp-ip isn't empty and holds the seed IOC (read from seed-event.json, as
+# C7); (c) the manager log's last "misp-sync:" line isn't an error; (d) one
+# synthetic sshd failure line from the seed IOC through wazuh-logtest gives
+# rule 108000 (logtest raises no alert: no TheHive alert, and rule 108000's
+# 60 s ignore window isn't touched). Not a live trigger (A100). SKIP (R-29's
+# rule) when, in single-host mode, intel isn't running here, or when core's
+# MISP_WAZUH_API_KEY is empty or a placeholder (no intel bootstrapped for this
+# core: C14 is off by design).
+C14_LISTS=/var/ossec/etc/lists/misp
+C14_RULE=108000
+c14_exec() { docker exec "$C14_MANAGER" "$@"; }
+check_C14() {
+  local c="C14 MISP -> Wazuh CDB lists" key ioc procs counts l n ip dom hash seed logs last sync ts results rule
+  C14_MANAGER="$TOPO_SOC_INSTANCE-core-wazuh-manager-1"
+  if node_absent intel; then
+    skip "$c: not checked: node intel not running (not part of this mode)"
+    return
+  fi
+  key=$(core_env MISP_WAZUH_API_KEY)
+  if [[ -z $key || $key == __*__ || $key == '<'*'>' ]]; then
+    skip "$c: not checked: MISP_WAZUH_API_KEY in nodes/core/.env is empty or a placeholder (C14 is off until scripts/bootstrap.sh intel and scripts/render-env.sh give core the key, R-08)"
+    return
+  fi
+  ioc=$(jq -r '.Event.Attribute[0].value // empty' "$SEED_FILE" 2>/dev/null || true)
+  [[ -n $ioc ]] || { fail "$c: no seed IOC in $SEED_FILE"; return; }
+  if [[ $(docker inspect -f '{{.State.Running}}' "$C14_MANAGER" 2>/dev/null || true) != true ]]; then
+    fail "$c: manager container $C14_MANAGER is not running (scripts/soc.sh up core)"
+    return
+  fi
+  # (a) Captured first, then matched: grep -q on a pipe can fail on SIGPIPE.
+  procs=$(c14_exec ps -eo args 2>/dev/null || true)
+  if ! grep -qx 's6-supervise misp-sync' <<<"$procs"; then
+    fail "$c: s6 service misp-sync is not supervised in $C14_MANAGER: C14 is off in the manager (WAZUH_MISP_URL or WAZUH_MISP_API_KEY empty in its environment? docker logs $C14_MANAGER | grep misp-sync)"
+    return
+  fi
+  # (b) Entries per list; "missing" when a list file doesn't exist.
+  counts=$(c14_exec sh -c "for l in misp-ip misp-domain misp-hash; do if [ -f $C14_LISTS/\$l ]; then echo \"\$l \$(grep -c . $C14_LISTS/\$l)\"; else echo \"\$l missing\"; fi; done" 2>/dev/null || true)
+  ip="" dom="" hash=""
+  while read -r l n; do
+    case $l in misp-ip) ip=$n ;; misp-domain) dom=$n ;; misp-hash) hash=$n ;; esac
+  done <<<"$counts"
+  if [[ -z $ip || -z $dom || -z $hash || $ip$dom$hash == *missing* ]]; then
+    fail "$c: list file(s) missing in $C14_LISTS (misp-ip ${ip:-?}, misp-domain ${dom:-?}, misp-hash ${hash:-?}); 40-misp-sync.sh creates them at every manager start"
+    return
+  fi
+  if [[ $ip == 0 ]]; then
+    fail "$c: lists empty although MISP_WAZUH_API_KEY is set (misp-ip 0, misp-domain $dom, misp-hash $hash): first sync failed at start (e.g. core started before intel); restart the manager or wait for the next interval; see the register row on first sync (R-34)"
+    return
+  fi
+  seed=$(c14_exec cat "$C14_LISTS/misp-ip" 2>/dev/null | awk -F: -v v="$ioc" '$1 == v { print; exit }' || true)
+  if [[ -z $seed ]]; then
+    fail "$c: seed IOC $ioc is not in misp-ip ($ip entries): seed event not published with to_ids, or on a warninglist (scripts/bootstrap.sh intel checks both), or not synced yet (next interval)"
+    return
+  fi
+  # (c) The last misp-sync line, and the last completed sync (its counts).
+  logs=$(docker logs "$C14_MANAGER" 2>&1 | grep 'misp-sync:' || true)
+  last=$(tail -n 1 <<<"$logs")
+  sync=$(grep ' attribute(s) -> ' <<<"$logs" | tail -n 1 || true)
+  if [[ -z $last ]]; then
+    fail "$c: no misp-sync line in $C14_MANAGER's log"
+    return
+  fi
+  if [[ $last == *ERROR* || $last == *'first sync failed'* || $last == *'C14 off'* ]]; then
+    fail "$c: the last sync failed: ${last:0:240}"
+    return
+  fi
+  [[ $last == *WARNING* ]] && warn "$c: last misp-sync line: ${last:0:200}"
+  ts=${sync:0:19} sync=${sync#* misp-sync: } sync=${sync%%;*}
+  # (d) One sshd failure from the seed IOC through wazuh-logtest. The result
+  # lines are wazuh-logtest's own (tests/run.sh parses the same ones).
+  results=$(printf '%s contracts-check sshd[4242]: Failed password for invalid user c14-check from %s port 42001 ssh2\n' \
+      "$(LC_ALL=C date '+%b %e %H:%M:%S')" "$ioc" \
+    | docker exec -i "$C14_MANAGER" /var/ossec/bin/wazuh-logtest 2>&1 || true)
+  rule=$(sed -n "s/^[[:space:]]*id: '\([0-9]*\)'.*/\1/p" <<<"$results" | tail -n 1)
+  if [[ $rule != "$C14_RULE" ]]; then
+    fail "$c: wazuh-logtest: an sshd failure from $ioc gave rule ${rule:-none}, expected $C14_RULE (rules/1080-misp-ioc.xml in the manager? misp-ip.cdb rebuilt?)"
+    return
+  fi
+  pass "$c: s6 service misp-sync supervised; lists misp-ip $ip / misp-domain $dom / misp-hash $hash; seed IOC $ioc in misp-ip ($seed); last sync ${ts:-?}: ${sync:-?}; wazuh-logtest: sshd failure from $ioc -> rule $C14_RULE"
+}
+
 # ------------------------------------------------------------ end to end ---
 # E2E (R-02; not a contract): the 5763 sshd brute-force fixture, with a fresh
 # id, the time now and data.srcip = the MISP seed IOC, POSTed to n8n's C1
@@ -642,7 +734,7 @@ check_C8() {
   fi
 }
 
-if [[ ! -f $CORE_ENV && " ${CONTRACTS[*]} " =~ \ (C([123468]|1[01])|E2E)\  ]]; then
+if [[ ! -f $CORE_ENV && " ${CONTRACTS[*]} " =~ \ (C([123468]|1[014])|E2E)\  ]]; then
   die "nodes/core/.env not found; run this on the core machine after scripts/soc.sh init"
 fi
 echo "== Integration contracts (${CONTRACTS[*]})"

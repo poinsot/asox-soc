@@ -82,20 +82,20 @@ fi
 
 # ---- Scenarios: what Wazuh would have detected ----
 # One line each: template, rule id, level, rule description, agent, MITRE
-# technique (may be empty), observables (JSON). 203.0.113.66 is the seed IOC
-# published in MISP (C7), so the MISP analyzer finds it when intel runs.
+# technique (may be empty), observables (JSON). 101.99.75.184 is the test IOC (X-36)
+# in MISP (C7, C14), outside the reserved ranges, so it isn't on a warninglist.
 # Rule IDs, groups and fields as seen in live alerts (Wazuh 4.14.8) and
 # Daniel's rule plan (W1.3): 1002xx Linux auth, 103xxx pfSense, 108xxx MISP
 # IOC matches. portscan is a syslog alert: agent 000, so the host is the
 # firewall's predecoder.hostname and its address the syslog sender (location).
-# ioc / portscan rules don't exist yet (C14, W4.3); their IDs are placeholders
-# in the right range.
+# ioc (108000) and portscan (103000) use Daniel's real rule IDs; the
+# Wazuh rules for them are on main since 2026-10-14.
 scenario() {
   case $1 in
     ssh) printf '%s\n' ssh-bruteforce 5712 10 \
           "sshd: brute force trying to get access to the system. Non existent user." \
           lab-agent T1110 \
-          '[{"dataType":"ip","data":"203.0.113.66","tags":["src"],"message":"Source of the failed logins"},{"dataType":"user-account","data":"admin","tags":["target"],"message":"Targeted user"},{"dataType":"hostname","data":"lab-agent","tags":["agent"]}]' ;;
+          '[{"dataType":"ip","data":"101.99.75.184","tags":["src"],"message":"Source of the failed logins"},{"dataType":"user-account","data":"admin","tags":["target"],"message":"Targeted user"},{"dataType":"hostname","data":"lab-agent","tags":["agent"]}]' ;;
     malware) printf '%s\n' malware-detection 87105 12 \
           "VirusTotal: Alert - /tmp/eicar.com - 60 engines detected this file" \
           lab-agent T1204 \
@@ -111,7 +111,7 @@ scenario() {
     login) printf '%s\n' suspicious-login 40112 12 \
           "Multiple authentication failures followed by a success." \
           lab-agent T1078 \
-          '[{"dataType":"ip","data":"203.0.113.66","tags":["src"]},{"dataType":"user-account","data":"admin","tags":["target"]},{"dataType":"hostname","data":"lab-agent","tags":["agent"]}]' ;;
+          '[{"dataType":"ip","data":"101.99.75.184","tags":["src"]},{"dataType":"user-account","data":"admin","tags":["target"]},{"dataType":"hostname","data":"lab-agent","tags":["agent"]}]' ;;
     sudo) printf '%s\n' privilege-escalation 5404 10 \
           "Three failed attempts to run sudo." \
           lab-agent T1548.003 \
@@ -120,15 +120,15 @@ scenario() {
           "New user added to the system." \
           lab-agent T1136 \
           '[{"dataType":"user-account","data":"backup2","tags":["new"]},{"dataType":"hostname","data":"lab-agent","tags":["agent"]}]' ;;
-    ioc) printf '%s\n' ioc-match 108001 12 \
+    ioc) printf '%s\n' ioc-match 108000 12 \
           "IOC match: source IP found in MISP list misp-ip." \
           lab-agent "" \
-          '[{"dataType":"ip","data":"203.0.113.66","tags":["src"],"message":"Seed IOC published in MISP","ioc":true},{"dataType":"hostname","data":"lab-agent","tags":["agent"]}]' ;;
+          '[{"dataType":"ip","data":"101.99.75.184","tags":["src"],"message":"Test IOC in MISP (X-36)","ioc":true},{"dataType":"hostname","data":"lab-agent","tags":["agent"]}]' ;;
     fwlogin) printf '%s\n' login-bruteforce 103011 10 \
           "OPNsense: multiple failed web GUI logins from the same source." \
           opnsense T1110 \
           '[{"dataType":"ip","data":"198.51.100.40","tags":["src"]},{"dataType":"user-account","data":"root","tags":["target"]},{"dataType":"ip","data":"10.99.0.1","tags":["agent"],"message":"location (syslog sender)"},{"dataType":"hostname","data":"opnsense","tags":["agent"],"message":"predecoder.hostname (syslog alert, agent 000)"}]' ;;
-    portscan) printf '%s\n' network-scan 103010 10 \
+    portscan) printf '%s\n' network-scan 103000 10 \
           "pfSense: multiple blocked connections from the same source (port scan)." \
           pfsense T1046 \
           '[{"dataType":"ip","data":"198.51.100.23","tags":["src"]},{"dataType":"ip","data":"10.99.0.50","tags":["agent"],"message":"location (syslog sender)"},{"dataType":"hostname","data":"pfsense","tags":["agent"],"message":"predecoder.hostname (syslog alert, agent 000)"}]' ;;

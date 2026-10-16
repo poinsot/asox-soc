@@ -1,0 +1,38 @@
+{
+  "timestamp": "2026-10-15T19:32:21.585+0000",
+  "rule": {
+    "level": 12,
+    "description": "ASOX IOC: source 101.99.75.184 is a MISP indicator",
+    "id": "108000",
+    "firedtimes": 11,
+    "mail": true,
+    "groups": [
+      "asox",
+      "misp_ioc"
+    ]
+  },
+  "agent": {
+    "id": "001",
+    "name": "lab-agent",
+    "ip": "172.18.0.7"
+  },
+  "manager": {
+    "name": "wazuh-manager"
+  },
+  "id": "1792092741.4239",
+  "full_log": "Oct 15 12:32:20 lab-agent sshd[18415]: Failed password for invalid user admin from 101.99.75.184 port 42002 ssh2 asox_run=dd261fea-5dfe-4624-8460-3d52c6ee9f29",
+  "predecoder": {
+    "program_name": "sshd",
+    "timestamp": "Oct 15 12:32:20",
+    "hostname": "lab-agent"
+  },
+  "decoder": {
+    "parent": "sshd",
+    "name": "sshd"
+  },
+  "data": {
+    "srcip": "101.99.75.184",
+    "srcuser": "admin"
+  },
+  "location": "/var/log/asox-lab/test.log"
+}
