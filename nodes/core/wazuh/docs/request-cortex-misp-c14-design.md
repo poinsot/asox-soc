@@ -37,7 +37,7 @@ MISP (intel)  --REST, read-only key-->  misp-sync (in wazuh-manager)  --writes--
    They're written only when their content changed. The generated lists are data, so they're never committed.
 5. **Which IOCs (proposed filter):** attributes of **published** events, with **`to_ids: true`**, not deleted, of the types above, via `POST /attributes/restSearch`. Tested from inside the manager over `soc-net`: HTTP 200 in 1.6 s.
 6. **When MISP is unreachable or answers an error:** keep the last lists, log a `WARNING`, and try again next interval. A failed fetch never empties a list. A manager start without MISP still starts, with the lists from the last sync, or empty lists on a fresh machine.
-7. **Rules (W6.4, my side):** `rules/1080-misp-ioc.xml`, IDs 108000–108999, groups `asox,misp_ioc` plus the matched event's standard groups. Level **12**, so it reaches n8n through C1 and TheHive's `ioc-match` template. They match:
+7. **Rules (W6.4, my side):** `rules/1080-misp-ioc.xml`, IDs 108000–108999, groups `asox,misp_ioc` (the matched event's own groups aren't carried over: Wazuh takes groups from the rule that fires). Level **12**, so it reaches n8n through C1 and TheHive's `ioc-match` template. They match:
 
    | List | Event fields |
    |---|---|

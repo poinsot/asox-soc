@@ -134,7 +134,7 @@ Every custom rule, the alert it produces and how to fire it. Built-in rules the 
 | 103011 | `1030-opnsense.xml` | 10 | `opnsense`, `pfsense`, `authentication_failures` | T1110 | Web GUI brute force: 5 failures in 2 min from one source | `opnsense-gui-bruteforce` | `login-bruteforce` (T1110 without `sshd`) |
 | 103012 | `1030-opnsense.xml` | 3 | `opnsense`, `pfsense`, `authentication_success` | T1078 | Web GUI login (context) | — | — |
 | 87702 | `1090-tuning.xml` | 10 | `pfsense`, `multiple_blocks` | (removed) | Built-in "18 blocks in 45 s", without its T1110, which misrouted it to brute force | — | `wazuh-generic` |
-| 108000 / 108001 | `1080-misp-ioc.xml` | 12 | `misp_ioc` | — | Source / destination address of a log event is a MISP IOC (C14); one a minute, absorbs that minute's events | `ioc-ip` (once synced) | `ioc-match` |
+| 108000 / 108001 | `1080-misp-ioc.xml` | 12 | `misp_ioc` (the alert carries only `asox`, `misp_ioc`) | — | Source / destination address of a log event is a MISP IOC (C14); one a minute, absorbs that minute's events | `ioc-ip` (seed IOC `101.99.75.184`) | `ioc-match` |
 | 108010 / 108011 | `1080-misp-ioc.xml` | 12 | `misp_ioc`, `ids`, `suricata` | — | Suricata alert from / to a MISP IOC | — | `ioc-match` |
 | 108020 / 108021 | `1080-misp-ioc.xml` | 12 | `misp_ioc`, `syscheck`, `malware` | — | New or changed file whose SHA-256 / MD5 is a MISP IOC | — | `ioc-match` |
 | 40501 (built-in) | Wazuh `0280-attack_rules.xml` | 15 | `elevation_of_privilege` | T1068, T1136, T1203 | A user or group added after 4+ alerts of group `attacks` (e.g. 40112) from the same source within 5 min. Seen 2026-10-11 when `new-user` ran right after `ssh-success-after-fail` runs | `ssh-success-after-fail` ×4, then `new-user` | `account-change` (through T1136) |
@@ -267,7 +267,8 @@ MISP (published, to_ids, not on a warninglist) --REST, read-only key--> misp-syn
   docker exec -e WAZUH_MISP_URL=https://misp-nginx:8443 -e WAZUH_MISP_API_KEY=<read-only key> \
     <instance>-core-wazuh-manager-1 /var/ossec/framework/python/bin/python3 /asox/lists/misp-sync.py --once
   ```
-- **Failures:** a MISP that is down or answers an error leaves the lists as they were (`ERROR: MISP fetch failed ... keeping the current lists`), retried at the next interval.
+- **Failures:** a MISP that is down or answers an error leaves the lists as they were (`ERROR: MISP fetch failed ... keeping the current lists`). After a failed sync, and from the start if the first one failed, the service **retries every 60 s, up to 10 times**, before going back to the interval (R-34). `soc.sh up full` starts core before intel, and in distributed mode intel may come up later. Tested 2026-10-15: lists emptied, manager started with intel down (first sync failed, quick retries), then intel started. The lists were full (4,466 IOCs) 40 s after MISP was healthy, and `contracts-check.sh --only C14` passed.
+- **Groups on the alert:** a 1080xx alert carries only `asox`, `misp_ioc` (and `ids`, `suricata` or `syscheck`, `malware` for 108010–108021). It doesn't keep the matched event's groups (e.g. `sshd`), because Wazuh takes groups from the rule that fires. The original event's fields (`data.srcip`, `full_log`, …) are all still there.
 - **Limits:** IPv4 addresses and /8, /16, /24, /32 networks (`address_match_key` matches octet prefixes); IPv6 values are skipped for now (`:` is the CDB separator). Domains are listed, but no rule uses them yet (Suricata DNS and HTTP fields, later). At most 200,000 entries per list.
 - **Tested 2026-10-10** (`core` + `intel` on `low`, a local MISP event with `203.0.113.66`, `198.51.100.99`, a domain and a SHA-256, all `to_ids`):
   - the sync filled the lists and reloaded in under 3 s; a second sync changed nothing and didn't reload;
@@ -335,5 +336,5 @@ Pick from this list; Phase 1 only built the baseline. The owner's plan, split in
 - Detection rules and decoders for the environment; false-positive tuning; the alert level threshold (`WAZUH_ALERT_MIN_LEVEL`, default 7).
 - ~~Agent groups and policies; an enrollment guide~~ Done (W5.1–W5.4): `groups/`, [ENROLLMENT.md](ENROLLMENT.md).
 - Decoders for pfSense and router logs; MITRE ATT&CK mapping.
-- ~~CDB lists fed from MISP IOCs~~ Built and tested (W6.2–W6.5): "MISP IOCs as CDB lists (C14)"; on for good once R-08 is on `main`.
+- ~~CDB lists fed from MISP IOCs~~ Done (W6.1–W6.5, C14 live since 2026-10-14 with R-08 on `main`; `contracts-check.sh --only C14`): "MISP IOCs as CDB lists (C14)".
 - Later: response actions through C9 (Phase 2, with the n8n owner).
