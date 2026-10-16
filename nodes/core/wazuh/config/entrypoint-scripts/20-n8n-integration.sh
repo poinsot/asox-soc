@@ -30,6 +30,10 @@ $BEGIN
     <api_key>${N8N_WEBHOOK_TOKEN}</api_key>
     <level>${WAZUH_ALERT_MIN_LEVEL:-7}</level>
     <alert_format>json</alert_format>
+    <!-- X-10: passed to custom-n8n.py, which does the retries itself
+         (integratord doesn't enforce the timeout). Per try: 10 s. -->
+    <timeout>10</timeout>
+    <retries>4</retries>
   </integration>
 </ossec_config>
 $END

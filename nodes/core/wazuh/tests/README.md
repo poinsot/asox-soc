@@ -49,3 +49,7 @@ Use attacker addresses from documentation ranges (`203.0.113.0/24`, `198.51.100.
 - that every alert at level ≥ 7 has a `recv-wazuh-alert` execution in n8n (C1).
 
 It takes about 6 minutes. Use `--skip-ids` without Suricata or internet, and `--no-n8n` without n8n. It's also the demo: run it, then show the alerts in Grafana and n8n. Wait 5 minutes between runs, because some rules stay quiet for up to 2 minutes after they fire.
+
+## C1 retries (`c1-retry.sh`)
+
+`nodes/core/wazuh/tests/c1-retry.sh` runs `c1_retry_test.py` inside the manager. It feeds the repo's `integrations/custom-n8n.py` the exact arguments integratord passes (including the literal `> /dev/null 2>&1`), against a stub HTTP server that answers scripted status codes. It checks retries on 404/5xx/connection errors, no retry on 403/422, fast-fail and its expiry, and the debug-mode argument shape. It uses short waits and its own log file; n8n isn't involved. About 6 s.
