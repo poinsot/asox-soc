@@ -112,7 +112,7 @@ The data every other component relies on, agreed and merged at checkpoint 1 (mil
   - With: Inigo, Daniel (W2.1), Diego (X-08)
 - [ ] **T2.6** Agree the template routing (by 2026-10-20) · P1, X-04
   - Done when: `docs/ALERT-FORMAT.md` §3 matches Daniel's rule-ID plan and rule groups (W1.3, W2.5), including Suricata's `suricata` / `ids` groups (D49), and Inigo's routing map (D-N2, data in an n8n `lib-` workflow) sets `caseTemplate` from it.
-  - Status (2026-10-14, later): **agreed and merged** (TheHive PR #19, n8n PR #23): n8n's routing matches §3 row for row; ALERT-FORMAT marked agreed. Left: `ioc-match` goes active in n8n when C14 is live.
+  - Status (2026-10-14, later): **agreed and merged** (TheHive PR #19, n8n PR #23): n8n's routing matches §3 row for row; ALERT-FORMAT marked agreed. `ioc-match` active since 2026-10-15 (C14 live): all routing rows active.
   - Earlier (2026-10-14): proposal for Inigo's question on rule 103011 (OPNsense login brute force): `ssh-bruteforce` requires `sshd`, new `login-bruteforce` template and row for other T1110 alerts; to agree in the checkpoint PR.
   - Earlier (2026-10-13): §3 matches n8n's table of 2026-10-09 (adds rule 5404 and `T1136` clauses; `ioc-match` / `network-scan` proposed in n8n until their rules exist).
   - Earlier (2026-10-08): §3 rewritten from Daniel's live alerts (answers A1–A6) and rules of 2026-10-08: `ioc-match` first (`misp_ioc`, 108xxx), `suspicious-login` before `ssh-bruteforce` on rule IDs 40112 / 100200, `privilege-escalation` on `T1548`, `account-change` on `adduser` only, `network-scan` on `pfsense` + `T1046` (103xxx). Left: Inigo's `lib-config` rows match it; Daniel's W4.3 / C14 rule IDs when built.
