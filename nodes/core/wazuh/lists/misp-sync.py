@@ -25,7 +25,7 @@ Environment (from nodes/core/.env through compose.yml; R-08):
   WAZUH_MISP_SYNC_INTERVAL  seconds between syncs (default 3600)
   API_USERNAME, API_PASSWORD  the manager's admin API user (already set)
 
-Usage: misp-sync.py [--once|--loop] [--no-reload]
+Usage: misp-sync.py [--once|--loop [--after-failure]] [--no-reload]
 Exit code (--once): 0 ok (changed or not), 1 MISP failed (lists kept),
 2 not configured.
 """
@@ -46,6 +46,8 @@ LISTS = {
 MAX_ENTRIES = 200000          # per list; MISP's large feeds belong in warninglists
 PAGE_SIZE = 5000            # Diego, C14 reply: keeps misp-core under its 900m
 TIMEOUT = 60
+QUICK_SECONDS = int(os.environ.get("ASOX_MISP_QUICK_SECONDS") or 60)  # R-34
+QUICK_TRIES = 10
 API = "https://localhost:55000"
 
 # MISP and the manager API use self-signed certificates in this lab (D25).
@@ -167,13 +169,35 @@ def sync(reload):
     return 0
 
 
+def loop(reload, after_failure):
+    """Sync every WAZUH_MISP_SYNC_INTERVAL seconds. After a failed sync, and
+    from the start when the first sync failed (--after-failure), retry every
+    QUICK_SECONDS up to QUICK_TRIES times first (R-34): with `soc.sh up full`
+    core starts before intel, and in distributed mode intel may come up
+    later, so the lists shouldn't stay empty for a whole interval."""
+    interval = int(os.environ.get("WAZUH_MISP_SYNC_INTERVAL") or 3600)
+    quick = QUICK_TRIES if after_failure else 0
+    if quick:
+        log(f"first sync failed; retrying every {QUICK_SECONDS} s, up to {QUICK_TRIES} times")
+    while True:
+        time.sleep(QUICK_SECONDS if quick else interval)
+        rc = sync(reload)
+        if rc == 1:                       # MISP unreachable or an error
+            if quick:
+                quick -= 1
+                if not quick:
+                    log(f"still failing after {QUICK_TRIES} quick retries; next try in {interval} s")
+            else:
+                quick = QUICK_TRIES
+                log(f"sync failed; retrying every {QUICK_SECONDS} s, up to {QUICK_TRIES} times")
+        else:
+            quick = 0
+
+
 def main(argv):
     reload = "--no-reload" not in argv
     if "--loop" in argv:
-        interval = int(os.environ.get("WAZUH_MISP_SYNC_INTERVAL") or 3600)
-        while True:
-            time.sleep(interval)
-            sync(reload)
+        loop(reload, "--after-failure" in argv)
     return sync(reload)
 
 
