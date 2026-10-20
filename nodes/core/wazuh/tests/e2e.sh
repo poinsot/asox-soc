@@ -13,7 +13,7 @@
 #
 # Needs: scripts/soc.sh up core (core + lab, Suricata for the IDS ones).
 # Takes about 6 minutes. Several rules stay quiet for 60-120 s after they
-# fire (5763, 5712, 103000, 103011, 108000), so wait 5 minutes between runs.
+# fire (5763, 5712, 103000, 103011, 108000, 31152), so wait 5 minutes between runs.
 set -euo pipefail
 
 TESTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -48,6 +48,8 @@ PLAN=(
   "new-user|5901|40501 5902|40501 100211|0"
   "root-login|100200|0"
   "persistence|100300 100301 100302|0"
+  "fim-tamper|100302 553|0"
+  "web-attack|31103 31152|0"
   "ids-test|101001|0"
   "ids-scan|101010|0"
   "opnsense-scan|103000|0"
@@ -61,9 +63,18 @@ pass() { echo "PASS  $*"; passes=$((passes + 1)); }
 fail() { echo "FAIL  $*"; fails=$((fails + 1)); }
 
 # Alerts of one rule since $1 seconds ago, as "id level" lines.
+# Asks twice, 5 s apart, before reporting nothing: once (2026-10-19) a marker
+# that was in the indexer wasn't returned, a query error or an index refresh
+# not done yet, and the next run passed.
 alerts() {  # seconds rule
-  "$QUERY" -s "${1}s" -r "$2" -n 50 -j 2>/dev/null \
-    | jq -r '(if type == "array" then .[] else . end) | "\(.id) \(.rule.level)"' 2>/dev/null || true
+  local out try
+  for try in 1 2; do
+    out=$("$QUERY" -s "$(( $1 + 5 * (try - 1) ))s" -r "$2" -n 50 -j 2>/dev/null \
+      | jq -r '(if type == "array" then .[] else . end) | "\(.id) \(.rule.level)"' 2>/dev/null) || true
+    [[ -n $out ]] && break
+    (( try == 2 )) || sleep 5
+  done
+  printf '%s' "$out"
 }
 
 declare -a forwarded=()   # alert IDs at level >= 7, to find in n8n

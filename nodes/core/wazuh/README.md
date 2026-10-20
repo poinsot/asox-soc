@@ -90,6 +90,7 @@ Every custom rule carries three kinds of groups:
 | File integrity | `syscheck` | `wazuh-generic` |
 | Malware, rootkits | `rootcheck`, `malware`, `virustotal` | `malware-detection` |
 | Network IDS | `ids` (plus the source `suricata`) | `ids-network-alert` |
+| Web attacks (access logs) | `web`, `accesslog`, `attack`, plus what it is (`sql_injection`, …): built-ins 311xx | `wazuh-generic` (no web template yet) |
 | Firewall blocks, scans | `opnsense` + `pfsense` (or `router`), plus `firewall_block`, `recon` (scans carry T1046) | `network-scan` |
 
 New group names are added only for things Wazuh has no name for: `attack_start` (the lab marker, W1.6) and `misp_ioc` (C14, template `ioc-match`). Every custom rule also has a `<mitre>` block (W2.3), so the technique arrives as `rule.mitre.id`.
@@ -127,7 +128,7 @@ Every custom rule, the alert it produces and how to fire it. Built-in rules the 
 | 109010 | `1090-tuning.xml` | 0 | `suricata`, `ids`, `tuning` | — | Suricata engine events (`SURICATA STREAM`, invalid checksums) silenced | — | — |
 | 100300 | `1003-linux-system.xml` | 10 | `syscheck` | T1548.003 | sudoers file added or changed (FIM) | `persistence` | `privilege-escalation` |
 | 100301 | `1003-linux-system.xml` | 10 | `syscheck` | T1098.004 | SSH `authorized_keys` added or changed (FIM) | `persistence` | `wazuh-generic` |
-| 100302 | `1003-linux-system.xml` | 10 | `syscheck` | T1053.003 | System cron job added or changed (FIM) | `persistence` | `wazuh-generic` |
+| 100302 | `1003-linux-system.xml` | 10 | `syscheck` | T1053.003 | System cron job added or changed (FIM) | `persistence`, `fim-tamper` | `wazuh-generic` |
 | 100303 | `1003-linux-system.xml` | 10 | `syscheck` | T1543.002 | New systemd service (FIM) | — | `wazuh-generic` |
 | 103000 | `1030-opnsense.xml` | 10 | `opnsense`, `pfsense`, `firewall_block`, `recon` | T1046 | Port scan: one source blocked on 10 different ports in 60 s | `opnsense-scan` | `network-scan` |
 | 103010 | `1030-opnsense.xml` | 5 | `opnsense`, `pfsense`, `authentication_failed` | T1110.001 | Web GUI login failure (context) | — | — (not forwarded) |
@@ -138,6 +139,9 @@ Every custom rule, the alert it produces and how to fire it. Built-in rules the 
 | 108010 / 108011 | `1080-misp-ioc.xml` | 12 | `misp_ioc`, `ids`, `suricata` | — | Suricata alert from / to a MISP IOC | — | `ioc-match` |
 | 108020 / 108021 | `1080-misp-ioc.xml` | 12 | `misp_ioc`, `syscheck`, `malware` | — | New or changed file whose SHA-256 / MD5 is a MISP IOC | — | `ioc-match` |
 | 40501 (built-in) | Wazuh `0280-attack_rules.xml` | 15 | `elevation_of_privilege` | T1068, T1136, T1203 | A user or group added after 4+ alerts of group `attacks` (e.g. 40112) from the same source within 5 min. Seen 2026-10-11 when `new-user` ran right after `ssh-success-after-fail` runs | `ssh-success-after-fail` ×4, then `new-user` | `account-change` (through T1136) |
+| 553 (built-in) | Wazuh `0015-ossec_rules.xml` | 7 | `syscheck`, `syscheck_entry_deleted` | T1070.004, T1485 | File deleted (FIM). The alert has `syscheck.event` `deleted` and the file's last known `*_after` fields, no `*_before` | `fim-tamper` | `wazuh-generic` |
+| 31103 (built-in) | Wazuh `0245-web_rules.xml` | 7 | `web`, `accesslog`, `attack`, `sql_injection` | T1190 | SQL injection pattern in the URL of a web access log line (decoder `web-accesslog`: `data.srcip`, `data.url`, `data.protocol`, `data.id`) | `web-attack` | `wazuh-generic` (no web template yet) |
+| 31152 (built-in) | Wazuh `0245-web_rules.xml` | 10 | `web`, `accesslog`, `attack`, `sql_injection` | T1055 (Wazuh's mapping) | 8 SQL injection attempts from one address in 120 s | `web-attack` | `wazuh-generic` (no web template yet) |
 | 19004, 19007 | `1090-tuning.xml` | 5 | `sca` | (SCA's own) | Built-in SCA, lowered (W2.7) | re-enrolling an agent | — (not forwarded) |
 
 Decoder `asox-usermod` (`decoders/1002-linux-auth.xml`) gives `data.dstuser` (the account) and `data.group`, the same names as the built-in gpasswd decoder.
@@ -288,7 +292,7 @@ MISP (published, to_ids, not on a warninglist) --REST, read-only key--> misp-syn
 A containerized Wazuh agent (`lab-agent`), enrolled exactly like a real endpoint: the package's default configuration plus the manager address and the enrollment password (see `nodes/lab/entrypoint.sh`). It also produces realistic alerts (SCA, rootcheck, FIM) for Grafana.
 
 - **Test alert:** `id=$(nodes/lab/trigger.sh) && scripts/wazuh-query.sh --rule 100100 --match "$id"` (the alert takes a few seconds to be indexed).
-- **Attack scenarios** (W1.5): `id=$(nodes/lab/trigger.sh --scenario ssh-bruteforce) && scripts/wazuh-query.sh --match "$id"`. `--list` shows the scenarios (`ssh-bruteforce`, `ssh-success-after-fail`, `sudo-fail`, `new-user`, `ioc-ip`, `root-login`, `persistence` (real file changes, FIM); the IDS ones `ids-test`, `ids-scan`; the firewall ones `opnsense-scan`, `opnsense-gui-bruteforce`, sent as syslog); `--help` shows the alerts each one produces; `--print` shows the lines without sending them. Each run starts with the attack-start marker (rule 100101, level 3, fields `data.scenario` and `data.run_id`; W1.6), and every event of the run ends with `asox_run=<run id>`. Wait a minute between SSH scenarios: the brute-force rules stay quiet for 60 s after firing.
+- **Attack scenarios** (W1.5): `id=$(nodes/lab/trigger.sh --scenario ssh-bruteforce) && scripts/wazuh-query.sh --match "$id"`. `--list` shows the scenarios (`ssh-bruteforce`, `ssh-success-after-fail`, `sudo-fail`, `new-user`, `ioc-ip`, `root-login`, `persistence` and `fim-tamper` (real file changes, FIM), `web-attack` (Apache access log lines); the IDS ones `ids-test`, `ids-scan`; the firewall ones `opnsense-scan`, `opnsense-gui-bruteforce`, sent as syslog); `--help` shows the alerts each one produces; `--print` shows the lines without sending them. Each run starts with the attack-start marker (rule 100101, level 3, fields `data.scenario` and `data.run_id`; W1.6), and every event of the run ends with `asox_run=<run id>`. Wait a minute between SSH scenarios: the brute-force rules stay quiet for 60 s after firing.
 - **Enrollment** happens once; the agent's keys are kept in a volume. A fresh agent with the same name is refused while the manager still knows the old one, so `scripts/soc.sh reset lab` first removes that registration (when core runs on the same machine). For a real endpoint that is reinstalled, remove its old registration the same way: `docker exec <instance>-core-wazuh-manager-1 /var/ossec/bin/manage_agents -r <agent-id>`.
 - **Group:** the lab agent enrolls into `linux-servers` (W5.3) and gets its real-time integrity checks; `entrypoint.sh` creates `/root/.ssh` and `/etc/sudoers.d` first, because real-time checks only watch folders that exist when the agent starts.
 - **Healthy** means connected *and* ready to collect: right after enrolling, the agent reloads once when it receives the manager's shared configuration, and events written before that are lost.

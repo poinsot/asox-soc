@@ -49,3 +49,7 @@ log 198.51.100.7 - - [15/Oct/2026:19:20:01 +0000] "GET /admin HTTP/1.1" 404 153 
 case SQL injection attempt in the URL
 expect rule=31103 level=7 decoder=web-accesslog
 log 198.51.100.7 - - [15/Oct/2026:19:20:02 +0000] "GET /index.php?id=1%27%20union%20select%201,2-- HTTP/1.1" 400 226 "-" "sqlmap/1.8"
+
+case SQL injection, 10 tries from one address (lab scenario web-attack)
+expect rule=31152 level=10 decoder=web-accesslog
+repeat 10 198.51.100.30 - - [19/Oct/2026:10:00:01 +0000] "GET /products.php?id=1%27%20UNION%20SELECT%20username,password%20FROM%20users-- HTTP/1.1" 500 312 "-" "sqlmap/1.8.4#stable (https://sqlmap.org) asox_run=abc-123"

@@ -25,6 +25,12 @@
 #   persistence             100300, 100301, 100302 level 10: real file changes in the lab
 #                           agent (sudoers.d, root's authorized_keys, cron.d), seen by
 #                           real-time FIM (group linux-servers); each run adds new files
+#   fim-tamper              100302 level 10 twice (file added, then modified), then 553
+#                           level 7 (deleted): a cron.d file planted, changed and removed
+#                           3 s apart, so FIM reports *_before and changed_attributes too
+#   web-attack              31103 level 7 each, then 31152 level 10: 10 SQL injection
+#                           requests from 198.51.100.30 in Apache's access log format
+#                           (decoder web-accesslog: data.srcip, data.url, data.id)
 #   opnsense-scan           103000 level 10, T1046: OPNsense filterlog blocks of 12 ports
 #                           from 203.0.113.77, sent as syslog to the manager's 514/udp
 #   opnsense-gui-bruteforce 103011 level 10, T1110: 7 failed OPNsense web GUI logins from
@@ -51,7 +57,7 @@ set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TEST_LOG=/var/log/asox-lab/test.log
-SCENARIOS="ssh-bruteforce ssh-success-after-fail sudo-fail new-user ioc-ip root-login ids-test ids-scan opnsense-scan opnsense-gui-bruteforce persistence"
+SCENARIOS="ssh-bruteforce ssh-success-after-fail sudo-fail new-user ioc-ip root-login ids-test ids-scan opnsense-scan opnsense-gui-bruteforce persistence fim-tamper web-attack"
 NMAP_IMAGE=${NMAP_IMAGE:-instrumentisto/nmap:7.98-r2}
 # The lab's IOC: MISP's seed IOC (nodes/intel/misp/seed/seed-event.json),
 # 101.99.75.184 since 2026-10-14 (X-36: a Botvrij Loki-Bot address, to_ids,
@@ -129,6 +135,13 @@ events() {
       done ;;
     opnsense-gui-bruteforce)
       for i in {1..7}; do echo "$t opnsense audit[$pid]: /index.php: Web GUI authentication error for 'root' from 203.0.113.51$run"; done ;;
+    web-attack)
+      # An access log line has no syslog header and ends in the user agent's
+      # quote, so the run ID goes inside the user agent.
+      t=$(date '+%d/%b/%Y:%H:%M:%S %z')
+      for i in {1..10}; do
+        echo "198.51.100.30 - - [$t] \"GET /products.php?id=$i%27%20UNION%20SELECT%20username,password%20FROM%20users-- HTTP/1.1\" 500 312 \"-\" \"sqlmap/1.8.4#stable (https://sqlmap.org)$run\""
+      done ;;
   esac
 }
 
@@ -170,6 +183,15 @@ traffic() {
         chmod 440 /etc/sudoers.d/90-svc-backup-$r
         echo '*/5 * * * * root /tmp/.update-$r # asox_run=$2' > /etc/cron.d/asox-update-$r
       " || { echo "ERROR persistence: could not write in the lab agent" >&2; exit 1; } ;;
+    fim-tamper)
+      # Covering tracks: a planted file changed, then removed. The pauses let
+      # real-time FIM report each change as its own event.
+      local f=/etc/cron.d/asox-tamper-${2:0:8}
+      compose exec -T lab-agent sh -c "
+        echo '*/5 * * * * root /tmp/.sync # asox_run=$2' > $f; sleep 3
+        echo '0 3 * * * root /tmp/.sync --full # asox_run=$2' >> $f; sleep 3
+        rm -f $f
+      " || { echo "ERROR fim-tamper: could not write in the lab agent" >&2; exit 1; } ;;
   esac
 }
 
@@ -182,7 +204,7 @@ else
   printf '%s\n' "$(ts) $host asox-lab: ASOX_ATTACK_START scenario=$scenario id=$id" | send
   (( print )) || sleep 1
   case $scenario in
-    ids-test|ids-scan|persistence) (( print )) || traffic "$scenario" "$id" ;;
+    ids-test|ids-scan|persistence|fim-tamper) (( print )) || traffic "$scenario" "$id" ;;
     opnsense-*) if (( print )); then events "$scenario" "$id"; else events "$scenario" "$id" | syslog; fi ;;
     ssh-success-after-fail)
       # The login comes 2 s after the failures. Sent in the same burst, the
