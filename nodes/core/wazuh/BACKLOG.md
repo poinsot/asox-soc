@@ -125,6 +125,7 @@ The first real detections, tuned and mapped, merged at checkpoint 1 (milestone t
   - Refs: X-01, X-26
 - [ ] **W2.6** Checkpoint 1 pull request (by 2026-10-20) · P1, C1, C2, C8
   - Done when: `git pull --no-rebase --no-edit origin main`, `healthcheck.sh` green, `contracts-check.sh --only C1,C2,C8` passes, `ci-checks.sh all` passes, pull request `wazuh` → `main` opened and merged by the integrator. The first slice of `v1.1-detections` (alert → enriched TheHive alert) depends on it, together with TheHive's T2.7.
+  - **2026-10-19:** `main` merged into `wazuh`; `healthcheck.sh` all PASS; `contracts-check.sh --only C1,C2,C8` passes; `ci-checks.sh all` passes; rule tests 63/63, `e2e.sh` 33/34 (`EVIDENCE.md`). Left: Daniel opens the PR, Inigo merges.
   - With: Inigo (review and merge)
 - [x] **W2.7** Answer X-09: should SCA alerts reach n8n? · P1, C1
   - Done when: Decided with Inigo by 2026-10-20 and written in the README. Each agent start sends ~130 level-7 SCA alerts (rules 19007, 19004), and n8n excludes group `sca` only temporarily. Inigo's options (memo item 6): raise their level threshold, exclude the `sca` group from `custom-n8n`, or let n8n aggregate them (N8N-1.4). Recommendation: fix it at the source with overwrite rules in your tuning file that lower 19007/19004 below `WAZUH_ALERT_MIN_LEVEL` (e.g. level 5). They stay in the indexer for Grafana's compliance panels, never flood n8n or TheHive, and Inigo can then remove the temporary exclusion from `lib-config`. Also answer TheHive's question whether SCA needs a compliance template (ALERT-TO-THEHIVE.md, question 4).
@@ -136,8 +137,8 @@ The first real detections, tuned and mapped, merged at checkpoint 1 (milestone t
 
 A Suricata sensor watches the lab traffic and its alerts arrive in Wazuh through an agent, then reach Grafana and n8n like any other alert. Chosen over Snort: EVE JSON output that Wazuh reads natively, built-in Wazuh rules for Suricata, free ET Open rules with no account, multi-threaded.
 
-- [ ] **W3.1** Record the decision: Suricata instead of Snort *(in progress)* · P1
-  - Done when: Done on `main` 2026-09-30 as D49 (PROJECT.md sections 1, 2, 6.1, 13). Left: record the pinned image tag (`jasonish/suricata`, exact 8.0.x version) in `docs/decisions.md` when W3.2 is built.
+- [x] **W3.1** Record the decision: Suricata instead of Snort · P1
+  - Done when: Done on `main` 2026-09-30 as D49 (PROJECT.md sections 1, 2, 6.1, 13). The pinned tag `jasonish/suricata:8.0.7` is in `docs/decisions.md` (images table and A96, recorded by the integrator with R-07).
   - With: Inigo (integrator), team
   - Refs: D49, X-34
 - [x] **W3.2** Suricata container in the lab node · P1
