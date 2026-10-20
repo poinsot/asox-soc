@@ -653,7 +653,7 @@ check_C14() {
     return
   fi
   if [[ $ip == 0 ]]; then
-    fail "$c: lists empty although MISP_WAZUH_API_KEY is set (misp-ip 0, misp-domain $dom, misp-hash $hash): first sync failed at start (e.g. core started before intel); restart the manager or wait for the next interval; see the register row on first sync (R-34)"
+    fail "$c: lists empty although MISP_WAZUH_API_KEY is set (misp-ip 0, misp-domain $dom, misp-hash $hash): first sync failed at start (e.g. core started before intel); wait for the quick retries (every 60 s, up to 10) or restart the manager once intel is healthy (R-34)"
     return
   fi
   seed=$(c14_exec cat "$C14_LISTS/misp-ip" 2>/dev/null | awk -F: -v v="$ioc" '$1 == v { print; exit }' || true)
@@ -670,7 +670,7 @@ check_C14() {
     return
   fi
   if [[ $last == *ERROR* || $last == *'first sync failed'* || $last == *'C14 off'* ]]; then
-    fail "$c: the last sync failed: ${last:0:240}"
+    fail "$c: the last sync failed: ${last:0:200}; wait for the quick retries (every 60 s, up to 10) or restart the manager once intel is healthy (R-34)"
     return
   fi
   [[ $last == *WARNING* ]] && warn "$c: last misp-sync line: ${last:0:200}"
