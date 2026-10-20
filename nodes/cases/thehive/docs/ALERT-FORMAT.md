@@ -50,7 +50,7 @@ Checked against live alerts (Wazuh 4.14.8, lab scenarios) and Daniel's rule-ID p
 
 | Template (`entities/case-templates.json`) | When (first match wins) | Rules today |
 |---|---|---|
-| `ioc-match` *(proposed in n8n until C14 is live)* | `rule.groups` has `misp_ioc` | 108000 (C14, W6.4; test IOC `101.99.75.184`, X-36); above every other row, so an IOC match wins |
+| `ioc-match` | `rule.groups` has `misp_ioc` | 108000 / 108001 (C14, W6.4, live since 2026-10-15; test IOC `101.99.75.184`, X-36; the alert carries only the groups `asox`, `misp_ioc`); above every other row, so an IOC match wins |
 | `suspicious-login` | `rule.id` is `40112` or `100200` (rule IDs only: every normal SSH login, 5715, also carries `T1078`) | 40112 failures then success (level 12), 100200 SSH login as root (level 10) |
 | `ssh-bruteforce` | `rule.groups` has `sshd` and either one of `authentication_failures`, `authentication_failed`, `invalid_login`, or `rule.mitre.id` `T1110` (`sshd` required in both clauses, 2026-10-14) | 5712, 5763 (level 10) |
 | `login-bruteforce` | `rule.mitre.id` has `T1110` (any other service: firewall / router admin GUI, web app, VPN) | 103011 OPNsense / pfSense GUI login brute force; built-in 40111, 2502 |
@@ -65,7 +65,7 @@ Checked against live alerts (Wazuh 4.14.8, lab scenarios) and Daniel's rule-ID p
 
 **Why `login-bruteforce` (agreed 2026-10-14 with n8n and Wazuh):** rule 103011 (OPNsense login brute force) carries `T1110` but isn't SSH; with the old `ssh-bruteforce` row it got SSH-specific tasks (rule 5715, `sshd` settings). Requiring `sshd` in `ssh-bruteforce` and adding a generic row right after it keeps every SSH alert where it was (all sshd rules carry `sshd`) and gives other brute force a fitting template.
 
-**Active rows (answer B).** Every row is active in n8n (`lib-config` routing version 2026-10-14) except `ioc-match`, which stays *proposed* until C14 is live; a proposed match goes to `wazuh-generic`. The route n8n wanted is recorded even while only `pb-generic` runs (answer C: the `playbook` field says the playbook that actually ran).
+**Active rows (answer B).** Every row is active in n8n (`lib-config` routing version 2026-10-15); `ioc-match` went active when C14 went live. The route n8n wanted is recorded even while only `pb-generic` runs (answer C: the `playbook` field says the playbook that actually ran).
 
 The alert only *names* the template; TheHive applies its tasks and custom fields when the alert is promoted to a case.
 
@@ -142,10 +142,10 @@ TheHive 5 has no automatic promotion rules of its own; these rules are applied b
 | Item | State (2026-10-14) |
 |---|---|
 | Fields and names, §1, §4, §5 (`source` = `wazuh`, `sourceRef` = Wazuh alert ID) | Reviewed by Inigo 2026-10-06; his questions A (Time row, optional `full_log`), C (`playbook`) answered here. F: syslog host rule (`predecoder.hostname`, else `location`) in §1 and sshd/groupadd user rules in §5, as n8n already does |
-| Template routing, §3 (D-N2: n8n keeps it as data in `lib-config`) | Rows corrected with Daniel's live alerts (A1–A6) and his 2026-10-08 rules (100200, 100211, 100212); n8n's `lib-config` routing 2026-10-14 matches §3 row for row, incl. `login-bruteforce` (103011, 40111, 2502); `network-scan` active (103000); `ioc-match` proposed until C14 is live |
+| Template routing, §3 (D-N2: n8n keeps it as data in `lib-config`) | Rows corrected with Daniel's live alerts (A1–A6) and his 2026-10-08 rules (100200, 100211, 100212); n8n's `lib-config` routing 2026-10-14 matches §3 row for row, incl. `login-bruteforce` (103011, 40111, 2502); `network-scan` active (103000); `ioc-match` active since 2026-10-15 (C14 live, routing version 2026-10-15) |
 | IOC flag for MISP hits, §5 | Answer E: suspicious, `ioc: false`; Diego asked the same (his question 6) |
 | SCA, Q4 | No compliance template: W2.7 leaves only SCA regressions at level ≥ 7, routed to `wazuh-generic`; n8n's `sca` exclusion dropped 2026-10-09 |
-| Warninglists, §5 | Answer G revised 2026-10-14: only the `warninglist` tag; all list names in the observable's description (Diego's proposal, `nodes/intel/misp/request-n8n-warninglist-description.md`) |
+| Warninglists, §5 | Answer G revised 2026-10-14: only the `warninglist` tag; all list names in the observable's description, no cap (Diego's proposal, `nodes/intel/misp/request-n8n-warninglist-description.md`). Applied by n8n 2026-10-15; the description survives promotion to a case unchanged |
 | `Ignored` = false positive (C11) | Confirmed 2026-10-14: an analyst ignores an alert only when it is a false positive (TRIAGE.md), so n8n's `resolution: Ignored` counts as a false positive in the FP rate |
 | Timing | Alerts are queued in n8n and processed 2 at a time (A87): a few seconds when quiet, up to ~30 s at the end of a burst; format unchanged |
 | R2 / D-N4 (auto-promotion of Critical alerts of named playbooks only) | To confirm by 2026-11-03 |
