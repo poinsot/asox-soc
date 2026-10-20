@@ -239,7 +239,7 @@ Each component section lists its long-term **role** and what Phase 1 delivers as
 - **Not in the baseline:** the router and playbooks. They belong to the n8n owner.
 - **Playbook conventions** (seeded in `nodes/core/n8n/README.md`; every playbook author follows them):
   - Naming: `pb-<use-case>` for playbooks (e.g. `pb-ssh-bruteforce`), `recv-<source>` for entry points, `lib-<function>` for reusable sub-workflows (e.g. `lib-enrich-observable`).
-  - A header note in every playbook declares: **trigger**, **inputs**, **actions taken**, **systems changed** (none / which), **approval** (`required` / `auto_approve`) and **owner**.
+  - A header note in every playbook declares: **trigger**, **inputs**, **actions taken**, **systems changed** (none / which), **approval** (`required` or `not needed`, with the reason; `auto_approve` only for playbooks that change systems, C9) and **owner**.
   - **Traceability:** every execution carries the Wazuh alert ID and, once created, the TheHive alert or case ID, and writes a summary of its actions back to the TheHive record.
   - **Approval by default:** any playbook that changes systems requires analyst approval unless it is explicitly marked `auto_approve`, and that marking must be justified in the checkpoint pull request.
   - **Idempotent and safe to re-run:** the same alert processed twice must not create duplicate TheHive records or repeat actions.

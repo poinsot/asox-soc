@@ -5,7 +5,7 @@
 # untracked, minus .gitignore), so local secrets and generated files are
 # never scanned or used.
 #
-# Usage: scripts/ci-checks.sh [compose|shellcheck|json|xml|secrets|all]...
+# Usage: scripts/ci-checks.sh [compose|shellcheck|json|xml|n8n-lint|secrets|all]...
 set -euo pipefail
 # shellcheck source=scripts/lib/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
@@ -116,6 +116,25 @@ for f in sys.argv[1:]:
 ' "${files[@]}"
 }
 
+# Run an n8n lint script from the snapshot inside the pinned Python image.
+# It prints its own PASS/FAIL/WARN lines and summary; drop its final verdict
+# so finish() gives the only one.
+run_n8n_lint_script() {
+  local script=$1 label=$2
+  [[ -f $SNAP/$script ]] || { skip "$label: $script not found"; return; }
+  local out rc=0
+  out=$(docker run --rm -v "$SNAP:/mnt:ro" -w /mnt "$PYTHON_IMAGE" bash "$script" 2>&1) || rc=$?
+  grep -v -e '^$' -e '^All checks passed' -e 'check(s) failed' <<<"$out" || true
+  FAILURES=$((FAILURES + $(grep -c '^FAIL' <<<"$out" || true)))
+  (( rc == 0 )) || [[ $out == *FAIL* ]] || fail "$label crashed (exit $rc)"
+}
+
+check_n8n_lint() {
+  echo "== n8n workflow lint (N8N-0.7)"
+  run_n8n_lint_script nodes/core/n8n/scripts/lint-workflows.sh "n8n lint"
+  run_n8n_lint_script nodes/core/n8n/scripts/lint-workflows-test.sh "n8n lint self-test"
+}
+
 check_secrets() {
   echo "== secret scan (gitleaks)"
   local out
@@ -143,12 +162,13 @@ main() {
   local -a checks=("$@")
   (( ${#checks[@]} > 0 )) || checks=(all)
   [[ ${checks[0]} == -h || ${checks[0]} == --help ]] && { usage; exit 0; }
-  [[ ${checks[*]} == all ]] && checks=(compose shellcheck json xml secrets)
+  [[ ${checks[*]} == all ]] && checks=(compose shellcheck json xml n8n-lint secrets)
   snapshot
   local c
   for c in "${checks[@]}"; do
     case $c in
       compose|shellcheck|json|xml|secrets) "check_$c" ;;
+      n8n-lint) check_n8n_lint ;;
       *) die "unknown check: $c" ;;
     esac
   done
