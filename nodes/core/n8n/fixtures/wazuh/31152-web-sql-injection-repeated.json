@@ -1,0 +1,71 @@
+{
+  "timestamp": "2026-10-20T18:26:57.151+0000",
+  "rule": {
+    "level": 10,
+    "description": "Multiple SQL injection attempts from same source ip.",
+    "id": "31152",
+    "mitre": {
+      "id": [
+        "T1055"
+      ],
+      "tactic": [
+        "Defense Evasion",
+        "Privilege Escalation"
+      ],
+      "technique": [
+        "Process Injection"
+      ]
+    },
+    "frequency": 8,
+    "firedtimes": 1,
+    "mail": true,
+    "groups": [
+      "web",
+      "accesslog",
+      "attack",
+      "sql_injection"
+    ],
+    "pci_dss": [
+      "6.5",
+      "11.4",
+      "6.5.1"
+    ],
+    "gdpr": [
+      "IV_35.7.d"
+    ],
+    "nist_800_53": [
+      "SA.11",
+      "SI.4"
+    ],
+    "tsc": [
+      "CC6.6",
+      "CC7.1",
+      "CC8.1",
+      "CC6.1",
+      "CC6.8",
+      "CC7.2",
+      "CC7.3"
+    ]
+  },
+  "agent": {
+    "id": "002",
+    "name": "lab-agent",
+    "ip": "172.18.0.7"
+  },
+  "manager": {
+    "name": "wazuh-manager"
+  },
+  "id": "1792520817.8813",
+  "previous_output": "198.51.100.30 - - [20/Oct/2026:11:26:55 -0700] \"GET /products.php?id=5%27%20UNION%20SELECT%20username,password%20FROM%20users-- HTTP/1.1\" 500 312 \"-\" \"sqlmap/1.8.4#stable (https://sqlmap.org) asox_run=d1b4b704-70eb-4cfe-bb1d-b53abb5b1cbe\"\n198.51.100.30 - - [20/Oct/2026:11:26:55 -0700] \"GET /products.php?id=4%27%20UNION%20SELECT%20username,password%20FROM%20users-- HTTP/1.1\" 500 312 \"-\" \"sqlmap/1.8.4#stable (https://sqlmap.org) asox_run=d1b4b704-70eb-4cfe-bb1d-b53abb5b1cbe\"\n198.51.100.30 - - [20/Oct/2026:11:26:55 -0700] \"GET /products.php?id=6%27%20UNION%20SELECT%20username,password%20FROM%20users-- HTTP/1.1\" 500 312 \"-\" \"sqlmap/1.8.4#stable (https://sqlmap.org) asox_run=d1b4b704-70eb-4cfe-bb1d-b53abb5b1cbe\"\n198.51.100.30 - - [20/Oct/2026:11:26:55 -0700] \"GET /products.php?id=7%27%20UNION%20SELECT%20username,password%20FROM%20users-- HTTP/1.1\" 500 312 \"-\" \"sqlmap/1.8.4#stable (https://sqlmap.org) asox_run=d1b4b704-70eb-4cfe-bb1d-b53abb5b1cbe\"\n198.51.100.30 - - [20/Oct/2026:11:26:55 -0700] \"GET /products.php?id=3%27%20UNION%20SELECT%20username,password%20FROM%20users-- HTTP/1.1\" 500 312 \"-\" \"sqlmap/1.8.4#stable (https://sqlmap.org) asox_run=d1b4b704-70eb-4cfe-bb1d-b53abb5b1cbe\"\n198.51.100.30 - - [20/Oct/2026:11:26:55 -0700] \"GET /products.php?id=2%27%20UNION%20SELECT%20username,password%20FROM%20users-- HTTP/1.1\" 500 312 \"-\" \"sqlmap/1.8.4#stable (https://sqlmap.org) asox_run=d1b4b704-70eb-4cfe-bb1d-b53abb5b1cbe\"\n198.51.100.30 - - [20/Oct/2026:11:26:55 -0700] \"GET /products.php?id=1%27%20UNION%20SELECT%20username,password%20FROM%20users-- HTTP/1.1\" 500 312 \"-\" \"sqlmap/1.8.4#stable (https://sqlmap.org) asox_run=d1b4b704-70eb-4cfe-bb1d-b53abb5b1cbe\"",
+  "full_log": "198.51.100.30 - - [20/Oct/2026:11:26:55 -0700] \"GET /products.php?id=9%27%20UNION%20SELECT%20username,password%20FROM%20users-- HTTP/1.1\" 500 312 \"-\" \"sqlmap/1.8.4#stable (https://sqlmap.org) asox_run=d1b4b704-70eb-4cfe-bb1d-b53abb5b1cbe\"",
+  "decoder": {
+    "name": "web-accesslog"
+  },
+  "data": {
+    "protocol": "GET",
+    "srcip": "198.51.100.30",
+    "id": "500",
+    "url": "/products.php?id=9%27%20UNION%20SELECT%20username,password%20FROM%20users--"
+  },
+  "location": "/var/log/asox-lab/test.log"
+}
