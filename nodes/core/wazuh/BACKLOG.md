@@ -259,6 +259,7 @@ Everything merged into `main`, tested end to end and ready to show one day early
   - Files: `nodes/core/wazuh/README.md`
 - [ ] **WD.5** Rehearse the demo (by 2026-11-30) *(in progress)* · P1
   - Done when: A short script that runs start to finish without surprises: attack scenario → Wazuh alert → Grafana → n8n; IOC from MISP → alert; syslog from pfSense → alert; Suricata detection → alert.
+  - **2026-10-19:** `tests/demo.sh` (7 steps, `--auto` for a rehearsal, `--from N`) and `DEMO.md` (checklist, talk track, fallbacks). Rehearsed on `low`: steps 1–6 pass; step 7 needs intel. Left: a rehearsal with the team in `full`, after WD.3.
   - With: Team
 
 ## M7 · After the delivery (target: after 2026-12-01)
