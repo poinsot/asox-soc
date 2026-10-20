@@ -6,6 +6,7 @@
 #
 # Usage: scripts/contracts-check.sh [--only C3,C4,C14,E2E]
 #   checks: C1-C8, C10, C11, C14, E2E (default: all, in that order)
+#   opt-in, only with --only: C1-RETRY (stops and starts n8n)
 # One PASS/FAIL line per contract (and for E2E); exit code 1 if any contract fails.
 # C3/C4 create a test alert in TheHive (source contract-check) and delete it;
 # C1 deletes the TheHive alert n8n makes from its test alert (source asox-test).
@@ -25,6 +26,10 @@
 # alert on the MISP seed IOC to n8n and expects the TheHive alert, the MISP
 # verdict tag, the writeback and the asox-metrics document; it deletes what
 # it created and prints SKIP unless core, cases and intel all run.
+# C1-RETRY (opt-in; X-10, D51) stops the n8n container, fires C1's test event,
+# starts n8n and expects the alert delivered once on a later try (custom-n8n.py's
+# retries), one recv-wazuh-alert execution and one TheHive alert; it deletes
+# the TheHive alert like C1 and always starts n8n again.
 set -euo pipefail
 # shellcheck source=scripts/lib/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
@@ -47,10 +52,11 @@ while (( $# > 0 )); do
   shift
 done
 ALL_CONTRACTS=(C1 C2 C3 C4 C5 C6 C7 C8 C10 C11 C14 E2E)
+OPT_IN=(C1-RETRY)   # only with --only: they restart containers
 if [[ -n $ONLY ]]; then
   IFS=',' read -r -a CONTRACTS <<<"${ONLY^^}"
   for c in "${CONTRACTS[@]}"; do
-    [[ " ${ALL_CONTRACTS[*]} " == *" $c "* ]] || die "unknown check: $c (C1-C8, C10, C11, C14, E2E)"
+    [[ " ${ALL_CONTRACTS[*]} ${OPT_IN[*]} " == *" $c "* ]] || die "unknown check: $c (C1-C8, C10, C11, C14, E2E, C1-RETRY)"
   done
 else
   CONTRACTS=("${ALL_CONTRACTS[@]}")
@@ -120,18 +126,18 @@ webhook_status() {
 
 # n8n's pb-generic turns the C1 test alert into a TheHive alert (source
 # asox-test, sourceRef = the Wazuh alert id). Delete it directly through
-# TheHive's API with n8n's key; only alerts with source asox-test. Never
-# fails: without pb-generic, TheHive or the key, it prints an INFO line.
+# TheHive's API with n8n's key; only alerts with source asox-test. Takes the
+# alert id (default: C1's TEST_ALERT_ID). Never fails: without pb-generic, TheHive or the key, it prints an INFO line.
 # Calls are bounded: an unreachable cases host must not stall the run.
 c1_thehive() { _call -H "Authorization: Bearer $1" --max-time 10 -- "$2" "$THEHIVE_API$3" "${4:-}"; }
 c1_thehive_cleanup() {
-  local key q r ids deadline
+  local alert=${1:-$TEST_ALERT_ID} key q r ids deadline
   key=$(core_env THEHIVE_N8N_API_KEY)
   [[ -n $key ]] || { info "C1 cleanup: THEHIVE_N8N_API_KEY is empty, no TheHive alert to delete"; return 0; }
   # pb-generic runs after recv-wazuh-alert: wait for its alert only if n8n has it.
   deadline=$SECONDS
   [[ -n $(n8n_workflow_id_by_name pb-generic) ]] && deadline=$(( SECONDS + EVENT_TIMEOUT ))
-  q=$(jq -nc --arg r "$TEST_ALERT_ID" \
+  q=$(jq -nc --arg r "$alert" \
     '{query: [{_name: "listAlert"}, {_name: "filter", _field: "sourceRef", _value: $r}]}')
   while :; do
     r=$(c1_thehive "$key" POST /api/v1/query "$q")
@@ -142,7 +148,7 @@ c1_thehive_cleanup() {
     ids=$(http_body "$r" | jq -r '.[]? | select(.source == "asox-test") | ._id')
     [[ -n $ids ]] && break
     if (( SECONDS >= deadline )); then
-      info "C1 cleanup: no TheHive alert with source asox-test and sourceRef $TEST_ALERT_ID (pb-generic not merged, or TheHive disabled)"
+      info "C1 cleanup: no TheHive alert with source asox-test and sourceRef $alert (pb-generic not merged, or TheHive disabled)"
       return 0
     fi
     sleep 3
@@ -151,7 +157,7 @@ c1_thehive_cleanup() {
   while IFS= read -r id; do
     r=$(c1_thehive "$key" DELETE "/api/v1/alert/$id")
     if [[ $(http_code "$r") == 204 ]]; then
-      info "C1 cleanup: deleted TheHive test alert $id (sourceRef $TEST_ALERT_ID)"
+      info "C1 cleanup: deleted TheHive test alert $id (sourceRef $alert)"
     else
       warn "C1 cleanup: deleting TheHive test alert $id returned HTTP $(http_code "$r"); delete it by hand"
     fi
@@ -184,6 +190,119 @@ check_C1() {
     sleep 3
   done
   fail "$c: no recv-wazuh-alert execution with alert $TEST_ALERT_ID within ${ALERT_TIMEOUT}s (see /var/ossec/logs/integrations.log in the manager)"
+}
+
+# C1-RETRY (opt-in, X-10, D51): C1's retries end to end. Not in the default
+# run, because it stops and starts the n8n container. Tests the contract
+# across the real manager, integratord and n8n; the Wazuh owner's
+# nodes/core/wazuh/tests/c1-retry.sh tests custom-n8n.py's retry rules against
+# a stub server. Steps: stop n8n; fire C1's test event (nodes/lab/trigger.sh);
+# once the alert is in the manager's alerts.json (so integratord has it),
+# start n8n; then within C1R_TIMEOUT: exactly one recv-wazuh-alert execution
+# with that alert id, exactly one TheHive alert with it as sourceRef (source
+# asox-test, from pb-generic), and "alert <id>: delivered on try N" (N > 1)
+# in integrations.log. Cleans up like C1. n8n is started again whatever
+# happens (EXIT trap). SKIP while custom-n8n.py's fast-fail mark is fresh:
+# the alert would get one try only.
+C1R_TIMEOUT=${C1R_TIMEOUT:-120}
+C1R_MARK=/var/ossec/var/run/custom-n8n.down
+C1R_LOG=/var/ossec/logs/integrations.log
+C1R_FAST_FAIL=300   # custom-n8n.py FAST_FAIL_SECONDS
+C1R_N8N="" C1R_STOPPED=""
+c1r_n8n_start() {
+  [[ -n $C1R_STOPPED ]] || return 0
+  C1R_STOPPED=""
+  docker start "$C1R_N8N" >/dev/null 2>&1 || warn "C1-RETRY: could not start $C1R_N8N; start it by hand (scripts/soc.sh up core)"
+}
+# recv-wazuh-alert executions whose data contains <alert id>; empty while
+# n8n's API doesn't answer.
+c1r_executions() {
+  n8n_api GET "/executions?workflowId=$1&limit=100&includeData=true" 2>/dev/null \
+    | jq -r --arg a "$2" '[.data[]? | select(tostring | contains($a)) | .id] | join(" ")' 2>/dev/null || true
+}
+c1r_thehive_alerts() {
+  local q r
+  q=$(jq -nc --arg r "$1" '{query: [{_name: "listAlert"}, {_name: "filter", _field: "sourceRef", _value: $r}]}')
+  r=$(c1_thehive "$(core_env THEHIVE_N8N_API_KEY)" POST /api/v1/query "$q")
+  [[ $(http_code "$r") == 200 ]] || return 0
+  http_body "$r" | jq -r '[.[]? | select(.source == "asox-test") | ._id] | join(" ")'
+}
+check_C1-RETRY() {
+  local c="C1-RETRY Wazuh -> n8n retries" manager mark retries event alert="" line="" t0 t_up \
+    deadline execs="" th="" tries="" n_e n_t
+  manager="$TOPO_SOC_INSTANCE-core-wazuh-manager-1"
+  C1R_N8N="$TOPO_SOC_INSTANCE-core-n8n-1"
+  if [[ $(docker inspect -f '{{.State.Running}}' "$manager" 2>/dev/null || true) != true ]]; then
+    fail "$c: manager container $manager is not running (scripts/soc.sh up core)"; return
+  fi
+  if [[ $(docker inspect -f '{{.State.Running}}' "$C1R_N8N" 2>/dev/null || true) != true ]]; then
+    fail "$c: n8n container $C1R_N8N is not running (scripts/soc.sh up core)"; return
+  fi
+  n8n_api_ok || { fail "$c: n8n API not reachable with N8N_API_KEY (run scripts/bootstrap.sh core)"; return; }
+  local wf_id
+  wf_id=$(n8n_workflow_id_by_name recv-wazuh-alert)
+  [[ -n $wf_id ]] || { fail "$c: workflow recv-wazuh-alert not found in n8n"; return; }
+  # Only the <retries> value; the integration block also holds the token.
+  retries=$(docker exec "$manager" sed -n '/<name>custom-n8n</,/<\/integration>/s/.*<retries>\([0-9]*\)<\/retries>.*/\1/p' /var/ossec/etc/ossec.conf 2>/dev/null | head -n 1 || true)
+  if [[ -z $retries || $retries == 0 ]]; then
+    fail "$c: the custom-n8n integration has no <retries> in the manager's ossec.conf (20-n8n-integration.sh, X-10)"; return
+  fi
+  mark=$(docker exec "$manager" sh -c "[ -f $C1R_MARK ] && echo \$(( \$(date +%s) - \$(stat -c %Y $C1R_MARK) ))" 2>/dev/null || true)
+  if [[ -n $mark ]] && (( mark < C1R_FAST_FAIL )); then
+    skip "$c: custom-n8n.py's fast-fail mark is ${mark}s old (one try per alert for ${C1R_FAST_FAIL}s after a failed chain); run again in $(( C1R_FAST_FAIL - mark ))s"
+    return
+  fi
+
+  t0=$SECONDS
+  C1R_STOPPED=1
+  if ! docker stop "$C1R_N8N" >/dev/null 2>&1; then
+    C1R_STOPPED=""; fail "$c: could not stop $C1R_N8N"; return
+  fi
+  if ! event=$("$REPO_ROOT/nodes/lab/trigger.sh" 2>/dev/null); then
+    c1r_n8n_start; fail "$c: could not fire the test event (is the lab node running?)"; return
+  fi
+  # The alert in alerts.json means integratord has it and its first try fails.
+  deadline=$(( SECONDS + 30 ))
+  while (( SECONDS < deadline )); do
+    alert=$(docker exec "$manager" grep -F "$event" /var/ossec/logs/alerts/alerts.json 2>/dev/null \
+      | jq -r 'select(.rule.id == "100100") | .id' 2>/dev/null | tail -n 1 || true)
+    [[ -n $alert ]] && break
+    sleep 1
+  done
+  t_up=$SECONDS
+  c1r_n8n_start
+  [[ -n $alert ]] || { fail "$c: test event $event not in the manager's alerts.json within 30s"; return; }
+  info "$c: n8n stopped $(( t_up - t0 ))s; alert $alert written while it was down; n8n started"
+
+  # Until the delivery is logged and n8n and TheHive show it.
+  deadline=$(( t_up + C1R_TIMEOUT ))
+  while (( SECONDS < deadline )); do
+    [[ -z $line ]] && line=$(docker exec "$manager" grep -F "alert $alert:" "$C1R_LOG" 2>/dev/null | tail -n 1 || true)
+    if [[ -n $line && $line != *'delivered'* ]]; then
+      break   # a final failure: no delivery will follow
+    fi
+    if [[ -n $line ]]; then
+      execs=$(c1r_executions "$wf_id" "$alert")
+      th=$(c1r_thehive_alerts "$alert")
+      [[ -n $execs && -n $th ]] && break
+    fi
+    sleep 3
+  done
+  tries=$(sed -n 's/.*delivered on try \([0-9]*\).*/\1/p' <<<"$line")
+  read -r -a n_e <<<"$execs"; read -r -a n_t <<<"$th"
+  if [[ -z $line ]]; then
+    fail "$c: no integrations.log line for alert $alert within ${C1R_TIMEOUT}s after n8n's start"
+  elif [[ -z $tries ]]; then
+    line=${line#* custom-n8n: }
+    fail "$c: no delivery on a retry: ${line:0:300}"
+  elif (( tries < 2 )); then
+    fail "$c: alert $alert delivered on try $tries, expected a retry (n8n was down)"
+  elif (( ${#n_e[@]} != 1 || ${#n_t[@]} != 1 )); then
+    fail "$c: alert $alert delivered on try $tries, but ${#n_e[@]} recv-wazuh-alert execution(s) (${execs:-none}) and ${#n_t[@]} TheHive alert(s) (${th:-none}); expected one each"
+  else
+    pass "$c: alert $alert delivered on try $tries, $(( SECONDS - t_up ))s after n8n's start ($(( SECONDS - t0 ))s after the stop); one recv-wazuh-alert execution (${n_e[0]}), one TheHive alert (${n_t[0]})"
+  fi
+  c1_thehive_cleanup "$alert"
 }
 
 check_C2() {
@@ -710,7 +829,7 @@ check_E2E() {
 }
 
 # Never leave a test object behind, even if the script stops early.
-trap 'thehive_test_alert_delete; c11_doc_delete; e2e_cleanup' EXIT
+trap 'c1r_n8n_start; thehive_test_alert_delete; c11_doc_delete; e2e_cleanup' EXIT
 
 check_C8() {
   local auth health body resp
@@ -734,7 +853,7 @@ check_C8() {
   fi
 }
 
-if [[ ! -f $CORE_ENV && " ${CONTRACTS[*]} " =~ \ (C([123468]|1[014])|E2E)\  ]]; then
+if [[ ! -f $CORE_ENV && " ${CONTRACTS[*]} " =~ \ (C([123468]|1[014])|E2E|C1-RETRY)\  ]]; then
   die "nodes/core/.env not found; run this on the core machine after scripts/soc.sh init"
 fi
 echo "== Integration contracts (${CONTRACTS[*]})"
