@@ -1,0 +1,70 @@
+{
+  "timestamp": "2026-10-20T18:26:30.672+0000",
+  "rule": {
+    "level": 10,
+    "description": "ASOX: system cron job added or changed: /etc/cron.d/asox-tamper-2cb38505",
+    "id": "100302",
+    "mitre": {
+      "id": [
+        "T1053.003"
+      ],
+      "tactic": [
+        "Execution",
+        "Persistence",
+        "Privilege Escalation"
+      ],
+      "technique": [
+        "Cron"
+      ]
+    },
+    "firedtimes": 2,
+    "mail": true,
+    "groups": [
+      "asox",
+      "linux",
+      "syscheck"
+    ]
+  },
+  "agent": {
+    "id": "002",
+    "name": "lab-agent",
+    "ip": "172.18.0.7"
+  },
+  "manager": {
+    "name": "wazuh-manager"
+  },
+  "id": "1792520790.2349",
+  "full_log": "File '/etc/cron.d/asox-tamper-2cb38505' modified\nMode: realtime\nChanged attributes: size,mtime,md5,sha1,sha256\nSize changed from '76' to '157'\nOld modification time was: '1792520787', now it is '1792520790'\nOld md5sum was: 'b257e96c19162dda7901b68557019b18'\nNew md5sum is : '6067d7a1851c54f5c7dead1cbeea3589'\nOld sha1sum was: '16670c88770e5ce7626168c0ca42123ecf2fa831'\nNew sha1sum is : '8a284b86c936dfe023e28fa03d3fa7da31597f87'\nOld sha256sum was: '0a55f49fffcdfe3257d3c900b588f3c3c4bd66fe4cb133cdca1a3134d8d4fe5b'\nNew sha256sum is : 'a160e07e3ceb306a991874b408109d729db2616ca098c7939bab727efa44d1bc'\n",
+  "syscheck": {
+    "path": "/etc/cron.d/asox-tamper-2cb38505",
+    "mode": "realtime",
+    "size_before": "76",
+    "size_after": "157",
+    "perm_after": "rw-r--r--",
+    "uid_after": "0",
+    "gid_after": "0",
+    "md5_before": "b257e96c19162dda7901b68557019b18",
+    "md5_after": "6067d7a1851c54f5c7dead1cbeea3589",
+    "sha1_before": "16670c88770e5ce7626168c0ca42123ecf2fa831",
+    "sha1_after": "8a284b86c936dfe023e28fa03d3fa7da31597f87",
+    "sha256_before": "0a55f49fffcdfe3257d3c900b588f3c3c4bd66fe4cb133cdca1a3134d8d4fe5b",
+    "sha256_after": "a160e07e3ceb306a991874b408109d729db2616ca098c7939bab727efa44d1bc",
+    "uname_after": "root",
+    "gname_after": "root",
+    "mtime_before": "2026-10-20T18:26:27",
+    "mtime_after": "2026-10-20T18:26:30",
+    "inode_after": 361526,
+    "changed_attributes": [
+      "size",
+      "mtime",
+      "md5",
+      "sha1",
+      "sha256"
+    ],
+    "event": "modified"
+  },
+  "decoder": {
+    "name": "syscheck_integrity_changed"
+  },
+  "location": "syscheck"
+}
