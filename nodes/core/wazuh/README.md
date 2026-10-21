@@ -253,7 +253,14 @@ OPNsense sends its logs as syslog to the manager's 514/udp; the sender must be i
 2. Firewall → Settings → Advanced: enable **"Log packets matched from the default block rules"**, or tick "Log" on the block rules you care about. Without it, scans leave no `filterlog` lines.
 3. On the core machine: `SYSLOG_ALLOWED_IPS=<OPNsense LAN IP>` in `topology.env`, then `./scripts/render-env.sh` and `./scripts/soc.sh up core`.
 4. Check: `docker logs <instance>-core-wazuh-manager-1 | grep "syslog 514"` lists the address, and a scan of the firewall from another machine (`nmap -sS <firewall IP>`) gives 103000 within a minute.
-5. Replace the sample lines in `tests/cases/1030-opnsense.cases` with real ones from the firewall (W4.1), and re-run `tests/run.sh`.
+5. Add real lines from the firewall to `tests/cases/1030-opnsense.cases` and re-run `tests/run.sh`.
+
+**Checked with a real OPNsense 26.7** (lab VM, 2026-10-21, W4.1; the lines are pinned at the end of `tests/cases/1030-opnsense.cases`):
+- Remote syslog arrives in BSD format as `<pri>Oct 21 04:58:19 OPNsense.internal filterlog[92549]: …`, and every line decodes with no change on our side. 26.x rules carry a UUID instead of an MD5 in the label field; the `pf` decoder doesn't mind. A scan of 17 ports gives 103000.
+- **SSH on the firewall:** OpenSSH 9.8+ logs as `sshd-session`, still decoded by `sshd`. A root login gives **100200 (level 10)**, and OPNsense's admin user *is* `root`, so every admin SSH login to the firewall raises one. Use a named admin account for SSH, or expect these alerts.
+- **Time zones:** `filterlog` and `sshd-session` stamp local time while `configd.py` and `cron` stamp UTC. Wazuh's `timestamp` is the time of reception, so this doesn't change alert times.
+- **No alerts from the noise:** `configd.py` ("action allowed … for user root", every 10 s while the dashboard is open), `dhclient`, `devd`, `cron`, `syslog-ng`, `ntpd`. A config save logs `config[pid]: config-event: new_config /conf/backup/config-….xml`, without the user, so no rule for it yet.
+- **Not captured yet:** web GUI login lines and SSH failures (103010–103012 still rest on the documented format).
 
 ## MISP IOCs as CDB lists (C14)
 

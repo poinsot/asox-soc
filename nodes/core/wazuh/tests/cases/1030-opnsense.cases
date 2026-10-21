@@ -1,6 +1,7 @@
 # Cases for rules/1030-opnsense.xml and decoders/1030-opnsense.xml.
 # Lines follow OPNsense's documented syslog formats (BSD/RFC 3164); replace
-# them with captures from the real firewall when it exists (W4.1).
+# them with captures from the real firewall when it exists (W4.1). Real
+# captures from OPNsense 26.7 are at the end of this file.
 
 case filterlog block is decoded by the built-in pf decoder
 expect rule=87701 level=5 groups=pfsense,firewall_block decoder=pf
@@ -56,3 +57,90 @@ log Oct  8 20:00:01 opnsense.home.arpa audit[23456]: /index.php: Successful logi
 case 18 blocks from one source: built-in 87702 without T1110 (1090-tuning)
 expect rule=87702 level=10 groups=pfsense,multiple_blocks
 repeat 18 Oct  8 20:00:01 opnsense.home.arpa filterlog[51327]: 84,,,02f4bab031b57d1e30553ce08e0ec131,vtnet0,match,block,in,4,0x0,,64,13567,0,DF,6,tcp,60,203.0.113.79,192.168.1.1,44322,22,0,S,1406233372,,64240,,mss
+
+# Real captures from OPNsense 26.7 (lab VM, 2026-10-21, W4.1): remote syslog,
+# BSD format, as received. LAN 192.168.1.0/24; the WAN em0 sat on the campus
+# network, whose NetBIOS broadcasts the default block rule logs.
+
+case real: blocked TCP SYN to the firewall (rule label is a UUID in 26.x)
+expect rule=87701 level=5 decoder=pf
+log Oct 21 04:58:19 OPNsense.internal filterlog[92549]: 67,,,c38a80f2-750c-404d-9a07-56ea188a4bcf,em1,match,block,in,4,0x0,,128,19051,0,DF,6,tcp,52,192.168.1.10,192.168.1.1,59928,1024,0,S,1621438441,,65535,,mss;nop;wscale;nop;nop;sackOK
+
+case real: 17 blocked ports from one LAN host is a port scan
+expect rule=103000 level=10
+log Oct 21 04:58:19 OPNsense.internal filterlog[92549]: 67,,,c38a80f2-750c-404d-9a07-56ea188a4bcf,em1,match,block,in,4,0x0,,128,19051,0,DF,6,tcp,52,192.168.1.10,192.168.1.1,59928,1024,0,S,1621438441,,65535,,mss;nop;wscale;nop;nop;sackOK
+log Oct 21 04:58:19 OPNsense.internal filterlog[92549]: 67,,,c38a80f2-750c-404d-9a07-56ea188a4bcf,em1,match,block,in,4,0x0,,128,19052,0,DF,6,tcp,52,192.168.1.10,192.168.1.1,59929,1025,0,S,1621438441,,65535,,mss;nop;wscale;nop;nop;sackOK
+log Oct 21 04:58:19 OPNsense.internal filterlog[92549]: 67,,,c38a80f2-750c-404d-9a07-56ea188a4bcf,em1,match,block,in,4,0x0,,128,19053,0,DF,6,tcp,52,192.168.1.10,192.168.1.1,59930,1026,0,S,1621438441,,65535,,mss;nop;wscale;nop;nop;sackOK
+log Oct 21 04:58:19 OPNsense.internal filterlog[92549]: 67,,,c38a80f2-750c-404d-9a07-56ea188a4bcf,em1,match,block,in,4,0x0,,128,19054,0,DF,6,tcp,52,192.168.1.10,192.168.1.1,59931,1027,0,S,1621438441,,65535,,mss;nop;wscale;nop;nop;sackOK
+log Oct 21 04:58:19 OPNsense.internal filterlog[92549]: 67,,,c38a80f2-750c-404d-9a07-56ea188a4bcf,em1,match,block,in,4,0x0,,128,19055,0,DF,6,tcp,52,192.168.1.10,192.168.1.1,59932,1028,0,S,1621438441,,65535,,mss;nop;wscale;nop;nop;sackOK
+log Oct 21 04:58:20 OPNsense.internal filterlog[92549]: 67,,,c38a80f2-750c-404d-9a07-56ea188a4bcf,em1,match,block,in,4,0x0,,128,19056,0,DF,6,tcp,52,192.168.1.10,192.168.1.1,59933,1029,0,S,1621438441,,65535,,mss;nop;wscale;nop;nop;sackOK
+log Oct 21 04:58:20 OPNsense.internal filterlog[92549]: 67,,,c38a80f2-750c-404d-9a07-56ea188a4bcf,em1,match,block,in,4,0x0,,128,19057,0,DF,6,tcp,52,192.168.1.10,192.168.1.1,59934,1030,0,S,1621438441,,65535,,mss;nop;wscale;nop;nop;sackOK
+log Oct 21 04:58:20 OPNsense.internal filterlog[92549]: 67,,,c38a80f2-750c-404d-9a07-56ea188a4bcf,em1,match,block,in,4,0x0,,128,19058,0,DF,6,tcp,52,192.168.1.10,192.168.1.1,59935,1031,0,S,1621438441,,65535,,mss;nop;wscale;nop;nop;sackOK
+log Oct 21 04:58:20 OPNsense.internal filterlog[92549]: 67,,,c38a80f2-750c-404d-9a07-56ea188a4bcf,em1,match,block,in,4,0x0,,128,19059,0,DF,6,tcp,52,192.168.1.10,192.168.1.1,59936,1032,0,S,1621438441,,65535,,mss;nop;wscale;nop;nop;sackOK
+log Oct 21 04:58:20 OPNsense.internal filterlog[92549]: 67,,,c38a80f2-750c-404d-9a07-56ea188a4bcf,em1,match,block,in,4,0x0,,128,19060,0,DF,6,tcp,52,192.168.1.10,192.168.1.1,59937,1033,0,S,1621438441,,65535,,mss;nop;wscale;nop;nop;sackOK
+log Oct 21 04:58:21 OPNsense.internal filterlog[92549]: 67,,,c38a80f2-750c-404d-9a07-56ea188a4bcf,em1,match,block,in,4,0x0,,128,19061,0,DF,6,tcp,52,192.168.1.10,192.168.1.1,59938,1034,0,S,1621438441,,65535,,mss;nop;wscale;nop;nop;sackOK
+log Oct 21 04:58:21 OPNsense.internal filterlog[92549]: 67,,,c38a80f2-750c-404d-9a07-56ea188a4bcf,em1,match,block,in,4,0x0,,128,19062,0,DF,6,tcp,52,192.168.1.10,192.168.1.1,59939,1035,0,S,1621438441,,65535,,mss;nop;wscale;nop;nop;sackOK
+log Oct 21 04:58:21 OPNsense.internal filterlog[92549]: 67,,,c38a80f2-750c-404d-9a07-56ea188a4bcf,em1,match,block,in,4,0x0,,128,19063,0,DF,6,tcp,52,192.168.1.10,192.168.1.1,59940,1036,0,S,1621438441,,65535,,mss;nop;wscale;nop;nop;sackOK
+log Oct 21 04:58:21 OPNsense.internal filterlog[92549]: 67,,,c38a80f2-750c-404d-9a07-56ea188a4bcf,em1,match,block,in,4,0x0,,128,19064,0,DF,6,tcp,52,192.168.1.10,192.168.1.1,59941,1037,0,S,1621438441,,65535,,mss;nop;wscale;nop;nop;sackOK
+log Oct 21 04:58:21 OPNsense.internal filterlog[92549]: 67,,,c38a80f2-750c-404d-9a07-56ea188a4bcf,em1,match,block,in,4,0x0,,128,19065,0,DF,6,tcp,52,192.168.1.10,192.168.1.1,59942,1038,0,S,1621438441,,65535,,mss;nop;wscale;nop;nop;sackOK
+log Oct 21 04:58:22 OPNsense.internal filterlog[92549]: 67,,,c38a80f2-750c-404d-9a07-56ea188a4bcf,em1,match,block,in,4,0x0,,128,19066,0,DF,6,tcp,52,192.168.1.10,192.168.1.1,59943,1039,0,S,1621438441,,65535,,mss;nop;wscale;nop;nop;sackOK
+log Oct 21 04:58:22 OPNsense.internal filterlog[92549]: 67,,,c38a80f2-750c-404d-9a07-56ea188a4bcf,em1,match,block,in,4,0x0,,128,19067,0,DF,6,tcp,52,192.168.1.10,192.168.1.1,59944,1040,0,S,1621438441,,65535,,mss;nop;wscale;nop;nop;sackOK
+
+case real: logged pass (LAN to the GUI) is no alert
+expect rule=87700 level=0
+log Oct 21 04:59:00 OPNsense.internal filterlog[92549]: 66,,,f2da8583358110ca6d350e31d4086a82,em1,match,pass,in,4,0x0,,128,19068,0,DF,6,tcp,52,192.168.1.10,192.168.1.1,60799,443,0,S,4160037172,,65535,,mss;nop;wscale;nop;nop;sackOK
+
+case real: IPv6 ICMP pass is no alert
+expect rule=87700 level=0
+log Oct 21 04:57:57 OPNsense.internal filterlog[92549]: 10,,,7e259edbd0efcfd23dd08a705f53ebc8,em0,match,pass,in,6,0x00,0x00000,255,ipv6-icmp,58,32,fe80::ffa3:b7b8:ad3b:6a16,ff02::1,datalength=32
+
+case real: 20 NetBIOS broadcasts blocked on the WAN in 20 s
+expect rule=87701
+log Oct 21 04:58:00 OPNsense.internal filterlog[92549]: 3,,,ecd3a310894625657c6591b80daa956a,em0,match,block,in,4,0x0,,128,58221,0,none,17,udp,96,10.22.161.191,10.22.175.255,137,137,76
+log Oct 21 04:58:01 OPNsense.internal filterlog[92549]: 3,,,ecd3a310894625657c6591b80daa956a,em0,match,block,in,4,0x0,,128,58222,0,none,17,udp,96,10.22.161.191,10.22.175.255,137,137,76
+log Oct 21 04:58:02 OPNsense.internal filterlog[92549]: 3,,,ecd3a310894625657c6591b80daa956a,em0,match,block,in,4,0x0,,128,58223,0,none,17,udp,96,10.22.161.191,10.22.175.255,137,137,76
+log Oct 21 04:58:03 OPNsense.internal filterlog[92549]: 3,,,ecd3a310894625657c6591b80daa956a,em0,match,block,in,4,0x0,,128,58224,0,none,17,udp,96,10.22.161.191,10.22.175.255,137,137,76
+log Oct 21 04:58:04 OPNsense.internal filterlog[92549]: 3,,,ecd3a310894625657c6591b80daa956a,em0,match,block,in,4,0x0,,128,58225,0,none,17,udp,96,10.22.161.191,10.22.175.255,137,137,76
+log Oct 21 04:58:05 OPNsense.internal filterlog[92549]: 3,,,ecd3a310894625657c6591b80daa956a,em0,match,block,in,4,0x0,,128,58226,0,none,17,udp,96,10.22.161.191,10.22.175.255,137,137,76
+log Oct 21 04:58:06 OPNsense.internal filterlog[92549]: 3,,,ecd3a310894625657c6591b80daa956a,em0,match,block,in,4,0x0,,128,58227,0,none,17,udp,96,10.22.161.191,10.22.175.255,137,137,76
+log Oct 21 04:58:07 OPNsense.internal filterlog[92549]: 3,,,ecd3a310894625657c6591b80daa956a,em0,match,block,in,4,0x0,,128,58228,0,none,17,udp,96,10.22.161.191,10.22.175.255,137,137,76
+log Oct 21 04:58:08 OPNsense.internal filterlog[92549]: 3,,,ecd3a310894625657c6591b80daa956a,em0,match,block,in,4,0x0,,128,58229,0,none,17,udp,96,10.22.161.191,10.22.175.255,137,137,76
+log Oct 21 04:58:09 OPNsense.internal filterlog[92549]: 3,,,ecd3a310894625657c6591b80daa956a,em0,match,block,in,4,0x0,,128,58230,0,none,17,udp,96,10.22.161.191,10.22.175.255,137,137,76
+log Oct 21 04:58:10 OPNsense.internal filterlog[92549]: 3,,,ecd3a310894625657c6591b80daa956a,em0,match,block,in,4,0x0,,128,58231,0,none,17,udp,96,10.22.161.191,10.22.175.255,137,137,76
+log Oct 21 04:58:11 OPNsense.internal filterlog[92549]: 3,,,ecd3a310894625657c6591b80daa956a,em0,match,block,in,4,0x0,,128,58232,0,none,17,udp,96,10.22.161.191,10.22.175.255,137,137,76
+log Oct 21 04:58:12 OPNsense.internal filterlog[92549]: 3,,,ecd3a310894625657c6591b80daa956a,em0,match,block,in,4,0x0,,128,58233,0,none,17,udp,96,10.22.161.191,10.22.175.255,137,137,76
+log Oct 21 04:58:13 OPNsense.internal filterlog[92549]: 3,,,ecd3a310894625657c6591b80daa956a,em0,match,block,in,4,0x0,,128,58234,0,none,17,udp,96,10.22.161.191,10.22.175.255,137,137,76
+log Oct 21 04:58:14 OPNsense.internal filterlog[92549]: 3,,,ecd3a310894625657c6591b80daa956a,em0,match,block,in,4,0x0,,128,58235,0,none,17,udp,96,10.22.161.191,10.22.175.255,137,137,76
+log Oct 21 04:58:15 OPNsense.internal filterlog[92549]: 3,,,ecd3a310894625657c6591b80daa956a,em0,match,block,in,4,0x0,,128,58236,0,none,17,udp,96,10.22.161.191,10.22.175.255,137,137,76
+log Oct 21 04:58:16 OPNsense.internal filterlog[92549]: 3,,,ecd3a310894625657c6591b80daa956a,em0,match,block,in,4,0x0,,128,58237,0,none,17,udp,96,10.22.161.191,10.22.175.255,137,137,76
+log Oct 21 04:58:17 OPNsense.internal filterlog[92549]: 3,,,ecd3a310894625657c6591b80daa956a,em0,match,block,in,4,0x0,,128,58238,0,none,17,udp,96,10.22.161.191,10.22.175.255,137,137,76
+log Oct 21 04:58:18 OPNsense.internal filterlog[92549]: 3,,,ecd3a310894625657c6591b80daa956a,em0,match,block,in,4,0x0,,128,58239,0,none,17,udp,96,10.22.161.191,10.22.175.255,137,137,76
+log Oct 21 04:58:19 OPNsense.internal filterlog[92549]: 3,,,ecd3a310894625657c6591b80daa956a,em0,match,block,in,4,0x0,,128,58240,0,none,17,udp,96,10.22.161.191,10.22.175.255,137,137,76
+
+case real: SSH login as root to the firewall (OpenSSH 9.8+ logs as sshd-session)
+expect rule=100200 level=10 decoder=sshd
+log Oct 21 05:01:02 OPNsense.internal sshd-session[17682]: Accepted password for root from 192.168.1.10 port 62468 ssh2
+
+case real: SSH login as root by keyboard-interactive
+expect rule=100200 level=10 decoder=sshd
+log Oct 21 05:00:21 OPNsense.internal sshd-session[49256]: Accepted keyboard-interactive/pam for root from 192.168.1.10 port 62467 ssh2
+
+case real noise: configd.py is no alert
+expect rule=none
+log Oct 21 11:01:00 OPNsense.internal configd.py[428]: action allowed syslog.archive for user root
+
+case real noise: dhclient is no alert
+expect rule=none
+log Oct 21 11:00:43 OPNsense.internal dhclient[43858]: No DHCPOFFERS received.
+
+case real noise: devd is no alert
+expect rule=none
+log Oct 21 11:00:43 OPNsense.internal devd[688]: Processing event '!system=IFNET subsystem=em0 type=ADDR_ADD address=10.0.2.15'
+
+case real noise: /usr/sbin/cron is no alert
+expect rule=none
+log Oct 21 11:01:00 OPNsense.internal /usr/sbin/cron[88165]: (root) CMD (/usr/libexec/atrun)
+
+case real noise: syslog-ng is no alert
+expect rule=none
+log Oct 21 11:01:36 OPNsense.internal syslog-ng[35468]: Child program exited, restarting; cmdline='/usr/local/sbin/configctl -e -t 0.5 system event config_changed', status='256'
