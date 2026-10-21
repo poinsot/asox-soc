@@ -18,7 +18,11 @@
 #          TheHive admin password, SOC organisation, analyst, API user for
 #          n8n (C3) with its key, the Cortex connector (C5) and the webhook
 #          to n8n (C4); the MISP analyzer (C7) once intel has created its
-#          MISP key
+#          MISP key; then the owners' configuration as code:
+#          nodes/cases/cortex/analyzers/analyzers.sh apply (online
+#          analyzers, keys from its git-ignored analyzer-keys.env) and
+#          nodes/cases/thehive/scripts/thehive-import.sh (custom fields,
+#          observable types, case templates)
 #   intel: MISP admin API key, read-only user for Cortex with its key (C7),
 #          the seed event (nodes/intel/misp/seed/seed-event.json), then
 #          nodes/intel/misp/misp-config.sh apply: warninglists with the size
@@ -580,6 +584,7 @@ bootstrap_thehive() {
   pass "TheHive: Cortex connector -> $(cases_env CORTEX_URL)"
   bootstrap_thehive_webhook
   thehive_license_check
+  bootstrap_thehive_entities
 }
 
 # Webhook to n8n (C4). TheHive 5 splits it in two:
@@ -621,10 +626,52 @@ bootstrap_thehive_webhook() {
   pass "TheHive: webhook -> $url (every event of organisation $(cases_env THEHIVE_ORG); temporary key of $login revoked)"
 }
 
+# Custom fields, observable types and case templates are the TheHive owner's
+# configuration as code: nodes/cases/thehive/entities/, loaded by their own
+# idempotent script, which creates and updates by name and deletes nothing
+# (a case template TheHive refuses to update is recreated). It makes and
+# revokes its own temporary key for THEHIVE_BOOTSTRAP_USER, so it runs after
+# the webhook rule has revoked bootstrap's. Without them an alert with a
+# `user-account` observable gets HTTP 404 (handoff gotcha "TheHive alerts").
+THEHIVE_IMPORT_SCRIPT="$REPO_ROOT/nodes/cases/thehive/scripts/thehive-import.sh"
+bootstrap_thehive_entities() {
+  if [[ ! -f $THEHIVE_IMPORT_SCRIPT ]]; then
+    fail "TheHive: nodes/cases/thehive/scripts/thehive-import.sh not found"
+    return 0
+  fi
+  if bash "$THEHIVE_IMPORT_SCRIPT" 2>&1 \
+       | sed -e '/^$/d' -e '/^All checks passed\.$/d' -e '/^[0-9]* check(s) failed\.$/d'; then
+    pass "TheHive: nodes/cases/thehive/scripts/thehive-import.sh (custom fields, observable types, case templates)"
+  else
+    fail "TheHive: nodes/cases/thehive/scripts/thehive-import.sh failed (its FAIL or ERROR lines are above)"
+  fi
+}
+
+# The online analyzers are the Cortex + MISP owner's configuration as code:
+# nodes/cases/cortex/analyzers/analyzers.json, applied by their own idempotent
+# script as Cortex's org admin. Keys come from the git-ignored
+# analyzer-keys.env on this machine: a missing file is a WARN and a blank key
+# a SKIP that leaves the analyzer's configuration in Cortex as it is. MISP_2_1
+# stays bootstrap_misp_analyzer's (C7). No return 1: TheHive's part still runs.
+CORTEX_ANALYZERS_SCRIPT="$REPO_ROOT/nodes/cases/cortex/analyzers/analyzers.sh"
+bootstrap_cortex_analyzers() {
+  if [[ ! -f $CORTEX_ANALYZERS_SCRIPT ]]; then
+    fail "Cortex: nodes/cases/cortex/analyzers/analyzers.sh not found"
+    return 0
+  fi
+  if bash "$CORTEX_ANALYZERS_SCRIPT" apply 2>&1 \
+       | sed -e '/^$/d' -e '/^All checks passed\.$/d' -e '/^[0-9]* check(s) failed\.$/d'; then
+    pass "Cortex: nodes/cases/cortex/analyzers/analyzers.sh apply (online analyzers from analyzers.json)"
+  else
+    fail "Cortex: nodes/cases/cortex/analyzers/analyzers.sh apply failed (its FAIL or ERROR lines are above)"
+  fi
+}
+
 bootstrap_cases() {
   echo "== bootstrap cases"
   bootstrap_cortex
   bootstrap_misp_analyzer
+  bootstrap_cortex_analyzers
   bootstrap_thehive
 }
 

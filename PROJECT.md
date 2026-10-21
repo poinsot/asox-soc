@@ -271,6 +271,7 @@ Each component section lists its long-term **role** and what Phase 1 delivers as
   - Bootstrap creates the SOC organization, an analyst user (profile `org-admin`, for the owner's UI work), an API user for n8n (C3), and a Service account that `bootstrap.sh` uses for organisation settings, with an API key that exists only while it runs (D42).
   - Webhook to n8n configured (C4): a global endpoint and a notification rule in the SOC organisation for every event (D43).
   - Cortex connector configured (C5).
+  - Since 2026-10-21 `bootstrap.sh cases` ends with the owner's `nodes/cases/thehive/scripts/thehive-import.sh`: the custom fields, observable types and case templates of `entities/` are created or updated by name, never deleted (`docs/decisions.md` A102).
   - **License (D41):** a new instance runs a 14-day Platinum trial, then becomes read-only until a license is activated. Each person who runs the `cases` node requests a free **Community license** (2 users, 1 organisation, 1 Cortex server, 1 MISP server; Service accounts don't count) and activates it with a challenge from their instance. The key is bound to TheHive's **instance ID**, which lives in TheHive's database (Cassandra), not in the machine: `soc.sh reset cases` or a fresh `init` creates a new instance (new trial, license activated again); `restore.sh cases` brings back the backup's instance and license. `soc.sh info` shows the license; `bootstrap.sh` warns when it is read-only or a trial has 3 days or less left. Procedure: `nodes/cases/thehive/README.md`; details in `docs/decisions.md` A53, A57.
 - **How it uses storage:** Cassandra is the primary database. Elasticsearch is the search index, which can be rebuilt from Cassandra. The Elasticsearch instance is shared with Cortex, which uses separate indexes.
 
@@ -291,6 +292,7 @@ Each component section lists its long-term **role** and what Phase 1 delivers as
   - **Network:** analyzer containers join `CORTEX_ANALYZER_NETWORK`, applied by Cortex's `docker.container.networkMode` setting: `soc-net` in single-host mode (MISP reached by alias), the default `bridge` in distributed mode (MISP through its published port). Each analyzer container gets a memory limit without swap (`docker.container.memory`).
   - **Catalog and images:** Cortex loads analyzer definitions from the official online catalog (`https://catalogs.download.strangebee.com/latest/json/analyzers.json` by default in 4.1). `bootstrap.sh` pre-pulls the enabled analyzer images.
   - **Phase 1 analyzers:** the **MISP analyzer** only (C7). Others are the owner's backlog.
+  - **Online analyzers (since 2026-10-21):** `bootstrap.sh cases` runs the owner's `nodes/cases/cortex/analyzers/analyzers.sh apply` after the MISP analyzer: every analyzer of `analyzers.json` whose keys are in the git-ignored `analyzer-keys.env` on the cases machine is enabled or updated; a missing file is a WARN and a blank key a SKIP that leaves Cortex's existing configuration alone; `MISP_2_1` stays bootstrap's own (`docs/decisions.md` A102).
 - **MISP baseline:**
   - Official `misp-docker` images: misp-core (MISP application), misp-nginx (the HTTPS front end on 8443, published as 9443, which `MISP_URL` points to; D28), misp-modules, MariaDB and Redis (Valkey image). Not deployed: `misp-docker`'s mail relay (MISP can't send e-mail in the lab) and the optional misp-guard.
   - Bootstrap creates the SOC org (the site admin's organisation), the admin API key, a **Read Only** user for Cortex with its API key (copied to the `cases` node as `MISP_CORTEX_API_KEY`), and enables the MISP analyzer in Cortex (certificate check off) with its image pulled.
@@ -350,10 +352,10 @@ The baseline is built on a **32 GB host**, but teammates may develop on smaller 
 
 | Profile | Intended hosts | WSL memory | Full stack (sum of limits) |
 |---|---|---|---|
-| `standard` | 16 GB+ (the baseline build machine: 32 GB) | 10–16 GB | ~13.2 GB |
+| `standard` | 16 GB+ (the baseline build machine: 32 GB) | 10–16 GB | ~13.25 GB |
 | `low` | 8 GB | 6 GB (+8 GB swap) | ~9.95 GB: `core`, `cases`, `cases-intel` fit in 6 GB (D39); `core-cases` is best effort (it runs, close to the limit); `full` doesn't fit (step 1.7) |
 
-**How limits are sized (D40):** each container's `mem_limit` is its measured anonymous memory peak × 1.15 + 64 MiB for page cache, rounded up to 50 MiB. Measure through a realistic cycle (fresh start, bootstrap, some API activity, idle) from the cgroup's `memory.stat` (`anon`, `file`), not from `docker stats`, which includes reclaimable cache. Swap is capped at the limit (`memswap_limit` = `mem_limit`), so an undersized limit fails visibly (OOM kill, or a Java/Node "out of memory" in the logs) instead of swapping while healthchecks stay green. Measurements: `docs/decisions.md` A56, A63, A69 and `docs/mem-report-*.md` (`scripts/mem-report.sh`). Real usage is below the limits: e.g. the `cases` node uses ~5.4 GB (`standard`) and ~3.1 GB (`low`); `cases-intel` on `low` ~3.9 GB of container memory.
+**How limits are sized (D40):** each container's `mem_limit` is its measured anonymous memory peak × 1.15 + 64 MiB for page cache, rounded up to 50 MiB. Measure through a realistic cycle (fresh start, bootstrap, some API activity, idle) from the cgroup's `memory.stat` (`anon`, `file`), not from `docker stats`, which includes reclaimable cache. Swap is capped at the limit (`memswap_limit` = `mem_limit`), so an undersized limit fails visibly (OOM kill, or a Java/Node "out of memory" in the logs) instead of swapping while healthchecks stay green. Measurements: `docs/decisions.md` A56, A63, A69, A103 and `docs/mem-report-*.md` (`scripts/mem-report.sh`). Real usage is below the limits: e.g. the `cases` node uses ~5.4 GB (`standard`) and ~3.1 GB (`low`); `cases-intel` on `low` ~3.9 GB of container memory.
 
 | Node | Service | `standard` heap | `standard` limit | `low` heap | `low` limit |
 |---|---|---|---|---|---|
@@ -365,9 +367,9 @@ The baseline is built on a **32 GB host**, but teammates may develop on smaller 
 | cases | cassandra | 1 GB | 1.6 GB | 512 MB | 1.0 GB |
 | cases | elasticsearch (shared) | 1 GB | 2.4 GB | 512 MB | 1.45 GB |
 | cases | thehive | 1 GB | 1.9 GB | 512 MB | 1.3 GB |
-| cases | cortex | 512 MB | 0.65 GB | 256 MB | 0.55 GB |
+| cases | cortex | 512 MB | 0.7 GB | 256 MB | 0.55 GB |
 | cases | analyzer jobs | transient | +0.25 GB per job | transient | +0.25 GB per job |
-| | **cases subtotal** | | **6.55 GB** | | **4.3 GB** |
+| | **cases subtotal** | | **6.6 GB** | | **4.3 GB** |
 | intel | misp-core | — | 0.9 GB | — | 0.9 GB |
 | intel | mariadb | 256 MB buffer pool | 0.55 GB | 128 MB buffer pool | 0.4 GB |
 | intel | redis | — | 0.1 GB | — | 0.1 GB |
@@ -377,9 +379,9 @@ The baseline is built on a **32 GB host**, but teammates may develop on smaller 
 | lab | wazuh-agent | — | 0.1 GB | — | 0.1 GB |
 | lab | suricata (D49) | — | 0.75 GB | — | 0.75 GB |
 | | **lab subtotal** | | **0.85 GB** | | **0.85 GB** |
-| | **Total** (analyzer jobs not included) | | **~13.2 GB** | | **~9.95 GB** |
+| | **Total** (analyzer jobs not included) | | **~13.25 GB** | | **~9.95 GB** |
 
-On the 32 GB build machine with WSL at 16 GB, the full stack runs in `standard` with ~2.8 GB of headroom (more in practice, since usage is below the limits) for Claude Code, build tools and analyzer jobs. On a 16 GB host (WSL 10 GB), `full` in `standard` exceeds WSL memory if every service reaches its limit; use a dev mode there, or `low`. Every container sets `mem_limit` and `memswap_limit`.
+On the 32 GB build machine with WSL at 16 GB, the full stack runs in `standard` with ~2.75 GB of headroom (more in practice, since usage is below the limits) for Claude Code, build tools and analyzer jobs. On a 16 GB host (WSL 10 GB), `full` in `standard` exceeds WSL memory if every service reaches its limit; use a dev mode there, or `low`. Every container sets `mem_limit` and `memswap_limit`.
 
 ### 8.1 Run modes
 
@@ -403,10 +405,10 @@ On the 32 GB build machine, `full` can stay running throughout the build. Run mo
 | Mode | Nodes | Sum of limits (standard / low) | Typical use |
 |---|---|---|---|
 | `core` | core, lab | 4.6 / 3.75 GB | Wazuh and Grafana development |
-| `cases` | cases | 6.55 / 4.3 GB | TheHive development (C7 unavailable) |
-| `cases-intel` | cases, intel | 8.6 / 6.2 GB (measured use on `low`: ~3.9 GB) | Cortex + MISP development; TheHive with enrichment |
-| `core-cases` | core, cases, lab | 11.15 / 8.05 GB (`low`: best effort) | n8n development against TheHive and Cortex (C7 unavailable) |
-| `full` | all | ~13.2 / ~9.95 GB (`low`: doesn't fit 6 GB) | Contract checks, integration testing |
+| `cases` | cases | 6.6 / 4.3 GB | TheHive development (C7 unavailable) |
+| `cases-intel` | cases, intel | 8.65 / 6.2 GB (measured use on `low`: ~3.9 GB) | Cortex + MISP development; TheHive with enrichment |
+| `core-cases` | core, cases, lab | 11.2 / 8.05 GB (`low`: best effort) | n8n development against TheHive and Cortex (C7 unavailable) |
+| `full` | all | ~13.25 / ~9.95 GB (`low`: doesn't fit 6 GB) | Contract checks, integration testing |
 
 Measured usage is below these sums (the `cases` node alone: ~5.4 / ~3.1 GB; `cases-intel` on `low`: ~3.9 GB). A mode fits a WSL allocation when its measured usage plus WSL's own baseline does, not the sum of limits (D39, D40). Measured on `low` in a 6 GB WSL VM (step 1.7), whole VM including Docker, VS Code and Claude Code (~0.4 GB): `core` peaks at ~3.1 GB, `cases` at ~4.6 GB, `cases-intel` at ~5.3 GB (no container swap; ~0.15 GB of VM swap). `core` was not re-measured after n8n's `low` limit went from 650 to 800 MB on 2026-10-13 (`docs/decisions.md` A94): acceptance is measured usage, and the higher limit lets n8n use at most 0.15 GB more, so `core` peaks at ~3.3 GB at worst, inside 6 GB. **With Suricata (2026-10-14, R-07, `docs/decisions.md` A96):** `core` on `low` peaked at ~3.8 GB for the whole VM on the Wazuh owner's machine (WSL 8 GB, n8n at 800m, Suricata at 750m), so it fits 6 GB; the reference run in a 6 GB VM (`mem-report.sh`) is still to do. `core-cases` on `low` gets ~0.5 GB tighter with Suricata (best effort already). `core-cases` ran with every contract passing but ~0.35 GB swapped and ~0.2 GB available. `init full` on `low` pushed the VM into sustained memory pressure until it stopped responding, so on an 8 GB machine `full` is not an option: use a 16 GB+ machine or the shared instance.
 
@@ -638,8 +640,8 @@ At a **checkpoint** (every ~2 weeks, or when something works), follow rule 4 in 
 | **Wazuh** | `core` (~3.85 GB) | Files in `nodes/core/wazuh/` (no Wazuh dashboard) | Edit rule → restart manager → `nodes/lab/trigger.sh` → `wazuh-query.sh` or Grafana | C1, C2, C8, later C9 | n8n (alert fields playbooks rely on) |
 | **n8n (SOAR)** | `core-cases` (~10.4 GB; best effort on `low`, so on an 8 GB machine use the shared instance for integration work; the current n8n owner uses the 32 GB machine) | n8n UI `localhost:5678` (stub workflows and credentials pre-created) | Edit playbook → `nodes/lab/trigger.sh` → check execution and TheHive alert → `n8n-export.sh` | C1–C4, C6, later C9 | Wazuh (alert input), TheHive (alert/case format) |
 | **Grafana** | `core` (~3.85 GB) | Grafana UI `localhost:3000` (datasource and starter dashboard pre-provisioned; lab agent provides data) | Edit dashboard → `nodes/lab/trigger.sh` if more data is needed → `grafana-export.sh` | C8 | n8n and TheHive, later (case metrics such as response times) |
-| **TheHive** | `cases` (~6.55 GB) | TheHive UI `localhost:9000` (org, users and Cortex connector pre-created) | Configure → create test alerts via the API (Wazuh isn't running in this mode) → check alert and case flow | C3, C4, C5 | n8n (alert format), Cortex + MISP (analyzers shown to analysts) |
-| **Cortex + MISP** | `cases-intel` (~8.6 GB) | Cortex `localhost:9001` (MISP analyzer enabled); MISP `https://localhost:9443` (self-signed certificate warning is expected) | Add intel in MISP → run analyzers on test observables → check reports | C5, C6, C7 | Wazuh, later (MISP IOCs into Wazuh CDB lists) |
+| **TheHive** | `cases` (~6.6 GB) | TheHive UI `localhost:9000` (org, users and Cortex connector pre-created) | Configure → create test alerts via the API (Wazuh isn't running in this mode) → check alert and case flow | C3, C4, C5 | n8n (alert format), Cortex + MISP (analyzers shown to analysts) |
+| **Cortex + MISP** | `cases-intel` (~8.65 GB) | Cortex `localhost:9001` (MISP analyzer enabled); MISP `https://localhost:9443` (self-signed certificate warning is expected) | Add intel in MISP → run analyzers on test observables → check reports | C5, C6, C7 | Wazuh, later (MISP IOCs into Wazuh CDB lists) |
 
 RAM figures are the sums of the `standard` limits; see section 8 for `low` (where `core`, `cases` and `cases-intel` fit a 6 GB WSL allocation, D39). **On 8 GB machines, close VS Code's WSL connection while running `cases-intel`:** measured with the VS Code server (~0.6 GB) and Claude Code running, the WSL VM peaks at ~5.3 of its 5.8 GB (A70). TheHive needs a free Community license after its 14-day trial (`nodes/cases/thehive/README.md`). Modes that include `core` also generate the Wazuh certificates during `init`; nobody creates certificates by hand.
 
