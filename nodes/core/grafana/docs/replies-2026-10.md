@@ -2,7 +2,7 @@
 
 **From:** Jesus (@JC-535), Grafana owner
 **To:** Inigo (@poinsot), integrator and n8n owner; Daniel (@dmelgar1110), Wazuh owner
-**Date:** 2026-10-14
+**Date:** 2026-10-14 (A4, A5: 2026-10-20)
 **Refs:** C11 (D46), X-27, X-42, X-32, R-11, R-16, GRAF-0.6, GRAF-0.7, GRAF-2.2, GRAF-4.4, D-G3, integration backlog section F
 **Status:** draft
 
@@ -15,6 +15,8 @@ The delivering tasks are in [BACKLOG.md](../BACKLOG.md).
 | 1 | Acknowledge C11 (the schema grew) | Integrator (X-27, X-42) | 2026-10-20 | GRAF-0.6 | answered | **Acknowledged**, with assumptions to confirm. See A1 |
 | 2 | Confirm the team dates | Integrator (section F) | 2026-10-20 | GRAF-0.7 | answered | **Confirmed**; GRAF-3.1 depends on R-16, R-11 and N8N-2.9. See A2 |
 | 3 | Attack-start marker: query and level 3 | Wazuh (`request-grafana-attack-start-marker.md`, item 1) | 2026-10-20 | GRAF-2.2 | answered | **Query works, level 3 accepted**; annotation built (`df3716e`). See A3 |
+| 4 | MTTD for FIM and Suricata scenarios (no `asox_run`) | n8n (X-43, 2026-10-15); Wazuh agrees | before GRAF-3.1 (2026-11-10) | GRAF-3.1 | answered 2026-10-20 | **Accepted**, with Daniel's lookup order. See A4 |
+| 5 | 40501 instead of 5901 on `new-user`: keep or filter | Wazuh (`request-n8n-x10-x37-2026-10-14.md`, "Grafana's question") | — | GRAF-2.1 | answered 2026-10-20 | **Kept, in its own panel** on Attack Scenarios. See A5 |
 
 ## Answers
 
@@ -41,6 +43,19 @@ The delivering tasks are in [BACKLOG.md](../BACKLOG.md).
 - **Level 3: accepted.** The annotation doesn't depend on the level, and staying below C1's threshold keeps the marker out of n8n and TheHive.
 - All six scenarios also checked on 2026-10-14, now on the dashboard "Attack Scenarios" (`asox-attack-scenarios`). One difference from `trigger.sh`'s table: **`new-user` fired 5902, 100211 and 40501 (level 15, a built-in correlation rule), not 5901.** Is 40501 expected? At level 15 it reaches n8n (C1) on every run of this scenario.
 - Item 2 of the request (linking alerts to runs for C11) is for Inigo; Grafana is fine with either option, since the annotation doesn't need it.
+
+**A4. X-43, MTTD without `asox_run` (2026-10-20): accepted.**
+- Grafana agrees that n8n widens A101 with the lookup order in the register (Wazuh's answer of 2026-10-15):
+  1. `asox_run=<uuid>` in `full_log`;
+  2. else the nearest earlier rule-100101 marker of the **same `agent.id`** within A101's 1 h window (marker ≤ `t_event`), noted as "marker by agent";
+  3. else, for `agent.id` 000 (syslog sources such as `opnsense-*`), the nearest marker of **any** agent within ~5 min.
+- Alerts with no marker found keep `t_attack_start` empty; GRAF-3.1 leaves them out of MTTD (A1), not counted as zero.
+- No change to C11's schema is needed on Grafana's side.
+
+**A5. 40501 on `new-user` (2026-10-20): kept, shown on its own.**
+- Thanks, Daniel: expected and correct, no rule tuning needed.
+- The scenario panels never counted 40501 ("New user to sudo" and the `new-user` series query `rule.id:(5901 OR 5902 OR 100211)`), so there was nothing to filter out.
+- Attack Scenarios now has a row **Correlations** with the stat panel **"Attack followed by new account (40501)"** (`rule.id:40501`). It shows Wazuh's correlation of an attack chain followed by an account change, lab or real. The description of "New user to sudo" says that 40501 replaces 5901 or 5902 after other scenarios.
 
 ## Notes for the integrator
 

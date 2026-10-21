@@ -91,8 +91,8 @@
         "overrides": []
       },
       "gridPos": {
-        "h": 5,
-        "w": 4,
+        "h": 4,
+        "w": 8,
         "x": 0,
         "y": 1
       },
@@ -112,7 +112,10 @@
         },
         "showPercentChange": false,
         "textMode": "value",
-        "wideLayout": true
+        "wideLayout": true,
+        "text": {
+          "valueSize": 36
+        }
       },
       "pluginVersion": "12.4.11",
       "targets": [
@@ -179,9 +182,9 @@
         "overrides": []
       },
       "gridPos": {
-        "h": 5,
-        "w": 4,
-        "x": 4,
+        "h": 4,
+        "w": 8,
+        "x": 8,
         "y": 1
       },
       "id": 3,
@@ -200,7 +203,10 @@
         },
         "showPercentChange": false,
         "textMode": "value",
-        "wideLayout": true
+        "wideLayout": true,
+        "text": {
+          "valueSize": 36
+        }
       },
       "pluginVersion": "12.4.11",
       "targets": [
@@ -267,9 +273,9 @@
         "overrides": []
       },
       "gridPos": {
-        "h": 5,
-        "w": 4,
-        "x": 8,
+        "h": 4,
+        "w": 8,
+        "x": 16,
         "y": 1
       },
       "id": 4,
@@ -288,7 +294,10 @@
         },
         "showPercentChange": false,
         "textMode": "value",
-        "wideLayout": true
+        "wideLayout": true,
+        "text": {
+          "valueSize": 36
+        }
       },
       "pluginVersion": "12.4.11",
       "targets": [
@@ -328,7 +337,7 @@
         "type": "grafana-opensearch-datasource",
         "uid": "wazuh-indexer"
       },
-      "description": "Alerts of the rules that lab scenario new-user (nodes/lab/trigger.sh --scenario new-user) triggers: 5901, 5902 (level 8): new group and user; 100211 (level 10): user added to group sudo. Real attacks fire the same rules, so this counts detections, not only lab runs (GRAF-2.1).",
+      "description": "Alerts of the rules that lab scenario new-user (nodes/lab/trigger.sh --scenario new-user) triggers: 5901, 5902 (level 8): new group and user; 100211 (level 10): user added to group sudo. When new-user runs right after other attack scenarios, built-in rule 40501 replaces 5901 or 5902; it is counted in the panel 'Attack followed by new account (40501)', not here. Real attacks fire the same rules, so this counts detections, not only lab runs (GRAF-2.1).",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -355,10 +364,10 @@
         "overrides": []
       },
       "gridPos": {
-        "h": 5,
-        "w": 4,
-        "x": 12,
-        "y": 1
+        "h": 4,
+        "w": 8,
+        "x": 0,
+        "y": 5
       },
       "id": 5,
       "options": {
@@ -376,7 +385,10 @@
         },
         "showPercentChange": false,
         "textMode": "value",
-        "wideLayout": true
+        "wideLayout": true,
+        "text": {
+          "valueSize": 36
+        }
       },
       "pluginVersion": "12.4.11",
       "targets": [
@@ -443,10 +455,10 @@
         "overrides": []
       },
       "gridPos": {
-        "h": 5,
-        "w": 4,
-        "x": 16,
-        "y": 1
+        "h": 4,
+        "w": 8,
+        "x": 8,
+        "y": 5
       },
       "id": 6,
       "options": {
@@ -464,7 +476,10 @@
         },
         "showPercentChange": false,
         "textMode": "value",
-        "wideLayout": true
+        "wideLayout": true,
+        "text": {
+          "valueSize": 36
+        }
       },
       "pluginVersion": "12.4.11",
       "targets": [
@@ -531,10 +546,10 @@
         "overrides": []
       },
       "gridPos": {
-        "h": 5,
-        "w": 4,
-        "x": 20,
-        "y": 1
+        "h": 4,
+        "w": 8,
+        "x": 16,
+        "y": 5
       },
       "id": 7,
       "options": {
@@ -552,7 +567,10 @@
         },
         "showPercentChange": false,
         "textMode": "value",
-        "wideLayout": true
+        "wideLayout": true,
+        "text": {
+          "valueSize": 36
+        }
       },
       "pluginVersion": "12.4.11",
       "targets": [
@@ -593,7 +611,111 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 6
+        "y": 9
+      },
+      "id": 13,
+      "panels": [],
+      "title": "Correlations",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "grafana-opensearch-datasource",
+        "uid": "wazuh-indexer"
+      },
+      "description": "Built-in Wazuh correlation rule 40501 (level 15, T1068/T1136/T1203): a user or group was added after 4 or more alerts of group 'attacks' (e.g. 40112) from the same source within 5 minutes. In the lab it fires when new-user runs right after other scenarios (e.g. ssh-success-after-fail), replacing 5901 or 5902. Real attack chains fire it too. At level 15 it reaches n8n (playbook account-change) and TheHive.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "decimals": 0,
+          "mappings": [],
+          "noValue": "0",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 24,
+        "x": 0,
+        "y": 10
+      },
+      "id": 14,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "sum"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "value",
+        "wideLayout": true,
+        "text": {
+          "valueSize": 36
+        }
+      },
+      "pluginVersion": "12.4.11",
+      "targets": [
+        {
+          "bucketAggs": [
+            {
+              "field": "timestamp",
+              "id": "2",
+              "settings": {
+                "interval": "auto",
+                "min_doc_count": "0"
+              },
+              "type": "date_histogram"
+            }
+          ],
+          "datasource": {
+            "type": "grafana-opensearch-datasource",
+            "uid": "wazuh-indexer"
+          },
+          "metrics": [
+            {
+              "id": "1",
+              "type": "count"
+            }
+          ],
+          "query": "rule.id:40501",
+          "queryType": "lucene",
+          "refId": "A",
+          "timeField": "timestamp"
+        }
+      ],
+      "title": "Attack followed by new account (40501)",
+      "type": "stat"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 14
       },
       "id": 8,
       "panels": [],
@@ -631,7 +753,7 @@
         "h": 9,
         "w": 24,
         "x": 0,
-        "y": 7
+        "y": 15
       },
       "id": 9,
       "options": {
@@ -719,7 +841,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 16
+        "y": 24
       },
       "id": 10,
       "panels": [],
@@ -748,7 +870,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 17
+        "y": 25
       },
       "id": 11,
       "options": {
@@ -762,7 +884,15 @@
           "values": true
         },
         "showUnfilled": true,
-        "valueMode": "color"
+        "valueMode": "color",
+        "namePlacement": "top",
+        "text": {
+          "titleSize": 14,
+          "valueSize": 16
+        },
+        "maxVizHeight": 28,
+        "minVizHeight": 16,
+        "sizing": "auto"
       },
       "pluginVersion": "12.4.11",
       "targets": [
@@ -813,7 +943,7 @@
         "h": 8,
         "w": 16,
         "x": 8,
-        "y": 17
+        "y": 25
       },
       "id": 12,
       "options": {

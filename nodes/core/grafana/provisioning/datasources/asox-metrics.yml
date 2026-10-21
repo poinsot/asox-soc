@@ -1,0 +1,31 @@
+# asox-metrics datasource (contract C11, GRAF-0.8), read-only user grafana-ro.
+# n8n writes one document per Wazuh alert (lib-metrics-upsert, N8N-2.9);
+# Grafana reads it for MTTD / MTTA / MTTR and false-positive panels (GRAF-3.x).
+# Same URL, CA and credentials as wazuh-indexer.yml (C8); contracts-check.sh
+# C11 reads back through this uid.
+apiVersion: 1
+
+datasources:
+  - name: ASOX metrics
+    uid: asox-metrics
+    type: grafana-opensearch-datasource
+    access: proxy
+    url: ${WAZUH_INDEXER_URL}
+    basicAuth: true
+    basicAuthUser: ${GRAFANA_INDEXER_USER}
+    isDefault: false
+    editable: false
+    jsonData:
+      flavor: opensearch
+      version: 2.19.6
+      # A single index (not a daily pattern): the template asox-metrics has
+      # no ISM and one document per alert (R-16).
+      database: asox-metrics
+      # Panels are measured from the TheHive alert's creation (C11, A1).
+      timeField: t_alert
+      maxConcurrentShardRequests: 5
+      tlsAuthWithCACert: true
+      serverName: wazuh.indexer
+    secureJsonData:
+      basicAuthPassword: ${GRAFANA_INDEXER_PASSWORD}
+      tlsCACert: $__file{/etc/grafana/certs/wazuh-root-ca.pem}

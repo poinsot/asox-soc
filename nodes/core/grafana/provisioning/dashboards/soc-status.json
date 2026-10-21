@@ -109,7 +109,10 @@
         },
         "showPercentChange": false,
         "textMode": "value",
-        "wideLayout": true
+        "wideLayout": true,
+        "text": {
+          "valueSize": 36
+        }
       },
       "pluginVersion": "12.4.11",
       "targets": [
@@ -174,7 +177,7 @@
       },
       "gridPos": {
         "h": 5,
-        "w": 4,
+        "w": 5,
         "x": 5,
         "y": 1
       },
@@ -195,7 +198,10 @@
         },
         "showPercentChange": false,
         "textMode": "value",
-        "wideLayout": true
+        "wideLayout": true,
+        "text": {
+          "valueSize": 36
+        }
       },
       "pluginVersion": "12.4.11",
       "targets": [
@@ -266,7 +272,7 @@
       "gridPos": {
         "h": 5,
         "w": 5,
-        "x": 9,
+        "x": 10,
         "y": 1
       },
       "hideTimeOverride": true,
@@ -286,7 +292,10 @@
         },
         "showPercentChange": false,
         "textMode": "value",
-        "wideLayout": true
+        "wideLayout": true,
+        "text": {
+          "valueSize": 36
+        }
       },
       "pluginVersion": "12.4.11",
       "targets": [
@@ -355,8 +364,8 @@
       },
       "gridPos": {
         "h": 5,
-        "w": 5,
-        "x": 14,
+        "w": 4,
+        "x": 15,
         "y": 1
       },
       "hideTimeOverride": true,
@@ -376,7 +385,10 @@
         },
         "showPercentChange": false,
         "textMode": "value",
-        "wideLayout": true
+        "wideLayout": true,
+        "text": {
+          "valueSize": 36
+        }
       },
       "pluginVersion": "12.4.11",
       "targets": [
@@ -467,7 +479,10 @@
         },
         "showPercentChange": false,
         "textMode": "value",
-        "wideLayout": true
+        "wideLayout": true,
+        "text": {
+          "valueSize": 36
+        }
       },
       "pluginVersion": "12.4.11",
       "targets": [
@@ -502,7 +517,7 @@
         }
       ],
       "timeFrom": "15m",
-      "title": "Active endpoints (15 min)",
+      "title": "Endpoints (15 min)",
       "type": "stat"
     },
     {
@@ -626,7 +641,7 @@
           "placement": "bottom",
           "showLegend": false
         },
-        "maxVizHeight": 300,
+        "maxVizHeight": 28,
         "minVizHeight": 16,
         "minVizWidth": 8,
         "namePlacement": "left",
@@ -641,7 +656,11 @@
         },
         "showUnfilled": true,
         "sizing": "auto",
-        "valueMode": "color"
+        "valueMode": "color",
+        "text": {
+          "titleSize": 14,
+          "valueSize": 16
+        }
       },
       "pluginVersion": "12.4.11",
       "targets": [
@@ -698,7 +717,31 @@
         }
       ],
       "title": "Alerts by severity",
-      "type": "bargauge"
+      "type": "bargauge",
+      "transformations": [
+        {
+          "id": "joinByField",
+          "options": {
+            "byField": "Time",
+            "mode": "outer"
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {},
+            "includeByName": {},
+            "renameByName": {},
+            "indexByName": {
+              "Time": 0,
+              "Critical (12+)": 1,
+              "High (10-11)": 2,
+              "Medium (7-9)": 3,
+              "Low (0-6)": 4
+            }
+          }
+        }
+      ]
     },
     {
       "datasource": {
@@ -1116,10 +1159,10 @@
           "placement": "bottom",
           "showLegend": false
         },
-        "maxVizHeight": 300,
+        "maxVizHeight": 28,
         "minVizHeight": 16,
         "minVizWidth": 8,
-        "namePlacement": "left",
+        "namePlacement": "top",
         "orientation": "horizontal",
         "reduceOptions": {
           "calcs": [
@@ -1131,7 +1174,11 @@
         },
         "showUnfilled": true,
         "sizing": "auto",
-        "valueMode": "color"
+        "valueMode": "color",
+        "text": {
+          "titleSize": 14,
+          "valueSize": 16
+        }
       },
       "pluginVersion": "12.4.11",
       "targets": [
@@ -2165,10 +2212,10 @@
           "placement": "bottom",
           "showLegend": false
         },
-        "maxVizHeight": 300,
+        "maxVizHeight": 28,
         "minVizHeight": 16,
         "minVizWidth": 8,
-        "namePlacement": "left",
+        "namePlacement": "top",
         "orientation": "horizontal",
         "reduceOptions": {
           "calcs": [
@@ -2180,7 +2227,11 @@
         },
         "showUnfilled": true,
         "sizing": "auto",
-        "valueMode": "color"
+        "valueMode": "color",
+        "text": {
+          "titleSize": 14,
+          "valueSize": 16
+        }
       },
       "pluginVersion": "12.4.11",
       "targets": [
@@ -2264,10 +2315,10 @@
           "placement": "bottom",
           "showLegend": false
         },
-        "maxVizHeight": 300,
+        "maxVizHeight": 28,
         "minVizHeight": 16,
         "minVizWidth": 8,
-        "namePlacement": "left",
+        "namePlacement": "top",
         "orientation": "horizontal",
         "reduceOptions": {
           "calcs": [
@@ -2279,7 +2330,11 @@
         },
         "showUnfilled": true,
         "sizing": "auto",
-        "valueMode": "color"
+        "valueMode": "color",
+        "text": {
+          "titleSize": 14,
+          "valueSize": 16
+        }
       },
       "pluginVersion": "12.4.11",
       "targets": [
