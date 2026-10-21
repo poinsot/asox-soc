@@ -1,6 +1,6 @@
 # Wazuh alert → TheHive: format, mapping and alert-to-case rules
 
-Owner: TheHive (Park). **Status: agreed with the n8n owner (2026-10-14, PR #19 and n8n's PR #23; X-02, X-04) and matching n8n's `lib-config` routing row for row; §3 rules confirmed with the Wazuh owner (W1.3). §6 R2 (D-N4) to confirm by 2026-11-03.** Dedup by `sourceRef` (§1) is D-N1 (`docs/decisions.md`). It builds on contract C3 (n8n → TheHive, Service account `n8n@asox.local`) without changing it: C3 fixes *how* n8n authenticates; this document fixes *what* it sends.
+Owner: TheHive (Park). **Status: agreed with the n8n owner (2026-10-14, PR #19 and n8n's PR #23; X-02, X-04) and matching n8n's `lib-config` routing row for row; §3 rules confirmed with the Wazuh owner (W1.3). §6 agreed 2026-10-21 (D-N4 accepted by TheHive, X-13).** Dedup by `sourceRef` (§1) is D-N1 (`docs/decisions.md`). It builds on contract C3 (n8n → TheHive, Service account `n8n@asox.local`) without changing it: C3 fixes *how* n8n authenticates; this document fixes *what* it sends.
 
 Reference implementation: `scripts/thehive-test-alert.sh` sends alerts in exactly this format, and `scripts/lib.sh` (`th_severity`) holds the severity table.
 
@@ -131,12 +131,12 @@ No `warninglist:<list name>` tags: TheHive cuts long tags at ~25 characters and 
 
 ## 6. Alert-to-case rules
 
-TheHive 5 has no automatic promotion rules of its own; these rules are applied by the analyst (docs/TRIAGE.md) and, where marked, may later be automated by n8n.
+TheHive 5 has no automatic promotion rules of its own; these rules are applied by the analyst (docs/TRIAGE.md) and, where marked, by n8n. **Agreed 2026-10-21: TheHive accepts D-N4** (X-13, T3.3).
 
 | # | Rule |
 |---|---|
 | R1 | Every forwarded Wazuh alert becomes a TheHive **alert** (status New), never directly a case. |
-| R2 | **Critical** alerts are promoted to a case at once. n8n auto-promotes them (`POST /api/v1/alert/<id>/case`) **only for named playbooks**; otherwise the analyst does it first (D-N4, combining this rule with n8n's proposal). |
+| R2 | **Critical** alerts are promoted to a case at once. n8n auto-promotes them (`POST /api/v1/alert/<id>/case`, with the alert's `caseTemplate`) **only when the route names a playbook other than `pb-generic`** (the list lives in n8n's `lib-config`); every other alert, Critical or not, is promoted by the analyst (D-N4). n8n's writeback comment says "auto-promoted", and C11 records `auto_promoted: true`. An auto-promoted case is unassigned: the analyst on duty takes it within the Critical target (15 min) and works it like any other case. n8n never auto-promotes test alerts (R6) and never merges. |
 | R3 | **High** and **Medium** alerts are promoted when triage says true positive or "needs investigation". |
 | R4 | **Merge instead of a new case** when an open case already exists for the same agent and the same template within 24 h (TheHive: alert → *Merge into case*). |
 | R5 | False positives are closed as **Ignored** with the reason in a comment; the same rule ignored 3 times → tuning request to the Wazuh owner. |
