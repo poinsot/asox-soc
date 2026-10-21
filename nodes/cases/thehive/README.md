@@ -13,7 +13,7 @@ Alert triage and case management for analysts. **Apply your Community license be
 | `scripts/` | `thehive-export.sh` / `thehive-import.sh` (UI configuration ↔ `entities/`), `thehive-test-alert.sh` (test alerts) and their shared `lib.sh` |
 | `entities/` | Exported configuration: 9 custom fields, observable types (+ `user-account`), 12 case templates (JSON, committed) |
 | `BACKLOG.md` | TheHive's backlog: milestones M0–M7 to the 2026-12-01 delivery, tasks `T0.1`… with priority, "done when" and links to the integration register (`X-nn`) |
-| `docs/` | [ALERT-FORMAT.md](docs/ALERT-FORMAT.md) (alert format, severity / TLP / PAP, template routing, alert-to-case rules), [TRIAGE.md](docs/TRIAGE.md) (triage procedure, users and roles); `reply-<owner>-<date>.md`: TheHive's replies to other owners' requests, kept as sent |
+| `docs/` | [ALERT-FORMAT.md](docs/ALERT-FORMAT.md) (alert format, severity / TLP / PAP, template routing, alert-to-case rules), [TRIAGE.md](docs/TRIAGE.md) (triage procedure, users and roles); [DEMO.md](docs/DEMO.md) (practice run, demo script, evidence checklist); `reply-<owner>-<date>.md`: TheHive's replies to other owners' requests, kept as sent |
 | `../storage.yml` (integrator-owned) | `cassandra` (TheHive's database) and `elasticsearch` (search index, shared with Cortex) |
 
 UI: `http://localhost:9000`, logins from `scripts/soc.sh info` (the analyst for daily work, `admin@thehive.local` for platform management and the license).

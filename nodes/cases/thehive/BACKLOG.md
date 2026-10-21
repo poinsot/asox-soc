@@ -134,11 +134,13 @@ Analysts can work every alert type from queue to closed case.
   - Files: `nodes/cases/thehive/docs/TRIAGE.md`
 - [x] **T3.2** Users and roles under the 2-user license · P1, X-15
   - Done when: `docs/TRIAGE.md` lists every account and profile; second seat reserved for the shared instance; optional read-only viewer.
-- [ ] **T3.3** Agree the alert-to-case rules (by 2026-11-03) · P1, X-13
+- [x] **T3.3** Agree the alert-to-case rules (by 2026-11-03) · P1, X-13
+  - **Done 2026-10-21:** D-N4 accepted (ALERT-FORMAT §6 R2 written out: only routes with a named playbook other than `pb-generic`, Critical only, analyst takes the case within 15 min; status line says agreed). Unblocks N8N-5.1, GRAF-3.2/3.3, D-G5 (X-13).
   - Done when: `docs/ALERT-FORMAT.md` §6 accepted with D-N4: analysts promote by default; n8n auto-promotes only **Critical** alerts of named playbooks; merge same agent + template within 24 h; triage targets.
   - With: Inigo (n8n owner)
 - [ ] **T3.4** Walk every test alert through the procedure · P1
   - Done when: For each scenario of `thehive-test-alert.sh`: triage, promote or merge or ignore, work the tasks, close with a summary and resolution status. Screenshots kept for the delivery; gaps fixed in the templates or TRIAGE.md.
+  - How: step by step in `docs/DEMO.md`, "Practice run (T3.4)".
   - Also (2026-10-08): with `full` mode, real Wazuh alerts are available from `nodes/lab/trigger.sh --scenario NAME` (ssh-bruteforce, ssh-success-after-fail, sudo-fail, new-user, root-login, ioc-ip), which go Wazuh → n8n → TheHive end to end; use them after the `thehive-test-alert.sh` round.
 - [ ] **T3.5** Templates for the new detections · P2, X-12
   - Done when: A template (or a documented choice of `wazuh-generic`) for each detection Daniel adds: login success after failures, sudo failure / privilege escalation, new user, IOC match (W6.4), pfSense port scan (W4.3). Exported, and routed in ALERT-FORMAT.md §3.
@@ -183,7 +185,8 @@ TheHive and n8n work together without loops, duplicates or unapproved actions.
   - Files: `nodes/cases/thehive/scripts/`
   - Status (2026-09-30): `thehive-fp-report.sh [--days N] [--out FILE]` written (read-only, Markdown, test objects left out); left: run it on the real instance after T3.4, send it to Daniel.
   - With: Daniel (W2.4)
-- [ ] **T4.5** Review n8n's checkpoint pull request (`n8n` → `main`) · P1, C3, C4
+- [x] **T4.5** Review n8n's checkpoint pull request (`n8n` → `main`) · P1, C3, C4
+  - **Done 2026-10-14:** n8n's alert output reviewed line by line through `ALERT-TO-THEHIVE.md` §8–§9 and answers A–G (`docs/reply-n8n-2026-10-14.md`); n8n PR #23 applied them. Later n8n PRs: check them the same way before the freeze (TD.1).
   - Done when: As second owner of C3 and C4, checked that what n8n writes to TheHive matches ALERT-FORMAT.md (fields, tags, `customFields` array, observables, writeback comment `[asox-n8n writeback] …`) and that its C4 router ignores its own events; comments left on the PR before Inigo merges.
   - With: Inigo (n8n owner)
 - [x] ~~**T4.6** Answer n8n's ALERT-FORMAT questions~~ · closed 2026-09-30
@@ -223,9 +226,11 @@ Everything merged into `main`, tested end to end and ready to show one day early
   - With: Inigo (runs `full`), Daniel (scenarios)
 - [ ] **TD.4** Evidence for the delivery (by 2026-11-30) · P1
   - Done when: README final; table of templates and fields; screenshots of an alert, a case with its tasks, and a closed case; export / import and test-alert output.
-  - Files: `nodes/cases/thehive/README.md`
+  - Files: `nodes/cases/thehive/README.md`, `nodes/cases/thehive/docs/DEMO.md`
+  - Status (2026-10-21): checklist of what to capture in `docs/DEMO.md` ("Evidence"); captures left.
 - [ ] **TD.5** Rehearse the demo (by 2026-11-30) · P1
   - Done when: Attack scenario → Wazuh → n8n → TheHive alert → case → Cortex / MISP enrichment → closed, start to finish without surprises.
+  - Status (2026-10-21): TheHive's part of the demo written in `docs/DEMO.md` (fits Daniel's `demo.sh` / `DEMO.md`, WD.5); rehearsal left.
   - With: Team
 
 ## M7 · After the delivery (target: after 2026-12-01)
