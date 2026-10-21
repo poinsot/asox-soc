@@ -176,3 +176,18 @@ With playbooks attached, a replayed Wazuh fixture creates a real TheHive alert (
 It picks the webhook and the auth header from the payload (Wazuh → `wazuh-alert` + `X-ASOX-Token`, TheHive → `thehive-event` + `Authorization: Bearer`), reads the token from `nodes/core/.env` without printing it, and reaches n8n on its published port (`N8N_URL`, default `http://127.0.0.1:5678`, as the other scripts). Once playbooks are attached, a replay runs them for real.
 
 Verified 2026-09-30: `--all --no-token` → 25 × HTTP 403; `100100-asox-test-c1.json` → HTTP 200 and `recv-wazuh-alert` execution 136 recorded alert `1790461241.14189`; a TheHive fixture `--times 2` → 2 × HTTP 200.
+
+## Per-playbook tests (`tests/`, N8N-0.6)
+
+One script per playbook, built on `replay.sh`: it copies real fixtures into a temporary directory (fresh alert id, `timestamp` now, and per case a source address nobody has used), replays them one after the other, reads TheHive with n8n's key (the platform admin sees no SOC alerts) and the `asox-metrics` documents as `n8n-indexer`, prints one PASS/FAIL line per check, and **always deletes what it created** (TheHive alerts and `asox-metrics` documents, listed as `cleanup:` lines; also on failure or Ctrl-C). No secrets are printed: keys and passwords go to `curl` through a file descriptor or stdin.
+
+| Script | Playbook | Cases | Time |
+|---|---|---|---|
+| `tests/pb-ssh-bruteforce.sh` | `pb-ssh-bruteforce` (N8N-4.2) | a: 5763 then 5712 from one address (both `ssh-bruteforce`, both tagged `ssh-campaign:<ip>`, the second writeback lists the first); b: 5763 then 40112 (the 5763 alert raised 3 → 4, tagged `ssh:login-after-bruteforce`, exactly one escalation comment, its `asox-metrics` severity 4; the 40112 writeback lists it); c: b's 40112 again with the same id (duplicate at intake: one queue row, nothing new written); d: 40112 then 5763 (the 5763 escalates itself); e: 5763 from a fresh address (nothing related, no escalation); f: 100200 (still `pb-generic`, `caseTemplate` `suspicious-login`) | ~2 min |
+
+```bash
+nodes/core/n8n/fixtures/tests/pb-ssh-bruteforce.sh             # all cases
+nodes/core/n8n/fixtures/tests/pb-ssh-bruteforce.sh --only a,e  # some (c needs b)
+```
+
+Addresses come from `198.51.100.200`–`198.51.100.250` (documentation range, so only local analyzers run), each checked first: no TheHive alert may carry it, so a test never correlates with, tags or escalates an existing alert. Needs `core` and `cases` running and the workflows imported (`scripts/n8n-import.sh`); `intel` only for the enrichment and warninglist lines. Case c reads the alert queue's row count read-only from n8n's SQLite (`docker exec`, as in the n8n README's "Queue depth"). Verified 2026-10-21 on the build instance (`full`, `standard`): 28 checks PASS in ~2 min, 8 alerts and 8 documents deleted.

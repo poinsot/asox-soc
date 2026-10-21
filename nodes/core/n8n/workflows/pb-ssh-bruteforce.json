@@ -1,0 +1,1915 @@
+{
+  "id": "asoxPbSshBrute01",
+  "name": "pb-ssh-bruteforce",
+  "active": true,
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## pb-ssh-bruteforce (N8N-4.2)\n**Trigger:** called by lib-alert-queue-drain through Execute Workflow (waited for; by recv-wazuh-alert, not waited for, only when the queue is unavailable), when lib-route-alert routes the alert here: rows `ssh-bruteforce` (5712, 5763) and `suspicious-login-40112` (40112) of lib-config `routing`.\n**Inputs:** `{alert: <raw Wazuh alert>, config: <lib-config>, recv_execution_id, route: <lib-route-alert route>}`, as pb-generic.\n**Actions taken:** pb-generic's chain, same libs, same order, same repair path on `duplicate` (custom field and metrics `playbook` = pb-ssh-bruteforce; severity and enrichment start reach lib-enrich-observable as in pb-generic, D-N7, D-N8): lib-normalize-wazuh-alert -> lib-extract-observables -> lib-misp-warninglist -> lib-thehive-upsert-alert -> created (or repaired) only: lib-enrich-observable -> **lib-ssh-correlate** (read-only, one bounded TheHive query: alerts from the same `data.srcip` within lib-config `ssh_correlation.window_s` (3600 s) of the event time, templates ssh-bruteforce / suspicious-login; On Error = continue, a failure is `failed (<class>)`, never parked) -> one TheHive alert at a time (Loop Over Items; TheHive retry pattern N8N-6.2, the attempt number carried by the item; after a call fails all its retries the rest are not attempted; never parks): this alert gets the tag `ssh-campaign:<srcip>`; a brute-force alert with a related 40112 in the window escalates itself; a 40112 escalates every related `ssh-bruteforce` alert. Escalation = tag `ssh:login-after-bruteforce`, severity raised to `escalate_severity` (4) if lower (never lowered, D12), one comment starting `[asox-n8n escalation] wazuh-alert-id=<40112 id>` (written only if n8n's account has none with that first line), and the related alert's asox-metrics `severity` through lib-metrics-upsert (mode update; this alert's own goes into its writeback's document) -> lib-thehive-writeback (pb-generic's sections, then \"Related (same source within 1 h)\": the total and up to `max_listed` (10) alerts with rule and time, the tag, the escalations with old -> new severity, and `Recommended: block <srcip> (response actions, C9, Phase 2); nothing was changed.`). Never suppresses, closes, merges or lowers anything; creates no case (D-N4 is N8N-5.1).\n**Systems changed:** TheHive (this alert: alert, comments, observable tags and IOC flag, its tags and an escalation's severity raise; related ssh-bruteforce alerts: tag, severity raise, escalation comment) and the Wazuh indexer (asox-metrics documents, C11); Cortex and MISP run read-only lookups.\n**Approval:** not needed: SOC bookkeeping only (TheHive tags, comments, severity raise; asox-metrics), no system changes.\n**Owner:** n8n.\nResult: pb-generic's (`outcome`, `metrics`, `enrichment`, ...) plus `correlation` (status, srcip, related, escalated). Error workflow: recv-n8n-error. The response itself (blocking the address) waits for C9 (Phase 2).",
+        "height": 640,
+        "width": 520
+      },
+      "id": "d46ab558-118c-53f7-96a7-aae66b00f706",
+      "name": "About this workflow",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -40,
+        -760
+      ]
+    },
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "id": "89f5e17a-ae70-5ff8-b344-65bc360f061c",
+      "name": "Called by a workflow",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Everything this execution needs: the pb's own execution id goes to the\n// TheHive custom field and the writeback (sub-workflows have their own ids).\nconst input = $input.first().json;\nif (!input.config || !input.config.writeback) throw new Error(`${$workflow.name} needs the lib-config output as \\`config\\``);\nreturn [{ json: {\n  alert: input.alert,\n  config: input.config,\n  context: { playbook: $workflow.name, n8n_execution_id: $execution.id, recv_execution_id: input.recv_execution_id ?? null },\n  // From lib-route-alert (N8N-1.3); null when called without a route.\n  route: input.route ?? null,\n} }];\n"
+      },
+      "id": "64d49baf-78c6-50d6-aeff-2e4c73c0ec7c",
+      "name": "Context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        260,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const c = $('Context').first().json;\nreturn [{ json: { alert: c.alert, context: c.context } }];\n"
+      },
+      "id": "ddc7b847-0a8e-5021-bc56-7bd0938ac3ff",
+      "name": "Normalize input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        520,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "asoxLibNormWazAl",
+          "cachedResultName": "lib-normalize-wazuh-alert"
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "1eb0baac-518b-5010-a090-f81d2952dc74",
+      "name": "Normalize (lib-normalize-wazuh-alert)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        780,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "9c226ee7-1357-5338-b518-920e4591c540",
+              "leftValue": "={{ $json.ok === true }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "6a40146b-b424-50fe-a726-1a257ee688c1",
+      "name": "Normalized?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1040,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const c = $('Context').first().json;\nconst ex = $('Extract observables (lib-extract-observables)').first().json;\n// Observables as tagged by lib-misp-warninglist (C10); the extraction's own when\n// the lib failed unexpectedly (On Error = continue: its item is then {error}).\nconst wl = $('Warninglists (lib-misp-warninglist)').first().json;\nconst observables = Array.isArray(wl.observables) ? wl.observables : ex.observables;\nreturn [{ json: {\n  canonical: $('Normalize (lib-normalize-wazuh-alert)').first().json.canonical,\n  extraction: { ...ex, observables },\n  config: c.config, context: c.context, route: c.route,\n} }];\n"
+      },
+      "id": "d429fa1f-43a2-59a5-91b9-15abf52fd822",
+      "name": "Upsert input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2340,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "asoxLibThUpsertA",
+          "cachedResultName": "lib-thehive-upsert-alert"
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "18c06756-9926-54e7-a675-2e3ea2641c4d",
+      "name": "Upsert (lib-thehive-upsert-alert)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        2600,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "e43ad290-d77e-55f0-a537-cfac76e53f25",
+              "leftValue": "={{ $json.ok === true }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "810ac407-52a0-5449-b3be-7d96baa788d6",
+      "name": "In TheHive?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        3120,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Actions taken, as written to TheHive (lib-thehive-writeback).\n// repair: the alert existed without a writeback and this run completed it (N8N-1.4).\nconst repair = $('Repair enrich input').isExecuted;\n// Enrichment section (N8N-2.4): counts, then one line per observable.\nfunction enrichmentLines(u) {\n  if (u.duplicate && !repair) return ['Enrichment: not run (duplicate: enriched when the alert was created).'];\n  if (!$('Enrich (lib-enrich-observable)').isExecuted) return ['Enrichment: not run.'];\n  const e = $('Enrich (lib-enrich-observable)').first().json;\n  // On Error = continue: an unexpected failure inside the lib arrives as {error}.\n  if (e.ok !== true) return [`Enrichment: failed (unexpected error in lib-enrich-observable: ${e.error ?? 'no result'}); alert and writeback unaffected.`];\n  const k = e.counts;\n  // Analyzer runs not started, by reason (not enabled in Cortex, url not\n  // absolute, severe path only, enrichment budget, ...).\n  const byReason = Object.entries(k.skipped_runs ?? {});\n  const nSkipped = byReason.reduce((a, [, n]) => a + n, 0);\n  const skipSummary = nSkipped > 0 ? `${nSkipped} analyzer run(s) skipped (${byReason.map(([r, n]) => `${r}: ${n}`).join(', ')})` : '';\n  const lines = [!e.cortex_called && k.enriched === 0 && k.failed === 0\n    ? `Enrichment (Cortex, C6): nothing eligible (${k.skipped} observable(s) skipped${skipSummary ? `; ${skipSummary}` : ''}), no Cortex job.`\n    : `Enrichment (Cortex, C6): ${k.enriched} enriched, ${k.skipped} skipped, ${k.failed} failed of ${k.observables} observable(s); ${k.jobs} analyzer run(s)${k.jobs_from_cache ? ` (${k.jobs_from_cache} answered from Cortex's cache)` : ''}${skipSummary ? `; ${skipSummary}` : ''}.`];\n  // D-N8: one line when the budget stopped new jobs.\n  if (e.budget?.hit) lines.push(`Enrichment budget reached (D-N8): ${e.budget.budget_s} s; ${e.budget.used_s} s used, ${e.budget.skipped} analyzer run(s) not started.`);\n  const fails = (fs) => fs.map((f) => `${f.analyzer}: ${f.class}${f.attempts ? ` after ${f.attempts} call(s)` : ''}${f.job_id ? `, job ${f.job_id}` : ''}`).join('; ');\n  const skips = (ss) => (ss ?? []).map((s) => `${s.analyzer}: skipped (${s.reason})`).join('; ');\n  for (const o of e.observables) {\n    const name = `${o.dataType} ${o.data}`;\n    if (o.status === 'enriched') {\n      const runs = o.results.map((r) => `${r.analyzer}: ${r.verdict}, ${r.taxonomies.join('; ') || 'no taxonomy'}, job ${r.job_id}${r.from_cache ? ' (cached)' : ''}`).join(' | ');\n      const te = o.tag_error;\n      lines.push(`Enriched: ${name}: verdict ${o.verdict} (${runs}); ` + (o.tagged\n        ? `tagged ${o.add_tags.join(', ')}${o.ioc ? ', marked IOC' : ''}.`\n        : `verdict NOT written to TheHive (${te.class}${te.attempts ? ` after ${te.attempts} call(s)` : ''}).`));\n      if (o.failed.length > 0) lines.push(`  Also failed for ${name}: ${fails(o.failed)}.`);\n      if (o.skipped?.length > 0) lines.push(`  Skipped for ${name}: ${skips(o.skipped)}.`);\n    } else if (o.status === 'failed') {\n      lines.push(`Enrichment failed: ${name}: ${fails(o.failed)}.`);\n      if (o.skipped?.length > 0) lines.push(`  Skipped for ${name}: ${skips(o.skipped)}.`);\n    } else {\n      lines.push(`Not enriched: ${name}: ${[...o.reasons, skips(o.skipped)].filter(Boolean).join('; ')}.`);\n    }\n  }\n  for (const wmsg of e.warnings ?? []) lines.push(`Enrichment warning: ${wmsg}.`);\n  return lines;\n}\n// Warninglist section (C10, N8N-2.11): a summary, then one line per match. On\n// a duplicate the check ran (it comes before the upsert) but wrote no tags.\nfunction warninglistLines(u) {\n  const w = $('Warninglists (lib-misp-warninglist)').first().json;\n  // On Error = continue: an unexpected failure inside the lib arrives as {error}.\n  if (typeof w.ok !== 'boolean') return [`Warninglist check (MISP, C10): not done (unexpected error in lib-misp-warninglist: ${w.error ?? 'no result'}); alert unaffected.`];\n  if (!w.ok) return [`Warninglist check (MISP, C10): not done (${w.class}); alert unaffected.`];\n  if (!w.checked) return [w.skip_reason === 'disabled'\n    ? 'Warninglist check (MISP, C10): not run (disabled in lib-config).'\n    : 'Warninglists (MISP, C10): nothing to check (no eligible value), no MISP call.'];\n  const k = w.counts;\n  const lines = [`Warninglists (MISP, C10): ${k.matched} of ${k.checked} checked value(s) on a warninglist`\n    + (k.matched > 0 ? '; a match means common, not safe: severity and status unchanged.' : '.')\n    + (u.duplicate && k.matched > 0 ? ' Checked, tags not written (alert already existed).' : '')];\n  const SHOWN = 10;\n  for (const m of w.matches) {\n    const names = m.lists.slice(0, SHOWN).join('; ') + (m.lists.length > SHOWN ? `; +${m.lists.length - SHOWN} more` : '');\n    lines.push(`On warninglist: ${m.dataType} ${m.data}: ${names}` + (u.duplicate ? '.' : `; tagged ${m.add_tags.join(', ')}.`));\n  }\n  return lines;\n}\nconst c = $('Context').first().json;\nconst u = $('Upsert (lib-thehive-upsert-alert)').first().json;\nconst actions = [];\nconst r = c.route;\nif (r) {\n  actions.push(`Route: ${r.route_id} (${r.matched_by}): playbook ${r.playbook}, case template ${r.case_template}.`);\n  if (r.fallback) actions.push(`Playbook fallback: the route names ${r.fallback.wanted}, not built yet; ${r.playbook} ran.`);\n  for (const pm of r.proposed_match) actions.push(`Proposed route matched, not active yet (X-04, W1.3): ${pm.id} (${pm.matched_by}).`);\n} else {\n  actions.push('Route: none (playbook called without lib-route-alert): default case template.');\n}\nif (u.duplicate) {\n  actions.push(`TheHive alert already existed for Wazuh alert ${u.wazuh_alert_id} (duplicate sourceRef): nothing created.`);\n  if (u.after_retry) actions.push('The create call was retried (timeout or TheHive error): the alert may have been created by the first call.');\n  if (repair) {\n    actions.push('Completed an interrupted run: the alert existed without a writeback (n8n stopped before writing it, N8N-1.4); enrichment ran now for the observables not enriched before.');\n    const already = $('Repair enrich input').first().json.already_enriched;\n    if (already.length > 0) actions.push(`Already enriched before the interruption (not sent again): ${already.join(', ')}.`);\n  } else if ($('Alert state (lib-thehive-alert-state)').isExecuted && $('Alert state (lib-thehive-alert-state)').first().json.ok !== true) {\n    const st = $('Alert state (lib-thehive-alert-state)').first().json;\n    actions.push(`Writeback check before a repair failed (${st.stage ?? st.error ?? 'unexpected error'}): no repair attempted.`);\n  }\n} else {\n  actions.push(`TheHive alert created: source ${u.source}, severity ${u.severity}, case template requested ${u.case_template}, observables: ${u.observables.join(', ') || 'none'}.`);\n  for (const s of u.skipped_observables) actions.push(`Observable not sent: ${s.dataType} ${s.data} (${s.reason}).`);\n  for (const wmsg of u.warnings) actions.push(`Warning: ${wmsg}.`);\n}\nactions.push(...warninglistLines(u));\nactions.push(...enrichmentLines(u));\n// SSH correlation (N8N-4.2): related alerts from the same source address, this\n// alert's campaign tag, the escalation of itself or of the related brute-force\n// alerts, and the recommended response. Failures are reported, never parked.\nconst esc = $('Escalation result').isExecuted ? $('Escalation result').first().json : null;\nfunction writeLine(t) {\n  if (!t) return null;\n  if (t.skipped) return t.skipped;\n  if (!t.patch.ok) return `update failed (${t.patch.class}${t.patch.attempts ? ` after ${t.patch.attempts} call(s)` : ''})`;\n  return null;\n}\nfunction commentLine(t) {\n  if (!t.comment) return t.patch.ok ? 'escalation comment not written' : 'escalation comment not attempted';\n  if (!t.comment.ok) return `escalation comment failed (${t.comment.class}${t.comment.attempts ? ` after ${t.comment.attempts} call(s)` : ''})`;\n  return t.comment.written ? 'escalation comment written' : 'escalation comment already there';\n}\nfunction correlationLines(u) {\n  if (!$('Correlate (lib-ssh-correlate)').isExecuted) {\n    return [u.duplicate && !repair ? 'SSH correlation: not run (duplicate: done when the alert was created).' : 'SSH correlation: not run.'];\n  }\n  const cr = $('Correlate (lib-ssh-correlate)').first().json;\n  // On Error = continue: an unexpected failure inside the lib arrives as {error}.\n  if (typeof cr.status !== 'string') return [`SSH correlation: failed (unexpected error in lib-ssh-correlate: ${cr.error ?? 'no result'}); alert unaffected.`];\n  if (cr.status === 'skipped') return [`SSH correlation: skipped (${cr.reason}).`];\n  const sc = c.config.ssh_correlation;\n  const span = cr.window_s % 3600 === 0 ? `${cr.window_s / 3600} h` : `${cr.window_s} s`;\n  const iso = (ms) => new Date(ms).toISOString();\n  const lines = [];\n  if (cr.status === 'failed') {\n    lines.push(`SSH correlation (same source within ${span}): failed (${cr.class}${cr.attempts ? ` after ${cr.attempts} call(s)` : ''}); related alerts not looked at, nothing escalated.`);\n  } else {\n    const shown = cr.listed.length < cr.related_total ? `; the ${cr.listed.length} nearest in time shown` : '';\n    const cut = cr.truncated ? `; the query's limit (${sc.query_limit}) was reached, so more may exist` : '';\n    lines.push(`Related (same source within ${span}): ${cr.related_total} alert(s) from ${cr.srcip} (case templates ${sc.templates.join(', ')}; ${cr.window_s} s either side of this alert's event time)${shown}${cut}.`);\n    for (const r of cr.listed) {\n      lines.push(`  Wazuh ${r.wazuh_alert_id}: rule ${r.rule_id ?? 'unknown'} at ${r.date_iso} (TheHive ${r.thehive_alert_id}, ${r.case_template}, severity ${r.severity})`);\n    }\n  }\n  const self = esc?.self ?? null;\n  const campaign = `${sc.tags.campaign_prefix}${cr.srcip}`;\n  if (cr.plan?.self) {\n    const fail = writeLine(self);\n    lines.push(cr.plan.self.add_tags.includes(campaign)\n      ? (fail ? `Tag ${campaign} not written: ${fail}.` : `Tagged this alert ${campaign}.`)\n      : `Already tagged ${campaign}.`);\n  }\n  if (self?.escalation) {\n    const e = self.escalation;\n    const fail = writeLine(self);\n    lines.push(`Escalated this alert (${sc.tags.escalated}): rule ${e.by_rule_id} alert ${e.marker_alert_id} (TheHive ${e.by_thehive_alert_id}, at ${iso(e.by_date_ms)}) shows a successful login from ${cr.srcip}; `\n      + (fail ? `${fail}.` : `${self.severity_to !== null ? `severity ${self.severity_from} → ${self.severity_to}` : `severity unchanged (${self.severity_from})`}, ${commentLine(self)}.`));\n  }\n  if (cr.role === 'login' && cr.status === 'done') {\n    const rel = esc?.related ?? [];\n    lines.push(rel.length === 0\n      ? `Escalation (${sc.tags.escalated}): no related ${sc.bruteforce_template} alert to escalate.`\n      : `Escalation (${sc.tags.escalated}) of ${rel.length} related ${sc.bruteforce_template} alert(s):`);\n    for (const t of rel) {\n      const fail = writeLine(t);\n      lines.push(`  Escalated: TheHive ${t.thehive_alert_id} (Wazuh ${t.wazuh_alert_id}, rule ${t.rule_id ?? 'unknown'} at ${iso(t.date_ms)}): `\n        + (fail ? `${fail}.` : `severity ${t.severity_from} → ${t.severity_final}${t.severity_to === null ? ' (unchanged)' : ''}, `\n          + `${t.add_tags.length > 0 ? `tagged ${t.add_tags.join(', ')}` : 'tag already there'}, ${commentLine(t)}; `\n          + `${t.metrics_result ? `asox-metrics severity: ${t.metrics_result.line}` : 'asox-metrics not updated'}.`));\n    }\n  }\n  lines.push(`Recommended: block ${cr.srcip} (response actions, C9, Phase 2); nothing was changed.`);\n  return lines;\n}\nactions.push(...correlationLines(u));\nactions.push('Systems changed: TheHive (this alert, and the related alerts it escalates), and the Wazuh indexer (asox-metrics documents, C11).');\n// C11 (N8N-2.9): the asox-metrics document, written by lib-thehive-writeback\n// before its comment. Created (or repaired: the earlier run stopped before\n// its writeback, so before the document): every creation field; t_event = the\n// Wazuh alert's timestamp, t_alert = TheHive's _createdAt (never n8n's clock),\n// both written only when missing. Duplicate: n8n_execution_id only.\nconst canonical = $('Normalize (lib-normalize-wazuh-alert)').first().json.canonical;\nconst mc = c.config.metrics;\nconst run = (canonical.full_log ?? '').match(new RegExp(mc.attack_start.run_pattern));\nconst executionId = String(c.context.n8n_execution_id);\nconst metrics = u.duplicate && !repair\n  ? { mode: 'update', alert_id: u.wazuh_alert_id, source: u.source, fields: { n8n_execution_id: executionId } }\n  : { mode: 'create', alert_id: u.wazuh_alert_id, source: u.source, attack_run_id: run ? run[1] : null,\n    fields: {\n      thehive_alert_id: u.thehive_alert_id, rule_id: canonical.rule.id, rule_level: canonical.rule.level,\n      // The final severity: raised by this run's own escalation (N8N-4.2) when\n      // that update succeeded.\n      severity: esc?.self?.patch?.ok && esc.self.severity_to !== null ? esc.self.severity_to : u.severity,\n      playbook: c.context.playbook, n8n_execution_id: executionId,\n      outcome: 'none', auto_promoted: false, t_event: canonical.date_ms, t_alert: u.created_at,\n    } };\nreturn [{ json: {\n  thehive_alert_id: u.thehive_alert_id, wazuh_alert_id: u.wazuh_alert_id,\n  config: c.config, context: c.context, actions, metrics,\n} }];"
+      },
+      "id": "c64474f0-c895-508e-a8b1-cc240a3ba9e6",
+      "name": "Writeback input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        8620,
+        -200
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "asoxLibThWriteBk",
+          "cachedResultName": "lib-thehive-writeback"
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "ec7bc138-b02b-54e0-ac5a-79d7dc7a41cf",
+      "name": "Writeback (lib-thehive-writeback)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        8880,
+        -200
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const u = $('Upsert (lib-thehive-upsert-alert)').first().json;\nconst r = $input.first().json;\nreturn [{ json: {\n  // repaired: duplicate whose earlier run stopped before its writeback (N8N-1.4).\n  outcome: u.duplicate ? ($('Repair enrich input').isExecuted ? 'repaired' : 'duplicate') : 'created',\n  after_retry: u.after_retry === true, // duplicate found by a retried create (N8N-6.2)\n  wazuh_alert_id: u.wazuh_alert_id,\n  thehive_alert_id: u.thehive_alert_id,\n  // N8N-2.4: counts, `not run (duplicate)` or `failed` (unexpected; never parks).\n  enrichment: u.duplicate && !$('Repair enrich input').isExecuted ? 'not run (duplicate)'\n    : ($('Enrich (lib-enrich-observable)').first().json.ok === true ? $('Enrich (lib-enrich-observable)').first().json.counts : 'failed'),\n  writeback: r.ok ? (r.written ? 'written' : 'already written') : 'failed (parked by lib-error)',\n  // C11 (N8N-2.9): metrics: ok | skipped (<why>) | failed (<class>).\n  metrics: r.metrics ?? null,\n  // N8N-4.2: done / skipped / failed, the related alerts found and the alerts\n  // escalated (this one included); `not run` on a duplicate.\n  correlation: (() => {\n    if (!$('Correlate (lib-ssh-correlate)').isExecuted) return 'not run';\n    const cr = $('Correlate (lib-ssh-correlate)').first().json;\n    if (typeof cr.status !== 'string') return 'failed (unexpected)';\n    const esc = $('Escalation result').isExecuted ? $('Escalation result').first().json : null;\n    const escalated = [...(esc?.self?.escalation ? [esc.self] : []), ...(esc?.related ?? [])]\n      .filter((t) => t.patch?.ok).map((t) => t.thehive_alert_id);\n    return { status: cr.status, reason: cr.reason ?? cr.class ?? null, srcip: cr.srcip, related: cr.related_total ?? 0, escalated };\n  })(),\n  playbook: $workflow.name,\n  route_id: $('Context').first().json.route?.route_id ?? null,\n} }];\n"
+      },
+      "id": "b1b9a8ca-405f-5726-86bd-817a9bba6cd2",
+      "name": "Outcome",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        9140,
+        -200
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Normalize or upsert handed the alert to lib-error, which parked it.\nconst r = $input.first().json;\nconst alert = $('Context').first().json.alert;\nreturn [{ json: {\n  outcome: 'parked',\n  wazuh_alert_id: r.wazuh_alert_id ?? (typeof alert?.id === 'string' ? alert.id : null),\n  error: r.error_class ?? r.stage ?? null,\n  message: r.message ?? null,\n  playbook: $workflow.name,\n  route_id: $('Context').first().json.route?.route_id ?? null,\n} }];\n"
+      },
+      "id": "3eca93d3-9f86-5104-b165-04e0db1222d1",
+      "name": "Parked outcome",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3380,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "d4d76dd1-0739-5ae0-857c-74afe731ce4e",
+              "leftValue": "={{ $json.skipped !== true }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "e7addcf1-1184-5e86-b3f6-efe62b87efcf",
+      "name": "TheHive configured?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2860,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// lib-config: THEHIVE_ENABLED=false (no cases node on this machine). Recorded,\n// not parked: there is nothing to retry.\nconst u = $input.first().json;\nreturn [{ json: {\n  outcome: 'skipped',\n  status: 'skipped: TheHive not configured',\n  wazuh_alert_id: u.wazuh_alert_id,\n  playbook: $workflow.name,\n  route_id: $('Context').first().json.route?.route_id ?? null,\n} }];\n"
+      },
+      "id": "72429164-569c-5456-8b33-136f6c9e9794",
+      "name": "Skipped outcome",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3120,
+        -400
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const c = $('Context').first().json;\nreturn [{ json: { canonical: $input.first().json.canonical, config: c.config } }];\n"
+      },
+      "id": "1ae40485-6fea-569d-b50f-6579698441c8",
+      "name": "Extract input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1300,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "asoxLibExtract01",
+          "cachedResultName": "lib-extract-observables"
+        },
+        "options": {}
+      },
+      "id": "0daeeede-e4e4-538f-befc-19bf716b9584",
+      "name": "Extract observables (lib-extract-observables)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1560,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "3d3bf666-d3ae-581a-9fec-51a9fc1deb74",
+              "leftValue": "={{ $json.duplicate !== true }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "6d3ce237-0281-52d6-9ec9-a90220f4490a",
+      "name": "Created?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        3380,
+        -200
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Only a newly created alert is enriched (a duplicate was enriched when it was\n// created). TLP / PAP are the alert's (lib-config), checked against each\n// analyzer's max by lib-enrich-observable. severity: as sent to TheHive (D-N7,\n// VirusTotal's severe path); enrichment_started_ms: the budget's start (D-N8).\nconst c = $('Context').first().json;\nconst u = $input.first().json;\nconst ex = $('Extract observables (lib-extract-observables)').first().json;\n// Observables as tagged by lib-misp-warninglist (C10); the extraction's own when\n// the lib failed unexpectedly (On Error = continue: its item is then {error}).\nconst wl = $('Warninglists (lib-misp-warninglist)').first().json;\nconst observables = Array.isArray(wl.observables) ? wl.observables : ex.observables;\nreturn [{ json: {\n  thehive_alert_id: u.thehive_alert_id, wazuh_alert_id: u.wazuh_alert_id,\n  observables, tlp: c.config.tlp, pap: c.config.pap,\n  severity: u.severity, enrichment_started_ms: Date.now(),\n  config: c.config, context: c.context,\n} }];"
+      },
+      "id": "da7ae6e6-a2bd-5ec2-b533-14a5b2e7ea50",
+      "name": "Enrich input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3640,
+        -340
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "asoxLibEnrichObs",
+          "cachedResultName": "lib-enrich-observable"
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "66d4a445-e97c-5880-bc4b-f0ef45cfc1f4",
+      "name": "Enrich (lib-enrich-observable)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        3900,
+        -340
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// The TheHive alert already existed (duplicate sourceRef). Does it have its\n// writeback? If not, an earlier run stopped before writing it (n8n crashed or\n// restarted, N8N-1.4): this run completes it.\nconst c = $('Context').first().json;\nconst u = $input.first().json;\nreturn [{ json: { thehive_alert_id: u.thehive_alert_id, wazuh_alert_id: u.wazuh_alert_id, config: c.config } }];\n"
+      },
+      "id": "c09f5f62-63e5-50b8-8df3-d56d2627f565",
+      "name": "Alert state input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3640,
+        -40
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "asoxLibThAlState",
+          "cachedResultName": "lib-thehive-alert-state"
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "30b761e9-c0b7-5c46-a5c1-7e746aab59d3",
+      "name": "Alert state (lib-thehive-alert-state)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        3880,
+        -40
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c49d10ac-3801-510e-bc62-78b04c7e002e",
+              "leftValue": "={{ $json.ok === true && $json.writeback_exists === false }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "50ad0397-2455-5c2c-9639-a413530b250d",
+      "name": "Interrupted run?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        4120,
+        -40
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Completing an interrupted run (N8N-1.4): observables already enriched before\n// the interruption (a tag with the analyzer prefix on the TheHive observable)\n// are not sent again; the others go through the same policy as a new alert,\n// with the alert's severity as TheHive has it (D-N7) and a budget counted from\n// this call (D-N8: the interrupted run's start isn't stored).\nconst c = $('Context').first().json;\nconst u = $('Upsert (lib-thehive-upsert-alert)').first().json;\nconst st = $input.first().json;\nconst ex = $('Extract observables (lib-extract-observables)').first().json;\n// Observables as tagged by lib-misp-warninglist (C10); the extraction's own when\n// the lib failed unexpectedly (On Error = continue: its item is then {error}).\nconst wl = $('Warninglists (lib-misp-warninglist)').first().json;\nconst observables = Array.isArray(wl.observables) ? wl.observables : ex.observables;\nconst prefix = c.config.enrichment.tags.analyzer_prefix;\nconst key = (o) => `${o.dataType}:${o.data}`;\nconst done = new Set(st.observables.filter((o) => o.tags.some((t) => t.startsWith(prefix))).map(key));\nreturn [{ json: {\n  thehive_alert_id: u.thehive_alert_id, wazuh_alert_id: u.wazuh_alert_id,\n  observables: observables.filter((o) => !done.has(key(o))),\n  already_enriched: observables.filter((o) => done.has(key(o))).map((o) => `${o.dataType} ${o.data}`),\n  tlp: c.config.tlp, pap: c.config.pap, severity: u.severity, enrichment_started_ms: Date.now(),\n  config: c.config, context: c.context,\n} }];"
+      },
+      "id": "dc3a0f55-5065-5b8d-a593-2eb84082e486",
+      "name": "Repair enrich input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4360,
+        -140
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// C10 (N8N-2.11): one MISP warninglist call for the alert's observables, before\n// the TheHive alert is created, so the tags travel in its body.\nconst c = $('Context').first().json;\nreturn [{ json: { observables: $input.first().json.observables, config: c.config, context: c.context } }];\n"
+      },
+      "id": "1c576cba-8c35-5056-9335-e6907f46a6a1",
+      "name": "Warninglist input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1820,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "asoxLibMispWl001",
+          "cachedResultName": "lib-misp-warninglist"
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "1a1a7097-f364-5776-8a40-4b769c8bc41c",
+      "name": "Warninglists (lib-misp-warninglist)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        2080,
+        -100
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// N8N-4.2: related alerts from the same source address (lib-ssh-correlate,\n// read-only, one bounded TheHive query). After the enrichment, so an alert\n// processed in parallel by the other queue slot has had the most time to\n// appear in TheHive. Created or repaired alerts only (a duplicate with its\n// writeback was correlated when it was created).\nconst c = $('Context').first().json;\nconst u = $('Upsert (lib-thehive-upsert-alert)').first().json;\nconst ex = $('Extract observables (lib-extract-observables)').first().json;\n// Observables as tagged by lib-misp-warninglist (C10); the extraction's own when\n// the lib failed unexpectedly (On Error = continue: its item is then {error}).\nconst wl = $('Warninglists (lib-misp-warninglist)').first().json;\nconst observables = Array.isArray(wl.observables) ? wl.observables : ex.observables;\nreturn [{ json: {\n  canonical: $('Normalize (lib-normalize-wazuh-alert)').first().json.canonical,\n  thehive_alert_id: u.thehive_alert_id, severity: u.severity, tags: u.tags, source: u.source,\n  route: c.route, observables, config: c.config,\n} }];\n"
+      },
+      "id": "e8f725b9-d661-5060-902d-f6574abfe295",
+      "name": "Correlate input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4160,
+        -700
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "asoxLibSshCorrel",
+          "cachedResultName": "lib-ssh-correlate"
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "50682bb4-38cf-511f-9119-18770e2d4dca",
+      "name": "Correlate (lib-ssh-correlate)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        4400,
+        -700
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// N8N-4.2: the TheHive writes of the correlation, one item per TheHive alert\n// (this alert first): tags added (never removed), severity raised (never\n// lowered, D12), the escalation comment, and for related alerts their\n// asox-metrics severity (lib-metrics-upsert, mode update). Nothing to write\n// (correlation skipped, failed unexpectedly, or every tag already there) ->\n// one `nothing_to_write` item.\nconst cr = $('Correlate (lib-ssh-correlate)').first().json;\nconst c = $('Context').first().json;\nconst canonical = $('Normalize (lib-normalize-wazuh-alert)').first().json.canonical;\nconst plan = cr && typeof cr.status === 'string' ? cr.plan : null;\nconst items = [];\nif (plan) {\n  const s = plan.self;\n  const escalation = s.escalation\n    ? { marker_alert_id: s.escalation.by_wazuh_alert_id, by_thehive_alert_id: s.escalation.by_thehive_alert_id,\n      by_rule_id: s.escalation.by_rule_id, by_date_ms: s.escalation.by_date_ms }\n    : null;\n  if (s.add_tags.length > 0 || s.severity_to !== null || escalation) {\n    items.push({ role: 'self', thehive_alert_id: s.thehive_alert_id, wazuh_alert_id: s.wazuh_alert_id, rule_id: s.rule_id,\n      add_tags: s.add_tags, severity_from: s.severity_from, severity_to: s.severity_to,\n      severity_final: s.severity_to ?? s.severity_from,\n      // This alert's own document is written by its writeback, after this\n      // loop, with the final severity (Writeback input); no update here.\n      metrics: null, escalation });\n  }\n  for (const t of plan.targets) {\n    items.push({ role: 'related', thehive_alert_id: t.thehive_alert_id, wazuh_alert_id: t.wazuh_alert_id, rule_id: t.rule_id,\n      date_ms: t.date_ms, add_tags: t.add_tags, severity_from: t.severity_from, severity_to: t.severity_to,\n      severity_final: t.severity_final,\n      metrics: { mode: 'update', alert_id: t.wazuh_alert_id, source: t.source, fields: { severity: t.severity_final } },\n      escalation: { marker_alert_id: canonical.wazuh_alert_id, by_thehive_alert_id: s.thehive_alert_id,\n        by_rule_id: canonical.rule.id, by_date_ms: canonical.date_ms } });\n  }\n}\nif (items.length === 0) return [{ json: { nothing_to_write: true } }];\nreturn items.map((t) => ({ json: { t: { ...t,\n  patch_body: { ...(t.add_tags.length > 0 ? { addTags: t.add_tags } : {}), ...(t.severity_to !== null ? { severity: t.severity_to } : {}) },\n  srcip: cr.srcip, campaign_tag: `${c.config.ssh_correlation.tags.campaign_prefix}${cr.srcip}` } } }));\n"
+      },
+      "id": "47dd5b60-5ec8-5738-8e71-7a8d9afa0922",
+      "name": "Escalation plan",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4640,
+        -700
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c22dd2e0-ca65-5893-b7e7-194334644e84",
+              "leftValue": "={{ $json.nothing_to_write !== true }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "37be7f59-0c7f-5a23-8812-c1548926cbbb",
+      "name": "Writes to do?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        4880,
+        -700
+      ]
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "id": "c7448a05-654a-5968-a12f-31ff14ae2e61",
+      "name": "One alert at a time",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        5120,
+        -700
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// One TheHive alert at a time. Circuit breaker: once a TheHive call failed\n// after all its retries (unreachable or 5xx), the remaining alerts are not\n// attempted, so an outage costs one alert's retries, not one per related\n// alert (the queue row's running_timeout_s stays safe). Earlier alerts: one\n// run of \"Target result\" each (asking for a run past the last one throws).\nfunction earlierTargets() {\n  const out = [];\n  if (!$('Target result').isExecuted) return out;\n  for (let r = 0; r < 1000; r++) {\n    let items;\n    try { items = $('Target result').all(0, r); } catch (err) { break; }\n    out.push(...items.map((it) => it.json.t));\n  }\n  return out;\n}\nconst t = $input.first().json.t;\nconst down = earlierTargets().find((x) => x && x.unreachable === true);\nif (down) {\n  return [{ json: { t: { ...t, skipped: `not attempted: TheHive failed after its retries on ${down.thehive_alert_id}` }, next: 'skip' } }];\n}\nreturn [{ json: { t, next: Object.keys(t.patch_body).length > 0 ? 'patch' : 'no_patch' } }];\n"
+      },
+      "id": "f369cec8-b625-5891-8d64-5b28037c28e6",
+      "name": "Target gate",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5360,
+        -1000
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "2f453090-f1f4-58ae-a75b-f9dfe78a5b8f",
+              "leftValue": "={{ $json.next === 'patch' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "ecaf6487-ecdf-5fe4-8761-9334ee1a0845",
+      "name": "Update alert?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        5600,
+        -1000
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// The call's attempt number travels with the item (this loop runs the HTTP\n// node once per call for every alert, so $runIndex can't count one alert's\n// attempts): 1 from the gate, +1 after each \"Wait before retry\".\nconst j = $input.first().json;\nreturn [{ json: { t: j.t, attempt: j.retry_of === 'Update TheHive alert' ? j.attempt + 1 : 1 } }];\n"
+      },
+      "id": "63d91898-e1ff-57aa-9956-4605d312f732",
+      "name": "Call: Update TheHive alert",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5840,
+        -1100
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $env.THEHIVE_URL }}/api/v1/alert/{{ encodeURIComponent($json.t.thehive_alert_id) }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "theHiveProjectApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.t.patch_body) }}",
+        "options": {
+          "timeout": "={{ $('Context').first().json.config.thehive_http.timeout_ms }}",
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "963977a2-f219-57e0-ba1e-0638bc4fb716",
+      "name": "Update TheHive alert",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        6080,
+        -1100
+      ],
+      "credentials": {
+        "theHiveProjectApi": {
+          "id": "asoxTheHiveApi01",
+          "name": "TheHive API (n8n)"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Retry policy for TheHive calls (N8N-6.2; lib-config thehive_http): a\n// connection error, a timeout or HTTP 5xx -> wait and call again; anything\n// else (2xx, and 4xx, which a retry never fixes) -> passed on. The attempt\n// number comes with the call (\"Call: Update TheHive alert\", same run index: one run per call),\n// not from $runIndex. Never parks: the last failure goes into the writeback.\nconst r = $input.first().json;\nconst call = $('Call: Update TheHive alert').all(0, $runIndex)[0].json;\nconst policy = $('Context').first().json.config.thehive_http;\nconst NODE = 'Update TheHive alert';\nconst attempt = call.attempt;\nconst status = typeof r.statusCode === 'number' ? r.statusCode : null;\nconst thrown = r.error !== undefined && status === null; // HTTP node error output\nconst NETWORK = /ECONNREFUSED|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|ECONNRESET|EHOSTUNREACH|ENETUNREACH|ECONNABORTED|timeout|timed out|socket hang up|connection cannot be established/i;\nconst transient = thrown ? NETWORK.test(JSON.stringify(r)) : status >= 500;\nconst calls = policy.retry_waits_s.length + 1;\nif (transient && attempt < calls) {\n  return [{ json: { ...call, decision: 'retry', retry_of: NODE, stage: NODE, wait_s: policy.retry_waits_s[attempt - 1],\n    reason: thrown ? 'connection error or timeout' : `HTTP ${status}` } }];\n}\nif (thrown || transient) {\n  const e = r.error;\n  const detail = thrown\n    ? (typeof e === 'string' ? e : [e?.message, e?.description].filter(Boolean).join(': ') || JSON.stringify(r))\n    : `HTTP ${status}: ${typeof r.body === 'string' ? r.body : JSON.stringify(r.body)}`;\n  return [{ json: { ...call, decision: 'error', stage: NODE, attempts: attempt, retry_exhausted: transient, http_status: status,\n    message: `${detail}`.slice(0, 500) + (transient ? ` (${attempt} calls)` : '') } }];\n}\nreturn [{ json: { ...call, decision: 'response', stage: NODE, attempts: attempt, statusCode: status, body: r.body } }];\n"
+      },
+      "id": "fae76a4f-0ccd-5913-9469-76a7dd218748",
+      "name": "Assess: Update TheHive alert",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        6320,
+        -1100
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "8bd8618d-15ba-5db8-b058-0c57e3c1139c",
+              "leftValue": "={{ $json.decision === 'retry' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "9d2e8f52-68da-5344-8c13-d727ae6f17e5",
+      "name": "Retry: Update TheHive alert?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        6560,
+        -1100
+      ]
+    },
+    {
+      "parameters": {
+        "resume": "timeInterval",
+        "amount": "={{ $json.wait_s }}",
+        "unit": "seconds"
+      },
+      "id": "3bed67dc-2d55-5e3d-b72b-d2d4010cda1b",
+      "name": "Wait before retry: Update TheHive alert",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        6560,
+        -1300
+      ],
+      "webhookId": "46342c55-cfdd-5c67-8f41-2fcdb2667852"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Result of the alert update (tags added, severity raised), or nothing to\n// update (every tag already there, severity already high enough), or not\n// attempted (circuit breaker).\nconst failure = (j) => ({ ok: false, stage: j.stage, attempts: j.attempts ?? null, http_status: j.http_status ?? j.statusCode ?? null,\n  class: j.decision === 'error' ? (j.retry_exhausted ? 'thehive_unreachable' : (j.http_status ? 'thehive_4xx' : 'thehive_error'))\n    : (j.statusCode >= 400 && j.statusCode < 500 ? 'thehive_4xx' : `http_${j.statusCode}`),\n  message: j.message ?? `HTTP ${j.statusCode}: ${JSON.stringify(j.body)}`.slice(0, 500) });\nconst j = $input.first().json;\nconst t = { ...j.t };\nif (j.next === 'skip') t.patch = { ok: false, skipped: true };\nelse if (j.next === 'no_patch') t.patch = { ok: true, changed: false };\nelse if (j.decision === 'response' && j.statusCode >= 200 && j.statusCode < 300) t.patch = { ok: true, changed: true, attempts: j.attempts };\nelse {\n  t.patch = failure(j);\n  if (j.retry_exhausted === true) t.unreachable = true;\n}\nreturn [{ json: { t } }];\n"
+      },
+      "id": "d3a3355e-b47a-5226-ad34-293fec6fe714",
+      "name": "Updated",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        6800,
+        -1000
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "f684e8c4-89d7-5a6e-841a-b4dcb4efe4f0",
+              "leftValue": "={{ $json.t.metrics !== null && $json.t.patch.ok === true && $json.t.skipped === undefined }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "e65dcf74-7eeb-548d-bb33-fb905d240533",
+      "name": "Metrics update?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        7040,
+        -1000
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// C11 (N8N-2.9): a related alert's asox-metrics severity follows its TheHive\n// severity (mode update: a missing document is skipped, never created). n8n's\n// own TheHive writes are dropped by C4's loop prevention, so recv-thehive-event\n// never sees this raise: the playbook writes it. `t` rides along (ignored by\n// the lib) for \"Metrics done\".\nconst t = $input.first().json.t;\nreturn [{ json: { ...t.metrics, config: $('Context').first().json.config, _t: t } }];\n"
+      },
+      "id": "0f12177d-a329-5fe0-bb68-e1d35b93b5f9",
+      "name": "Metrics input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        7280,
+        -1100
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "asoxLibMetricsUp",
+          "cachedResultName": "lib-metrics-upsert"
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "d2bd763c-00af-5385-ab31-bf8db8bd80f0",
+      "name": "Metrics (lib-metrics-upsert)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        7520,
+        -1100
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// lib-metrics-upsert never parks; On Error = continue, so an unexpected\n// failure arrives as {error}. \"Metrics input\" runs once per call, like this node.\nconst r = $input.first().json;\nconst t = { ...$('Metrics input').all(0, $runIndex)[0].json._t };\nt.metrics_result = { ok: r.ok === true, line: typeof r.line === 'string' ? r.line : 'metrics: failed (unexpected)' };\nreturn [{ json: { t } }];\n"
+      },
+      "id": "2ae8d4db-b3a3-5a47-b2bd-4c420de14684",
+      "name": "Metrics done",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        7760,
+        -1100
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "50931114-81bd-545c-8485-31f565a400b8",
+              "leftValue": "={{ $json.t.escalation !== null && $json.t.patch.ok === true && $json.t.unreachable !== true }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "1ab90fc4-0ffa-5b3a-8343-8cbf08bfc0a6",
+      "name": "Comment?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        8000,
+        -1000
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Comment listing before each post (as lib-thehive-writeback does): the first\n// listing, a retry of the listing, or the re-listing after a failed post (a\n// post that timed out may have been written). post_attempt rides along.\nconst j = $input.first().json;\nreturn [{ json: { t: j.t, list_attempt: j.retry_of === 'List TheHive comments' ? j.list_attempt + 1 : 1,\n  post_attempt: j.post_attempt ?? 0 } }];\n"
+      },
+      "id": "5daa170e-1a1f-5130-b90c-8ac30ee13ef4",
+      "name": "Call: List TheHive comments",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        8240,
+        -1100
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.THEHIVE_URL }}/api/v1/query",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "theHiveProjectApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ query: [ { _name: 'getAlert', idOrName: $json.t.thehive_alert_id }, { _name: 'comments' }, { _name: 'page', from: 0, to: 500 } ] }) }}",
+        "options": {
+          "timeout": "={{ $('Context').first().json.config.thehive_http.timeout_ms }}",
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "1d7f8eba-3699-5abb-9531-4ec650ae0854",
+      "name": "List TheHive comments",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        8480,
+        -1100
+      ],
+      "credentials": {
+        "theHiveProjectApi": {
+          "id": "asoxTheHiveApi01",
+          "name": "TheHive API (n8n)"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Retry policy for TheHive calls (N8N-6.2; lib-config thehive_http): a\n// connection error, a timeout or HTTP 5xx -> wait and call again; anything\n// else (2xx, and 4xx, which a retry never fixes) -> passed on. The attempt\n// number comes with the call (\"Call: List TheHive comments\", same run index: one run per call),\n// not from $runIndex. Never parks: the last failure goes into the writeback.\nconst r = $input.first().json;\nconst call = $('Call: List TheHive comments').all(0, $runIndex)[0].json;\nconst policy = $('Context').first().json.config.thehive_http;\nconst NODE = 'List TheHive comments';\nconst attempt = call.list_attempt;\nconst status = typeof r.statusCode === 'number' ? r.statusCode : null;\nconst thrown = r.error !== undefined && status === null; // HTTP node error output\nconst NETWORK = /ECONNREFUSED|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|ECONNRESET|EHOSTUNREACH|ENETUNREACH|ECONNABORTED|timeout|timed out|socket hang up|connection cannot be established/i;\nconst transient = thrown ? NETWORK.test(JSON.stringify(r)) : status >= 500;\nconst calls = policy.retry_waits_s.length + 1;\nif (transient && attempt < calls) {\n  return [{ json: { ...call, decision: 'retry', retry_of: NODE, stage: NODE, wait_s: policy.retry_waits_s[attempt - 1],\n    reason: thrown ? 'connection error or timeout' : `HTTP ${status}` } }];\n}\nif (thrown || transient) {\n  const e = r.error;\n  const detail = thrown\n    ? (typeof e === 'string' ? e : [e?.message, e?.description].filter(Boolean).join(': ') || JSON.stringify(r))\n    : `HTTP ${status}: ${typeof r.body === 'string' ? r.body : JSON.stringify(r.body)}`;\n  return [{ json: { ...call, decision: 'error', stage: NODE, attempts: attempt, retry_exhausted: transient, http_status: status,\n    message: `${detail}`.slice(0, 500) + (transient ? ` (${attempt} calls)` : '') } }];\n}\nreturn [{ json: { ...call, decision: 'response', stage: NODE, attempts: attempt, statusCode: status, body: r.body } }];\n"
+      },
+      "id": "5b48c677-d3fd-5cd3-a472-574204a6f940",
+      "name": "Assess: List TheHive comments",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        8720,
+        -1100
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "54ae5353-db7f-5f4d-91ca-57f571038314",
+              "leftValue": "={{ $json.decision === 'retry' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "97421dad-e3d0-5f88-b24b-4e9f9675eb8f",
+      "name": "Retry: List TheHive comments?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        8960,
+        -1100
+      ]
+    },
+    {
+      "parameters": {
+        "resume": "timeInterval",
+        "amount": "={{ $json.wait_s }}",
+        "unit": "seconds"
+      },
+      "id": "5204a9dc-f7a1-585f-959a-757ce9965d54",
+      "name": "Wait before retry: List TheHive comments",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        8960,
+        -1300
+      ],
+      "webhookId": "7d9403f5-0fb3-5626-bdcd-4cae133df238"
+    },
+    {
+      "parameters": {
+        "jsCode": "// The escalation comment is written once per alert and escalating 40112:\n// first line exactly `<marker> wazuh-alert-id=<40112 id>` by n8n's account\n// (the same test as the writeback's). Otherwise write it, with what was done\n// to this alert.\nconst j = $input.first().json;\nconst t = j.t;\nconst c = $('Context').first().json;\nconst sc = c.config.ssh_correlation;\nconst author = c.config.writeback.author;\nconst firstLine = `${sc.comment_marker} wazuh-alert-id=${t.escalation.marker_alert_id}`;\nif (j.decision !== 'response' || j.statusCode !== 200 || !Array.isArray(j.body)) {\n  const cls = j.decision === 'error' ? (j.retry_exhausted ? 'thehive_unreachable' : (j.http_status ? 'thehive_4xx' : 'thehive_error'))\n    : (j.statusCode >= 400 && j.statusCode < 500 ? 'thehive_4xx' : (j.statusCode === 200 ? 'bad_answer' : `http_${j.statusCode}`));\n  return [{ json: { t: { ...t, ...(j.retry_exhausted === true ? { unreachable: true } : {}),\n    comment: { ok: false, stage: j.stage, class: cls, attempts: j.attempts ?? null, message: (j.message ?? `HTTP ${j.statusCode}`).slice(0, 500) } },\n    status: 'done' } }];\n}\nconst existing = j.body.find((cm) => (cm.createdBy ?? cm._createdBy) === author\n  && typeof cm.message === 'string' && cm.message.split('\\n')[0] === firstLine);\nif (existing) return [{ json: { t: { ...t, comment: { ok: true, written: false, comment_id: existing._id } }, status: 'done' } }];\nconst iso = (ms) => (Number.isFinite(ms) ? new Date(ms).toISOString() : 'unknown time');\nconst e = t.escalation;\nconst sev = t.severity_to !== null\n  ? `Severity raised ${t.severity_from} → ${t.severity_to} (lib-config ssh_correlation.escalate_severity); never lowered (D12).`\n  : `Severity unchanged (${t.severity_from ?? 'unknown'}: already at or above ${sc.escalate_severity}).`;\nconst tagLine = t.add_tags.includes(sc.tags.escalated) ? `Tagged ${sc.tags.escalated}.` : `Already tagged ${sc.tags.escalated}.`;\nconst metricsLine = t.role === 'self'\n  ? `asox-metrics: severity ${t.severity_final} written with this alert's document (its writeback).`\n  : (t.metrics_result ? `asox-metrics severity ${t.severity_final}: ${t.metrics_result.line}` : 'asox-metrics: not updated.');\nconst lines = [\n  firstLine,\n  '',\n  `n8n playbook **${c.context.playbook}**, execution ${c.context.n8n_execution_id}.`,\n  '',\n  `Successful SSH login after brute force from ${t.srcip}: Wazuh rule ${e.by_rule_id}, alert ${e.marker_alert_id} (TheHive ${e.by_thehive_alert_id}) at ${iso(e.by_date_ms)}.`,\n  '',\n  'Actions taken on this alert:',\n  `- ${tagLine}`,\n  `- ${sev}`,\n  `- ${metricsLine}`,\n  `- Recommended: block ${t.srcip} (response actions, C9, Phase 2); nothing was changed.`,\n];\nreturn [{ json: { t, status: 'write', message: lines.join('\\n'), post_attempt: j.post_attempt } }];\n"
+      },
+      "id": "496cc56c-db1b-5974-ab7a-5edebed37c18",
+      "name": "Check escalation comment",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        9200,
+        -1000
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "5717149e-d1ee-5071-8e42-ba6866839412",
+              "leftValue": "={{ $json.status === 'write' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "00d4b8e4-74f8-556d-945c-565659bfa88d",
+      "name": "Post comment?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        9440,
+        -1000
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const j = $input.first().json;\nreturn [{ json: { t: j.t, message: j.message, post_attempt: (j.post_attempt ?? 0) + 1 } }];\n"
+      },
+      "id": "27555095-6334-5b97-afe4-46e8bfa67edc",
+      "name": "Call: Post TheHive comment",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        9680,
+        -1100
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.THEHIVE_URL }}/api/v1/alert/{{ encodeURIComponent($json.t.thehive_alert_id) }}/comment",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "theHiveProjectApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ message: $json.message }) }}",
+        "options": {
+          "timeout": "={{ $('Context').first().json.config.thehive_http.timeout_ms }}",
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "0896e74c-c14e-53c8-913b-c9855a9ab396",
+      "name": "Post TheHive comment",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        9920,
+        -1100
+      ],
+      "credentials": {
+        "theHiveProjectApi": {
+          "id": "asoxTheHiveApi01",
+          "name": "TheHive API (n8n)"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Retry policy for TheHive calls (N8N-6.2; lib-config thehive_http): a\n// connection error, a timeout or HTTP 5xx -> wait and call again; anything\n// else (2xx, and 4xx, which a retry never fixes) -> passed on. The attempt\n// number comes with the call (\"Call: Post TheHive comment\", same run index: one run per call),\n// not from $runIndex. Never parks: the last failure goes into the writeback.\nconst r = $input.first().json;\nconst call = $('Call: Post TheHive comment').all(0, $runIndex)[0].json;\nconst policy = $('Context').first().json.config.thehive_http;\nconst NODE = 'Post TheHive comment';\nconst attempt = call.post_attempt;\nconst status = typeof r.statusCode === 'number' ? r.statusCode : null;\nconst thrown = r.error !== undefined && status === null; // HTTP node error output\nconst NETWORK = /ECONNREFUSED|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|ECONNRESET|EHOSTUNREACH|ENETUNREACH|ECONNABORTED|timeout|timed out|socket hang up|connection cannot be established/i;\nconst transient = thrown ? NETWORK.test(JSON.stringify(r)) : status >= 500;\nconst calls = policy.retry_waits_s.length + 1;\nif (transient && attempt < calls) {\n  return [{ json: { ...call, decision: 'retry', retry_of: NODE, stage: NODE, wait_s: policy.retry_waits_s[attempt - 1],\n    reason: thrown ? 'connection error or timeout' : `HTTP ${status}` } }];\n}\nif (thrown || transient) {\n  const e = r.error;\n  const detail = thrown\n    ? (typeof e === 'string' ? e : [e?.message, e?.description].filter(Boolean).join(': ') || JSON.stringify(r))\n    : `HTTP ${status}: ${typeof r.body === 'string' ? r.body : JSON.stringify(r.body)}`;\n  return [{ json: { ...call, decision: 'error', stage: NODE, attempts: attempt, retry_exhausted: transient, http_status: status,\n    message: `${detail}`.slice(0, 500) + (transient ? ` (${attempt} calls)` : '') } }];\n}\nreturn [{ json: { ...call, decision: 'response', stage: NODE, attempts: attempt, statusCode: status, body: r.body } }];\n"
+      },
+      "id": "307c7b79-17c0-5387-8fb1-f46e3b46fdb3",
+      "name": "Assess: Post TheHive comment",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        10160,
+        -1100
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "776878e2-0c29-5836-b95a-22bda0613063",
+              "leftValue": "={{ $json.decision === 'retry' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "61caaf62-778e-5109-bbeb-969edd1624c4",
+      "name": "Retry: Post TheHive comment?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        10400,
+        -1100
+      ]
+    },
+    {
+      "parameters": {
+        "resume": "timeInterval",
+        "amount": "={{ $json.wait_s }}",
+        "unit": "seconds"
+      },
+      "id": "d70ddc4e-1eb9-57c2-aaa7-d62bfa1695b0",
+      "name": "Wait, then re-list before re-posting",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        10400,
+        -1300
+      ],
+      "webhookId": "a509d8d0-d18f-5ff8-9c68-fa4373b96ee4"
+    },
+    {
+      "parameters": {
+        "jsCode": "// One alert done: reached from \"Comment?\" (no comment to write), from the\n// comment check (already there, or the listing failed) or from the post.\nconst j = $input.first().json;\nconst t = { ...j.t };\nif (j.stage === 'Post TheHive comment') {\n  if (j.decision === 'response' && j.statusCode === 201) t.comment = { ok: true, written: true, comment_id: j.body?._id ?? null, attempts: j.attempts };\n  else {\n    t.comment = { ok: false, stage: j.stage, attempts: j.attempts ?? null, http_status: j.http_status ?? j.statusCode ?? null,\n      class: j.decision === 'error' ? (j.retry_exhausted ? 'thehive_unreachable' : (j.http_status ? 'thehive_4xx' : 'thehive_error'))\n        : (j.statusCode >= 400 && j.statusCode < 500 ? 'thehive_4xx' : `http_${j.statusCode}`),\n      message: (j.message ?? `HTTP ${j.statusCode}: ${JSON.stringify(j.body)}`).slice(0, 500) };\n    if (j.retry_exhausted === true) t.unreachable = true;\n  }\n}\nreturn [{ json: { kind: 'escalation_target', t } }];\n"
+      },
+      "id": "a8f999e8-5978-5b50-b58b-be97b2a59c52",
+      "name": "Target result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        10640,
+        -1000
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Reached by exactly one path: nothing to write, or the loop done (one\n// `escalation_target` item per TheHive alert).\nconst targets = $input.all().map((x) => x.json).filter((j) => j.kind === 'escalation_target').map((j) => j.t);\nreturn [{ json: {\n  ran: targets.length > 0,\n  self: targets.find((t) => t.role === 'self') ?? null,\n  related: targets.filter((t) => t.role === 'related'),\n} }];\n"
+      },
+      "id": "9c2e26f8-b7d9-52ff-83fe-800abe62c905",
+      "name": "Escalation result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5360,
+        -700
+      ]
+    }
+  ],
+  "connections": {
+    "Called by a workflow": {
+      "main": [
+        [
+          {
+            "node": "Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Context": {
+      "main": [
+        [
+          {
+            "node": "Normalize input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize input": {
+      "main": [
+        [
+          {
+            "node": "Normalize (lib-normalize-wazuh-alert)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize (lib-normalize-wazuh-alert)": {
+      "main": [
+        [
+          {
+            "node": "Normalized?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalized?": {
+      "main": [
+        [
+          {
+            "node": "Extract input",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Parked outcome",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upsert input": {
+      "main": [
+        [
+          {
+            "node": "Upsert (lib-thehive-upsert-alert)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "In TheHive?": {
+      "main": [
+        [
+          {
+            "node": "Created?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Parked outcome",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Writeback input": {
+      "main": [
+        [
+          {
+            "node": "Writeback (lib-thehive-writeback)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Writeback (lib-thehive-writeback)": {
+      "main": [
+        [
+          {
+            "node": "Outcome",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upsert (lib-thehive-upsert-alert)": {
+      "main": [
+        [
+          {
+            "node": "TheHive configured?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "TheHive configured?": {
+      "main": [
+        [
+          {
+            "node": "In TheHive?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Skipped outcome",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract input": {
+      "main": [
+        [
+          {
+            "node": "Extract observables (lib-extract-observables)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract observables (lib-extract-observables)": {
+      "main": [
+        [
+          {
+            "node": "Warninglist input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Created?": {
+      "main": [
+        [
+          {
+            "node": "Enrich input",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Alert state input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enrich input": {
+      "main": [
+        [
+          {
+            "node": "Enrich (lib-enrich-observable)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enrich (lib-enrich-observable)": {
+      "main": [
+        [
+          {
+            "node": "Correlate input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Alert state input": {
+      "main": [
+        [
+          {
+            "node": "Alert state (lib-thehive-alert-state)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Alert state (lib-thehive-alert-state)": {
+      "main": [
+        [
+          {
+            "node": "Interrupted run?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Interrupted run?": {
+      "main": [
+        [
+          {
+            "node": "Repair enrich input",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Writeback input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Repair enrich input": {
+      "main": [
+        [
+          {
+            "node": "Enrich (lib-enrich-observable)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Warninglist input": {
+      "main": [
+        [
+          {
+            "node": "Warninglists (lib-misp-warninglist)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Warninglists (lib-misp-warninglist)": {
+      "main": [
+        [
+          {
+            "node": "Upsert input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Correlate input": {
+      "main": [
+        [
+          {
+            "node": "Correlate (lib-ssh-correlate)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Correlate (lib-ssh-correlate)": {
+      "main": [
+        [
+          {
+            "node": "Escalation plan",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Escalation plan": {
+      "main": [
+        [
+          {
+            "node": "Writes to do?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Writes to do?": {
+      "main": [
+        [
+          {
+            "node": "One alert at a time",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Escalation result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "One alert at a time": {
+      "main": [
+        [
+          {
+            "node": "Escalation result",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Target gate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Target gate": {
+      "main": [
+        [
+          {
+            "node": "Update alert?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update alert?": {
+      "main": [
+        [
+          {
+            "node": "Call: Update TheHive alert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Updated",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call: Update TheHive alert": {
+      "main": [
+        [
+          {
+            "node": "Update TheHive alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update TheHive alert": {
+      "main": [
+        [
+          {
+            "node": "Assess: Update TheHive alert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Assess: Update TheHive alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Assess: Update TheHive alert": {
+      "main": [
+        [
+          {
+            "node": "Retry: Update TheHive alert?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Retry: Update TheHive alert?": {
+      "main": [
+        [
+          {
+            "node": "Wait before retry: Update TheHive alert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Updated",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait before retry: Update TheHive alert": {
+      "main": [
+        [
+          {
+            "node": "Call: Update TheHive alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call: List TheHive comments": {
+      "main": [
+        [
+          {
+            "node": "List TheHive comments",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "List TheHive comments": {
+      "main": [
+        [
+          {
+            "node": "Assess: List TheHive comments",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Assess: List TheHive comments",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Assess: List TheHive comments": {
+      "main": [
+        [
+          {
+            "node": "Retry: List TheHive comments?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Retry: List TheHive comments?": {
+      "main": [
+        [
+          {
+            "node": "Wait before retry: List TheHive comments",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Check escalation comment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait before retry: List TheHive comments": {
+      "main": [
+        [
+          {
+            "node": "Call: List TheHive comments",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call: Post TheHive comment": {
+      "main": [
+        [
+          {
+            "node": "Post TheHive comment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post TheHive comment": {
+      "main": [
+        [
+          {
+            "node": "Assess: Post TheHive comment",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Assess: Post TheHive comment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Assess: Post TheHive comment": {
+      "main": [
+        [
+          {
+            "node": "Retry: Post TheHive comment?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Retry: Post TheHive comment?": {
+      "main": [
+        [
+          {
+            "node": "Wait, then re-list before re-posting",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Target result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait, then re-list before re-posting": {
+      "main": [
+        [
+          {
+            "node": "Call: List TheHive comments",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Updated": {
+      "main": [
+        [
+          {
+            "node": "Metrics update?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Metrics update?": {
+      "main": [
+        [
+          {
+            "node": "Metrics input",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Comment?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Metrics input": {
+      "main": [
+        [
+          {
+            "node": "Metrics (lib-metrics-upsert)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Metrics (lib-metrics-upsert)": {
+      "main": [
+        [
+          {
+            "node": "Metrics done",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Metrics done": {
+      "main": [
+        [
+          {
+            "node": "Comment?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Comment?": {
+      "main": [
+        [
+          {
+            "node": "Call: List TheHive comments",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Target result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check escalation comment": {
+      "main": [
+        [
+          {
+            "node": "Post comment?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post comment?": {
+      "main": [
+        [
+          {
+            "node": "Call: Post TheHive comment",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Target result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Target result": {
+      "main": [
+        [
+          {
+            "node": "One alert at a time",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Escalation result": {
+      "main": [
+        [
+          {
+            "node": "Writeback input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataSuccessExecution": "all",
+    "saveDataErrorExecution": "all",
+    "saveManualExecutions": true,
+    "errorWorkflow": "asoxRecvN8nError"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "nodeGroups": [],
+  "tags": [],
+  "pinData": {}
+}
