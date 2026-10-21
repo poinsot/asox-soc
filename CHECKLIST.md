@@ -223,6 +223,7 @@ Nothing to install by hand: `soc.sh init` pulls (or, for the lab agent, builds) 
 - [ ] Docker Hub account (pull rate limits)
 - [ ] VirusTotal API key (Cortex analyzer)
 - [ ] AbuseIPDB API key (Cortex analyzer)
+  Online analyzer keys (also OTX and abuse.ch) go into `nodes/cases/cortex/analyzers/analyzer-keys.env` on the machine that runs `cases` (copy `analyzer-keys.env.example`; git-ignored, never committed). `scripts/bootstrap.sh cases` (also run by `soc.sh init`) applies them since 2026-10-21; without the file it only warns and Cortex runs the MISP analyzer alone.
 
 **Later phases (not needed now)**
 - [ ] Slack workspace where you can create an app with Socket Mode

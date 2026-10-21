@@ -99,6 +99,14 @@ When a checkpoint merge brings new n8n workflows or a changed n8n compose file i
 
 The alert queue's Data Tables (`asox_alert_queue`, `asox_queue_slots`) are created automatically on n8n's first run with the new workflows, and found again on later ones: nothing to do.
 
+### After a merge that changes `scripts/bootstrap.sh` or `render-env.sh` (machines that run `cases`)
+
+Since 2026-10-21 `scripts/bootstrap.sh cases` also applies the Cortex + MISP owner's `analyzers.json` (online analyzers whose keys are in `nodes/cases/cortex/analyzers/analyzer-keys.env` on that machine) and loads the TheHive owner's `entities/` (custom fields, observable types, case templates). Running `analyzers.sh apply` or `thehive-import.sh` by hand is only needed after changing those files. After pulling:
+
+1. `./scripts/render-env.sh`, then `./scripts/soc.sh up <mode>`: recreates Cortex with its new memory limit (`CORTEX_MEM` 700m on `standard`; `low` unchanged).
+2. Put your analyzer keys into `analyzer-keys.env` first if you have them (optional; a missing file is a `WARN`, a blank key a `SKIP` that leaves Cortex as it is).
+3. `./scripts/bootstrap.sh cases`: it must end with `All checks passed`; it prints the owners' `SKIP`/`PASS` lines for the analyzers and `created / updated / unchanged` counts for TheHive.
+
 ### Git cheat sheet
 
 | Situation | Command |
