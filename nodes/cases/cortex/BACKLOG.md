@@ -2,13 +2,13 @@
 
 Owner: Diego (@DiegoGuerraA00835430). Branch: `cortex-misp`. MISP has its own backlog: [nodes/intel/misp/BACKLOG.md](../../intel/misp/BACKLOG.md).
 
-This file shows what is done, what is being worked on now, and what comes next for Cortex, so other owners can see where things stand and what to expect. Last updated: 2026-10-14, after merging `main` (PR #19) into `cortex-misp` and a fresh `full` run (PROJECT.md 5; [docs/integration-backlog.md](../../../docs/integration-backlog.md)).
+This file shows what is done, what is being worked on now, and what comes next for Cortex, so other owners can see where things stand and what to expect. Last updated: 2026-10-21, after merging `main` (up to PR #33) into `cortex-misp` (PROJECT.md 5; [docs/integration-backlog.md](../../../docs/integration-backlog.md)).
 
 **Status:** ✅ done · 🔨 in progress (on `cortex-misp`, not merged into `main` yet) · ⏭️ next · 🕓 later · ⛔ blocked (waiting on someone)
 
 ## Where I am now
 
-Analyzers as code are on `main` (PR #12). n8n's enrichment through C6 is built and runs `MISP_2_1` (N8N-2.4, merged 2026-10-13). It waits for two things from me, the only open Cortex work before checkpoint 1 (2026-10-20):
+Analyzers as code are on `main` (PR #12). n8n's enrichment through C6 is built and runs `MISP_2_1` (N8N-2.4, merged 2026-10-13). It waits for two things from me. They were due at checkpoint 1 (2026-10-20) and are **overdue**: the handoff lists them as the only checkpoint item still missing, and n8n's online analyzers (N8N-2.4) wait on them:
 
 - **`n8n-enrichment.md`**, which answers Inigo's 6 questions (`diego-enrichment-questions.md`, 2026-10-06);
 - **the online analyzers' API keys.**
@@ -31,7 +31,7 @@ Aligned with the shared team dates (integration backlog, section F).
 
 | Target | Date |
 |---|---|
-| `n8n-enrichment.md` delivered, online analyzers with keys (X-06, X-07). Questions 1 and 6 earlier if possible | **2026-10-20** (checkpoint 1) |
+| `n8n-enrichment.md` delivered, online analyzers with keys (X-06, X-07). Questions 1 and 6 earlier if possible | **overdue** (was 2026-10-20, checkpoint 1) |
 | Written TLP/PAP policy (X-08), local analyzers | 2026-11-10 (v1.2) |
 | C13 analyzer, if R-10, R-15 and R-16 are in | 2026-11-17 (v1.3) |
 | Feature freeze / delivery | 2026-11-24 / 2026-12-01 |
@@ -51,9 +51,9 @@ Aligned with the shared team dates (integration backlog, section F).
 
 | Item | Status | Notes |
 |---|---|---|
-| n8n enrichment guide (`n8n-enrichment.md`) | 🔨 due 2026-10-20 | The deliverable for X-06 and X-07. **Answers Inigo's 6 questions** (`diego-enrichment-questions.md`): 1. analyzers per observable type (`ip`, `domain`, `fqdn`, `url`, `hash`, `filename`) with expected run time; 2. verdict overrides (e.g. AbuseIPDB confidence, VirusTotal engines); 3. quotas for OTX and abuse.ch, VirusTotal on Critical only?; 4. `max_tlp`/`max_pap` 2 as the interim policy, and `MISP_2_1`'s values; 5. drop `filename` (`syscheck.path`)?; 6. MISP hit = suspicious, `ioc: false` (TheHive agrees). Inigo asked for 1 and 6 first |
+| n8n enrichment guide (`n8n-enrichment.md`) | 🔨 overdue (was due 2026-10-20) | The deliverable for X-06 and X-07. **Answers Inigo's 6 questions** (`diego-enrichment-questions.md`): 1. analyzers per observable type (`ip`, `domain`, `fqdn`, `url`, `hash`, `filename`) with expected run time; 2. verdict overrides (e.g. AbuseIPDB confidence, VirusTotal engines); 3. quotas for OTX and abuse.ch, VirusTotal on Critical only?; 4. `max_tlp`/`max_pap` 2 as the interim policy, and `MISP_2_1`'s values; 5. drop `filename` (`syscheck.path`)?; 6. MISP hit = suspicious, `ioc: false` (TheHive agrees). Inigo asked for 1 and 6 first |
 | Online analyzers: AbuseIPDB, OTXQuery, URLhaus, MalwareBazaar, VirusTotal_GetReport | 🔨 defined in `analyzers.json`, **need API keys** | Keys go in `analyzers/analyzer-keys.env` (git-ignored, R-09; see the `.example`). Each person gets their own free keys. Setting names checked against the Cortex catalog on 2026-10-01: all match (AbuseIPDB_2_0, OTXQuery_2_0, URLhaus_2_0, MalwareBazaar_1_0, VirusTotal_GetReport_3_1). These are the analyzers analysts see and run from TheHive (C5) |
-| MISPWarningLists analyzer | ⛔ disabled (`"enabled": false`), not needed | Tested 2026-10-01: fails with "wrong configuration settings" (it needs its own copy of the lists). n8n checks MISP's warninglists directly (C10). **2026-10-14:** proposed to n8n that the list names go in the observable's description, with one `warninglist` tag ([MISP request](../../intel/misp/request-n8n-warninglist-description.md)) |
+| MISPWarningLists analyzer | ⛔ disabled (`"enabled": false`), not needed | Tested 2026-10-01: fails with "wrong configuration settings" (it needs its own copy of the lists). n8n checks MISP's warninglists directly (C10). ✅ My proposal (list names in the observable's description, one `warninglist` tag) was agreed by TheHive and applied by n8n (PR #29, 2026-10-15; [MISP request](../../intel/misp/request-n8n-warninglist-description.md)) |
 | Data-sharing defaults on every analyzer | 🔨 | `max_tlp` / `max_pap` = 2 (AMBER): TLP:RED data is never sent to online services. TheHive defaults new alerts to TLP/PAP AMBER (T2.5). n8n enforces the same values until the written policy (X-08). Job cache 10 min. Rate limits: AbuseIPDB 1000/day, VirusTotal 500/day + 4/min (X-18) |
 
 ## Next
@@ -80,7 +80,7 @@ Aligned with the shared team dates (integration backlog, section F).
 
 | Owner | What changes for you |
 |---|---|
-| **n8n** (Inigo) | `n8n-enrichment.md` by 2026-10-20 (questions 1 and 6 first), then the keys. Your "Cortex API (n8n)" credential keeps working (C6 is unchanged). C13 needs your `recv-wazuh-lookup` webhook (N8N-2.10). Warninglist presentation proposal: see the MISP backlog |
+| **n8n** (Inigo) | `n8n-enrichment.md` is late (was due 2026-10-20; questions 1 and 6 first), then the keys. Your "Cortex API (n8n)" credential keeps working (C6 is unchanged). C13 needs your `recv-wazuh-lookup` webhook (N8N-2.10). Web access log URLs (X-44) are path-only, so Cortex's URL analyzers can't use them: the enrichment doc will say so |
 | **TheHive** (Park) | New analyzers appear in TheHive through the Cortex connector (C5); nothing to configure. Question E: agreed (suspicious, `ioc: false`). T5.3 is now C13: my analyzer, nothing to build in TheHive |
 | **Wazuh** (Daniel) | C13 uses the field map in PROJECT.md 5 (`data.srcip`, `agent.name`, `data.srcuser`, `syscheck.sha256_after`…); please keep it stable (W2.5). C14: see the MISP backlog |
 | **Grafana** (Jesus) | Nothing planned. |

@@ -2,27 +2,28 @@
 
 Owner: Diego (@DiegoGuerraA00835430). Branch: `cortex-misp`. Cortex has its own backlog: [nodes/cases/cortex/BACKLOG.md](../../cases/cortex/BACKLOG.md).
 
-This file shows what is done, what is being worked on now, and what comes next for MISP, so other owners can see where things stand and what to expect. Last updated: 2026-10-14, after merging `main` (PR #19) into `cortex-misp` and a fresh `full` run (PROJECT.md 5; [docs/integration-backlog.md](../../../docs/integration-backlog.md)).
+This file shows what is done, what is being worked on now, and what comes next for MISP, so other owners can see where things stand and what to expect. Last updated: 2026-10-21, after merging `main` (up to PR #33) into `cortex-misp` (PROJECT.md 5; [docs/integration-backlog.md](../../../docs/integration-backlog.md)).
 
 **Status:** ✅ done · 🔨 in progress (on `cortex-misp`, not merged into `main` yet) · ⏭️ next · 🕓 later · ⛔ blocked (waiting on someone)
 
 ## Where I am now
 
-Warninglists, feeds and the C10 user are on `main` (PR #12). `bootstrap.sh intel` applies them (R-22), and **C10 is live** (2026-10-13, PR #17). The current work, on `cortex-misp` and not merged yet, is:
+Warninglists, feeds and the C10 user are on `main` (PR #12); `bootstrap.sh intel` applies them (R-22). My C14 user, the new seed IOC and the warninglist description proposal are on `main` too (PR #22, 2026-10-14). Since then:
 
-- **C14 (MISP → Wazuh CDB lists):** my answer to Daniel's design ([C14-reply-wazuh.md](C14-reply-wazuh.md)) and the Read Only user `wazuh@asox.local`.
-- **X-36:** a new seed IOC that is on no warninglist (`101.99.75.184`).
-- **A presentation change for C10**, proposed to n8n: list names in the observable's description instead of one tag per list ([request-n8n-warninglist-description.md](request-n8n-warninglist-description.md)).
+- **C10 is live** (2026-10-13, PR #17), now with list names in the observable's description and one `warninglist` tag (my proposal, agreed by TheHive and applied by n8n, PR #29).
+- **C14 is live** (2026-10-15, PR #26): the Wazuh manager syncs MISP IOCs into its CDB lists with my user `wazuh@asox.local`, and `contracts-check.sh` checks it (A100). After a failed sync it retries every 60 s, up to 10 times (R-34, PR #31).
+- **X-36 is done everywhere:** the seed IOC `101.99.75.184` is used by Wazuh's `ioc-ip` scenario, n8n's fixtures and TheHive's test alerts.
 
-**Tested 2026-10-14** on a fresh `full` instance (standard profile, WSL 15.6 GiB) from `cortex-misp`: `soc.sh init full` passes, and so do C1–C8 and C10.
+Open: the intel memory re-measure (overdue, was due 2026-10-20), Inigo's C10 settings questions, and housekeeping.
 
 ## Decisions
 
 | Decision | What it means for MISP | Where it is recorded |
 |---|---|---|
 | **C10 accepted** (D45, 2026-09-30); **live** 2026-10-13 | n8n checks MISP's warninglists before creating a TheHive alert, with its own Read Only key | PROJECT.md 5 (C10), 15 (D45); X-31, R-13 |
-| **C14, option a** (my answer 2026-10-14, waiting for Daniel's OK) | The sync runs inside the Wazuh manager with its own Read Only key; filter: published, `to_ids`, IP/domain/hash types, `enforceWarninglist`; 1 h | [C14-reply-wazuh.md](C14-reply-wazuh.md); X-24, R-08 |
-| **X-36, option a** (2026-10-14, Inigo's preference) | Seed IOC moved out of the reserved ranges to `101.99.75.184` (Botvrij, Loki-Bot malspam), `to_ids: true` | [C14-reply-wazuh.md](C14-reply-wazuh.md) §2; X-36 |
+| **C14, option a** (D50, agreed 2026-10-14); **live** 2026-10-15 (PR #26) | The sync runs inside the Wazuh manager with its own Read Only key; filter: published, `to_ids`, IP/domain/hash types, `enforceWarninglist`; 1 h, plus quick retries after a failure (R-34) | [C14-reply-wazuh.md](C14-reply-wazuh.md); PROJECT.md 5 (C14), 15 (D50); X-24, R-08, A100 |
+| **X-36, option a** (2026-10-14) | Seed IOC moved out of the reserved ranges to `101.99.75.184` (Botvrij, Loki-Bot malspam), `to_ids: true` | [C14-reply-wazuh.md](C14-reply-wazuh.md) §2; X-36 |
+| **Warninglist description** (answer G revised, 2026-10-14) | Observables get one `warninglist` tag; every matching list's name goes in the observable's description, no cap | `nodes/cases/thehive/docs/reply-n8n-misp-2026-10-14.md` §1; ALERT-FORMAT §5, §7 |
 | **Suricata replaces Snort** (D49) | IOC export to the network IDS (later) targets Suricata | PROJECT.md 15 (D49); X-34 |
 
 ## Dates
@@ -31,8 +32,9 @@ Aligned with the shared team dates (integration backlog, section F).
 
 | Target | Date |
 |---|---|
-| C14 design agreed with Wazuh (Daniel) | **2026-10-16** (answered 2026-10-14) |
-| `cortex-misp` merged (C14 user, seed IOC), intel re-measured | **2026-10-20** (checkpoint 1) |
+| ~~C14 design agreed with Wazuh (Daniel)~~ | ✅ 2026-10-14 (target was 2026-10-16) |
+| ~~`cortex-misp` merged (C14 user, seed IOC)~~ | ✅ 2026-10-14 (PR #22) |
+| Intel re-measured (warninglists, Botvrij, C14) | **overdue** (was 2026-10-20, checkpoint 1) |
 | ~~C10 live, with the n8n owner (N8N-2.11)~~ | ✅ 2026-10-13 (target was 2026-11-10) |
 | Feature freeze / delivery | 2026-11-24 / 2026-12-01 |
 
@@ -48,24 +50,25 @@ Aligned with the shared team dates (integration backlog, section F).
 | ✅ Feed "The Botvrij.eu Data" enabled | 435 events (~29k attributes); gives Cortex's MISP analyzer real indicators to find |
 | ✅ Read Only role can call `POST /warninglists/checkValue` | Verified 2026-10-01; a write gets 403. C10 needs no custom role |
 | ✅ C10: Read Only user `n8n@asox.local` + `MISP_N8N_API_KEY` | Created by `apply`. C10 live on `main` 2026-10-13 (PR #17). Batch `checkValue` measured by Inigo 2026-10-10: misp-core 388 → 553 MiB of 900m, no OOM kill |
+| ✅ C14: Read Only user `wazuh@asox.local` + `MISP_WAZUH_API_KEY` (PR #22) | `misp-config.json` `wazuh.user`; created by `apply`, key in `nodes/intel/.env` (`__bootstrap__` in `.env.example`, R-32). `apply` checks that C14's filter returns the seed IOC and that a write gets 403. Core's side: R-08, mapped in Wazuh's compose (PR #26) |
+| ✅ C14 design answer to Daniel (PR #22) | [C14-reply-wazuh.md](C14-reply-wazuh.md): option a, the filter (plus `enforceWarninglist`, paging), 1 h interval, no `tlp:red` or age exclusion for now |
+| ✅ C14 live (Wazuh, PR #26, 2026-10-15) | Built instance: 4,466 IOCs synced (misp-ip 373, misp-domain 915, misp-hash 3,121); `ioc-ip` → rule 108000 → TheHive alert with `ioc-match`. `contracts-check.sh --only C14` checks it (A100). Quick retries after a failed sync (R-34, PR #31): on a cold `soc.sh up full` the lists fill within ~1–10 min |
+| ✅ X-36: new seed IOC `101.99.75.184`, `to_ids: true` (PR #22) | `apply` fails if the seed IOC is ever on an enabled warninglist, and deletes older seed events (tag `asox:seed`, other title) once the new one exists. Fixtures updated by Daniel (PR #26), Inigo (PR #23) and Park (PR #27) |
+| ✅ C10 presentation: list names in the observable's description, a single `warninglist` tag | [request-n8n-warninglist-description.md](request-n8n-warninglist-description.md). Agreed by Park (answer G revised, PR #27), applied by Inigo (PR #29) |
 
-## In progress (on `cortex-misp`, tested 2026-10-14, not merged yet)
+## In progress
 
 | Item | Status | Notes |
 |---|---|---|
-| C14: Read Only user `wazuh@asox.local` + `MISP_WAZUH_API_KEY` | 🔨 tested | `misp-config.json` `wazuh.user`; created by `apply`, key in `nodes/intel/.env` (`__bootstrap__` in `.env.example`). `apply` checks that C14's filter returns the seed IOC and that a write gets 403. Core's side is R-08 (integrator: `WAZUH_MISP_API_KEY=__from:intel__`) |
-| C14 design answer to Daniel | 🔨 sent for review | [C14-reply-wazuh.md](C14-reply-wazuh.md): option a, the filter (plus `enforceWarninglist`, paging), 1 h interval, no `tlp:red` or age exclusion for now |
-| X-36: new seed IOC `101.99.75.184`, `to_ids: true` | 🔨 tested | `apply` fails if the seed IOC is ever on an enabled warninglist, and deletes older seed events (tag `asox:seed`, other title) once the new one exists. First pick `61.4.102.97` was on the vpn-ipv4 datacenter list: caught by that check. **Others update their fixtures:** Daniel (`trigger.sh` `ioc-ip`, `lab-scenarios.cases`), Inigo (`100100-misp-hit.json`), Park (`thehive-test-alert.sh`) |
-| C10 presentation: list names in the observable's description, a single `warninglist` tag | 🔨 proposed to Inigo, cc Park | [request-n8n-warninglist-description.md](request-n8n-warninglist-description.md). Tested on my instance by patching n8n's workflows locally; **those n8n files aren't mine: not to be committed from this branch**. Changes question G's answer (TheHive) |
-| Housekeeping | 🔨 | `misp-config.sh` header no longer says "run by hand" (R-22); README lists `misp-config.*` and the contract notes. Still to do: README "Snort" → Suricata (D49); `C10-handoff-n8n.md` marked done |
+| Housekeeping | 🔨 | Done: `misp-config.sh` header no longer says "run by hand" (R-22); README lists `misp-config.*` and the contract notes. Still to do: README "Snort" → Suricata (D49); mark `C10-handoff-n8n.md` and `request-n8n-warninglist-description.md` done |
 
 ## Next
 
 | Item | Depends on | Notes |
 |---|---|---|
-| ⏭️ Re-measure intel memory with the warninglists and Botvrij on, on `standard` and `low` | — | Memory limits rule (PROJECT.md D40). Batch `checkValue` is measured (Done). Still to measure: `apply` + a feed fetch on `low`, and C14's paged `restSearch` once Wazuh's sync exists |
+| ⏭️ **Re-measure intel memory** with the warninglists, Botvrij and C14 on, on `standard` and `low` | — | **Overdue** (was due 2026-10-20). Memory limits rule (PROJECT.md D40). Batch `checkValue` is measured (Done). Still to measure: `apply` + a feed fetch on `low`, and C14's paged `restSearch` (live since PR #26). Daniel saw misp-core at its 900m limit during the Botvrij import (Wazuh README, C14); my 2026-10-10 anon peak was 488 MiB, so it is probably page cache: check `anon` in `memory.stat` and `memory.events` for `oom_kill` |
 | ⏭️ Scheduled feed refresh (daily) | Check the misp-core image's cron settings | Today feeds refresh only with `misp-config.sh fetch`. Also sets how fresh C14's lists can be |
-| ⏭️ Turn on CIRCL OSINT | The re-measure above | Also grows `intel` backups |
+| ⏭️ Turn on CIRCL OSINT | The re-measure above | Also grows `intel` backups and C14's lists |
 | ⏭️ Answer Inigo's C10 settings questions (2026-10-10) | — | `skip_online_analyzers: true`; `prefer` order (top-site lists?); `8.8.8.8` and `185.220.101.1` on the vpn-ipv4 list (expected: it covers datacenter ranges) |
 | ⏭️ Choose which taxonomies and galaxies to use | TheHive (Park) for tag names | Tags that show up on cases |
 | ⏭️ Export/import of more MISP settings (beyond feeds and warninglists) | — | So UI changes reach git (PROJECT.md 11.2) |
@@ -77,13 +80,13 @@ Aligned with the shared team dates (integration backlog, section F).
 - **What:** before creating the TheHive alert, n8n sends all of an alert's eligible observables to MISP in one call (`POST /warninglists/checkValue`) and learns which ones are *common* (public DNS, cloud and CDN ranges, top sites, private ranges…). A match means *common*, **not** *safe*: attackers use Google, GitHub and AWS too. n8n tags the observable and skips quota-limited online analyzers for it, but never closes, suppresses or downgrades an alert because of it (D12). MISP unreachable = n8n continues without it.
 - **Why direct and not through Cortex:** one call for all observables, and it always uses MISP's current lists. The catalog's MISPWarningLists analyzer doesn't query MISP and fails without its own copy of the lists (tested 2026-10-01, disabled; Cortex backlog).
 - **Built:** MISP (me): the Read Only user `n8n@asox.local` and its key, applied by `bootstrap.sh intel` (R-22). Integrator (R-13): env, credential "MISP API (n8n)", C10 in `contracts-check.sh`. n8n (Inigo): `chk-misp-api`, `lib-misp-warninglist` (N8N-2.11). Handoff: [C10-handoff-n8n.md](C10-handoff-n8n.md).
-- **Proposed 2026-10-14:** a single `warninglist` tag, with every list's name in the observable's description (see In progress).
+- **Presentation (since PR #29, 2026-10-15):** a single `warninglist` tag, with every list's name in the observable's description under "On MISP warninglists (common, not safe):"; kept when the alert is promoted to a case.
 
 ## Later
 
 | Item | Works with | Notes |
 |---|---|---|
-| 🕓 C14 build: MISP IOCs pushed into Wazuh CDB lists for proactive detection | Wazuh (Daniel, W6.2–W6.5, M6 2026-11-20) | After Daniel agrees to the design. Later also to Suricata (Phase 2, D49) |
+| 🕓 MISP IOCs to Suricata (Phase 2, D49) | Wazuh (Daniel) | C14 to Wazuh's CDB lists is done (above) |
 | 🕓 Decaying models (old IOCs lose weight) | — | Matters most for IPs from older feed events; the alternative to a fixed age cutoff in C14's filter |
 | 🕓 Confirmed case IOCs from TheHive into MISP (X-25) | TheHive (Park, T5.4, target 2026-11-17) | Analyst-triggered responder in Cortex (D12), or TheHive's MISP connector (uses the license's single MISP-server slot) |
 | 🕓 Sharing with external MISP communities | — | Needs the TLP/PAP policy first (Cortex backlog) |
@@ -96,8 +99,8 @@ MISP enables a 1,000,000-entry warninglist (Cisco Umbrella top 1M) by default. W
 
 | Owner | What changes for you |
 |---|---|
-| **n8n** (Inigo) | New seed IOC `101.99.75.184`: update `synthetic/100100-misp-hit.json` (X-36). Proposal for C10's presentation: [request-n8n-warninglist-description.md](request-n8n-warninglist-description.md). Your C10 settings questions are under Next |
-| **TheHive** (Park) | Your question E answer (MISP hit = suspicious, `ioc: false`) is fine with me. New seed IOC: `thehive-test-alert.sh` (3 scenarios). Question G would change if Inigo takes the proposal above. Later: confirmed IOCs to MISP (T5.4), tag names (taxonomies) |
-| **Wazuh** (Daniel) | C14 answer: [C14-reply-wazuh.md](C14-reply-wazuh.md) (due 2026-10-16). New seed IOC for `ioc-ip`, now `to_ids: true` |
+| **n8n** (Inigo) | Nothing new. Your C10 settings questions are under Next |
+| **TheHive** (Park) | Nothing new. Later: confirmed IOCs to MISP (T5.4), tag names (taxonomies) |
+| **Wazuh** (Daniel) | Nothing new. If misp-core's memory during the Botvrij import was more than page cache (an `oom_kill` in `memory.events`), tell me: it goes into my re-measure |
 | **Grafana** (Jesus) | Nothing planned. |
-| **Integrator** | R-08: `WAZUH_MISP_API_KEY=__from:intel__` (from `MISP_WAZUH_API_KEY`) in `nodes/core/.env.example`. X-36 decided (option a) |
+| **Integrator** | Nothing new. The intel re-measure may change `MISP_CORE_MEM` |
