@@ -1,0 +1,46 @@
+# Cases for rules/1020-router.xml, decoders/1020-cisco.xml and the 4724
+# overwrite in rules/1090-tuning.xml. Lines follow Cisco's documented IOS
+# syslog format as the manager receives it (priority stripped; message
+# counter, then the time with "service timestamps log datetime msec").
+# Replace or add captures from the lab's Cisco 2900 and Catalyst 2960 (W4.1).
+
+case one failed login: decoded user and source, level 5 (tuned from 9)
+expect rule=4724 level=5 groups=cisco_ios,authentication_failed
+log 52: *Oct 21 10:00:01.123: %SEC_LOGIN-4-LOGIN_FAILED: Login failed [user: admin] [Source: 203.0.113.40] [localport: 22] [Reason: Login Authentication Failed] at 10:00:01 UTC Wed Oct 21 2026
+
+case same line with the hostname as origin id
+expect rule=4724 level=5
+log 52: R1: *Oct 21 10:00:01.123: %SEC_LOGIN-4-LOGIN_FAILED: Login failed [user: admin] [Source: 203.0.113.41] [localport: 22] [Reason: Login Authentication Failed] at 10:00:01 UTC Wed Oct 21 2026
+
+case brute force: 5 failures from one source
+expect rule=102000 level=10 groups=asox,router,cisco_ios,authentication_failures
+log 60: *Oct 21 10:00:10.123: %SEC_LOGIN-4-LOGIN_FAILED: Login failed [user: admin] [Source: 203.0.113.40] [localport: 22] [Reason: Login Authentication Failed] at 10:00:10 UTC Wed Oct 21 2026
+log 61: *Oct 21 10:00:11.123: %SEC_LOGIN-4-LOGIN_FAILED: Login failed [user: admin] [Source: 203.0.113.40] [localport: 22] [Reason: Login Authentication Failed] at 10:00:11 UTC Wed Oct 21 2026
+log 62: *Oct 21 10:00:12.123: %SEC_LOGIN-4-LOGIN_FAILED: Login failed [user: admin] [Source: 203.0.113.40] [localport: 22] [Reason: Login Authentication Failed] at 10:00:12 UTC Wed Oct 21 2026
+log 63: *Oct 21 10:00:13.123: %SEC_LOGIN-4-LOGIN_FAILED: Login failed [user: admin] [Source: 203.0.113.40] [localport: 22] [Reason: Login Authentication Failed] at 10:00:13 UTC Wed Oct 21 2026
+log 64: *Oct 21 10:00:14.123: %SEC_LOGIN-4-LOGIN_FAILED: Login failed [user: admin] [Source: 203.0.113.40] [localport: 22] [Reason: Login Authentication Failed] at 10:00:14 UTC Wed Oct 21 2026
+log 65: *Oct 21 10:00:15.123: %SEC_LOGIN-4-LOGIN_FAILED: Login failed [user: admin] [Source: 203.0.113.40] [localport: 22] [Reason: Login Authentication Failed] at 10:00:15 UTC Wed Oct 21 2026
+
+case login blocked by the device (login block-for)
+expect rule=102001 level=10 groups=asox,router,authentication_failures
+log 54: *Oct 21 10:00:09.001: %SEC_LOGIN-1-QUIET_MODE_ON: Still timeleft for watching failures is 25 secs, [user: admin] [Source: 203.0.113.42] [localport: 22] [Reason: Login Authentication Failed] [ACL: sl_def_acl] at 10:00:09 UTC Wed Oct 21 2026
+
+case successful login is context
+expect rule=4722 level=3
+log 53: *Oct 21 10:00:05.456: %SEC_LOGIN-5-LOGIN_SUCCESS: Login Success [user: admin] [Source: 192.168.1.50] [localport: 22] at 10:00:05 UTC Wed Oct 21 2026
+
+case configuration change by a named user
+expect rule=4721 level=3
+log 55: *Oct 21 10:01:00.000: %SYS-5-CONFIG_I: Configured from console by admin on vty0 (192.168.1.50)
+
+case port security violation on the switch
+expect rule=102010 level=8 groups=asox,router,policy_violation
+log 56: *Oct 21 10:02:00.000: %PORT_SECURITY-2-PSECURE_VIOLATION: Security violation occurred, caused by MAC address 0011.2233.4455 on port GigabitEthernet0/5.
+
+case interface down is low
+expect rule=4713 level=4
+log 57: *Oct 21 10:03:00.000: %LINK-3-UPDOWN: Interface GigabitEthernet0/5, changed state to down
+
+case line protocol change is no alert
+expect rule=4715 level=0
+log 58: *Oct 21 10:03:01.000: %LINEPROTO-5-UPDOWN: Line protocol on Interface GigabitEthernet0/5, changed state to down

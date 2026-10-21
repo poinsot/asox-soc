@@ -1,0 +1,58 @@
+<!--
+  ASOX router and switch rules (owner: Wazuh, W4.4). Range 102000-102999.
+  Cisco IOS devices (router Cisco 2900, switch Catalyst 2960) send syslog to
+  the manager's 514/udp (sources: W1.1). Built-in rules
+  (0075-cisco-ios_rules.xml): 4710-4717 one per IOS severity (emergency 10,
+  alert 7, critical 5, error 4, warning 3, others 0), 4721 configuration
+  changed (3), 4722 login (3), 4724 failed login (lowered to 5 in
+  1090-tuning.xml, like an SSH failure). Source and user of a login come from
+  decoders/1020-cisco.xml. IOS logs logins only with "login on-failure log"
+  and "login on-success log" (README "Cisco router and switch").
+  Samples follow Cisco's documented formats; confirm them with the real
+  devices (W4.1). Tests: tests/cases/1020-cisco.cases.
+-->
+<group name="asox,router,cisco_ios,">
+
+  <!-- Brute force on the router or switch login (SSH, telnet, console). -->
+  <rule id="102000" level="10" frequency="5" timeframe="120" ignore="120">
+    <if_matched_sid>4724</if_matched_sid>
+    <same_srcip />
+    <description>ASOX network device: login brute force from $(srcip) (5 failures in 2 min)</description>
+    <mitre>
+      <id>T1110</id>
+    </mitre>
+    <group>authentication_failures,</group>
+  </rule>
+
+  <!--
+    The device itself blocked logins after repeated failures ("login
+    block-for"): a brute force the device saw, even if some failures were
+    lost on the way. Built-in 4711 rates every severity-1 message 7.
+  -->
+  <rule id="102001" level="10">
+    <if_sid>4711</if_sid>
+    <field name="cisco.facility">^SEC_LOGIN$</field>
+    <field name="cisco.mnemonic">^QUIET_MODE_ON$</field>
+    <description>ASOX network device: logins blocked after repeated failures (from $(srcip))</description>
+    <mitre>
+      <id>T1110</id>
+    </mitre>
+    <group>authentication_failures,</group>
+  </rule>
+
+  <!--
+    Port security: an unknown device plugged into a secured switch port.
+    Built-in 4712 rates every severity-2 message 5.
+  -->
+  <rule id="102010" level="8">
+    <if_sid>4712</if_sid>
+    <field name="cisco.facility">^PORT_SECURITY$</field>
+    <field name="cisco.mnemonic">^PSECURE_VIOLATION</field>
+    <description>ASOX switch: port security violation (unknown device on a secured port)</description>
+    <mitre>
+      <id>T1200</id>
+    </mitre>
+    <group>policy_violation,</group>
+  </rule>
+
+</group>

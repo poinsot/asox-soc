@@ -35,6 +35,8 @@
 #                           from 203.0.113.77, sent as syslog to the manager's 514/udp
 #   opnsense-gui-bruteforce 103011 level 10, T1110: 7 failed OPNsense web GUI logins from
 #                           203.0.113.51, sent as syslog
+#   router-bruteforce       102000 level 10, T1110: 7 failed logins to a Cisco IOS device
+#                           from 203.0.113.61, then its login block (102001), as syslog
 # ids-test and ids-scan make real traffic that the Suricata sensor sees (W3.4);
 # their alerts come from Suricata, so --print only shows the marker.
 # The opnsense-* lines travel as real syslog from the lab container to
@@ -57,7 +59,7 @@ set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TEST_LOG=/var/log/asox-lab/test.log
-SCENARIOS="ssh-bruteforce ssh-success-after-fail sudo-fail new-user ioc-ip root-login ids-test ids-scan opnsense-scan opnsense-gui-bruteforce persistence fim-tamper web-attack"
+SCENARIOS="ssh-bruteforce ssh-success-after-fail sudo-fail new-user ioc-ip root-login ids-test ids-scan opnsense-scan opnsense-gui-bruteforce persistence fim-tamper web-attack router-bruteforce"
 NMAP_IMAGE=${NMAP_IMAGE:-instrumentisto/nmap:7.98-r2}
 # The lab's IOC: MISP's seed IOC (nodes/intel/misp/seed/seed-event.json),
 # 101.99.75.184 since 2026-10-14 (X-36: a Botvrij Loki-Bot address, to_ids,
@@ -135,6 +137,12 @@ events() {
       done ;;
     opnsense-gui-bruteforce)
       for i in {1..7}; do echo "$t opnsense audit[$pid]: /index.php: Web GUI authentication error for 'root' from 203.0.113.51$run"; done ;;
+    router-bruteforce)
+      # Cisco IOS: message counter, time, then the message; no syslog header.
+      for i in {1..7}; do
+        echo "$(( 100 + i )): *$t.123: %SEC_LOGIN-4-LOGIN_FAILED: Login failed [user: admin] [Source: 203.0.113.61] [localport: 22] [Reason: Login Authentication Failed] at ${t##* } UTC$run"
+      done
+      echo "108: *$t.456: %SEC_LOGIN-1-QUIET_MODE_ON: Still timeleft for watching failures is 25 secs, [user: admin] [Source: 203.0.113.61] [localport: 22] [Reason: Login Authentication Failed] [ACL: sl_def_acl] at ${t##* } UTC$run" ;;
     web-attack)
       # An access log line has no syslog header and ends in the user agent's
       # quote, so the run ID goes inside the user agent.
@@ -205,7 +213,7 @@ else
   (( print )) || sleep 1
   case $scenario in
     ids-test|ids-scan|persistence|fim-tamper) (( print )) || traffic "$scenario" "$id" ;;
-    opnsense-*) if (( print )); then events "$scenario" "$id"; else events "$scenario" "$id" | syslog; fi ;;
+    opnsense-*|router-*) if (( print )); then events "$scenario" "$id"; else events "$scenario" "$id" | syslog; fi ;;
     ssh-success-after-fail)
       # The login comes 2 s after the failures. Sent in the same burst, the
       # manager's parallel analysis can evaluate the login before it has

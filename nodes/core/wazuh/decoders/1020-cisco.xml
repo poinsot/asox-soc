@@ -1,0 +1,23 @@
+<!--
+  ASOX Cisco IOS decoders (owner: Wazuh, W4.4). Range 1020xx.
+  Copied into /var/ossec/etc/decoders/ at every manager start.
+
+  The router (Cisco 2900) and the switch (Catalyst 2960) send syslog to the
+  manager's 514/udp, decoded by Wazuh's built-in cisco-ios decoders
+  (0065-cisco-ios_decoders.xml): cisco.facility, cisco.severity,
+  cisco.mnemonic. For login messages (SEC_LOGIN-*) they don't extract the
+  user or the source address, so brute force can't be counted per source and
+  n8n gets no attacker address.
+
+  This decoder has the same name and parent as the built-in last child,
+  cisco-ios-default: decoders with the same name are siblings and all of them
+  run, so it adds fields to that child's without replacing it. It matches
+  only messages that carry "[user: x] [Source: a.b.c.d]".
+  Samples follow Cisco's documented format; confirm with captures from the
+  real devices (W4.1). Tests: tests/cases/1020-cisco.cases.
+-->
+<decoder name="cisco-ios-default">
+  <parent>cisco-ios</parent>
+  <regex>[user: (\S+)] [Source: (\d+.\d+.\d+.\d+)]</regex>
+  <order>dstuser, srcip</order>
+</decoder>

@@ -172,13 +172,15 @@ Syslog from network devices is decoded and classified, ready for the real device
   - Done when: Sanitized samples in `tests/samples/`: OPNsense `filterlog`, OPNsense web GUI and SSH logins, configuration changes, and the router's logs. Router vendor and model confirmed with the team.
   - Files: `nodes/core/wazuh/tests/samples/`
   - With: Team: which router and pfSense version
+  - **2026-10-21:** real OPNsense 26.7 captures (remote syslog, BSD): filterlog, scan, sshd-session, noise; pinned in `tests/cases/1030-opnsense.cases`. Still to capture: web GUI logins, SSH failures, Cisco lines.
 - [x] **W4.2** Check built-in coverage, then write decoders for the gaps · P1
   - Done when: Every sample run through logtest; the result of the built-in ruleset noted; custom decoders only where fields are missing (`srcip`, `dstip`, `dstport`, `action`, `protocol`). Decoders use Wazuh's standard field names (`srcip`, `dstip`, `srcuser`, `dstuser`), which n8n, C13 and TheHive rely on (memo item 3).
   - Files: `nodes/core/wazuh/decoders/`
 - [x] **W4.3** OPNsense rules · P1
   - Done when: Port scan (many blocked ports from one source, frequency rule), bursts of blocked connections, failed GUI logins, configuration changes. Test cases and MITRE IDs.
   - Files: `nodes/core/wazuh/rules/`
-- [ ] **W4.4** Router rules · P3
+- [x] **W4.4** Router rules · P3
+  - **2026-10-21:** Cisco IOS (router Cisco 2900, switch Catalyst 2960): `decoders/1020-cisco.xml` (user, source on logins), `rules/1020-router.xml` (102000 brute force, 102001 device login block, 102010 port security), 4724 lowered to 5; `router-bruteforce` scenario; 10 cases. Documented format; confirm with the real devices (W4.1).
   - Done when: Login failures, interface or configuration changes, and whatever the samples show matters. Test cases and MITRE IDs.
   - Files: `nodes/core/wazuh/rules/`, `nodes/core/wazuh/decoders/`
 - [x] **W4.5** End-to-end syslog test · P1, C1
