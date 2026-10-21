@@ -17,7 +17,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        check: [compose, shellcheck, json, xml, secrets]
+        check: [compose, shellcheck, json, xml, n8n-lint, secrets]
     steps:
       - uses: actions/checkout@v7
         with:

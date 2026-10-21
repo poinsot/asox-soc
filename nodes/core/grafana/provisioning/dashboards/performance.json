@@ -1,0 +1,1227 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "description": "SOC performance from asox-metrics (C11): MTTD, MTTA, MTTR, false-positive rate and alerts by severity (GRAF-3.1, GRAF-3.2 partial).",
+  "editable": true,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [
+    {
+      "asDropdown": false,
+      "includeVars": false,
+      "keepTime": true,
+      "tags": [
+        "asox"
+      ],
+      "title": "ASOX dashboards",
+      "type": "dashboards"
+    }
+  ],
+  "panels": [
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "panels": [],
+      "title": "Response times (C11)",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "grafana-opensearch-datasource",
+        "uid": "asox-metrics"
+      },
+      "description": "Mean time to detect, lab runs only (C11): t_event − t_attack_start, the attack-start marker (rule 100101) to the Wazuh alert. Alerts without t_attack_start (real alerts, or no marker found, A101 / X-43) are left out, not counted as zero.",
+      "id": 2,
+      "title": "MTTD",
+      "type": "stat",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 0,
+        "y": 1
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "decimals": 1,
+          "mappings": [],
+          "noValue": "No data",
+          "unit": "ms",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": 0
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/^Average$/",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "value",
+        "wideLayout": true,
+        "text": {
+          "valueSize": 36
+        }
+      },
+      "pluginVersion": "12.4.11",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-opensearch-datasource",
+            "uid": "asox-metrics"
+          },
+          "query": "NOT outcome:contract-check AND (_exists_:t_attack_start)",
+          "queryType": "lucene",
+          "refId": "A",
+          "timeField": "t_alert",
+          "metrics": [
+            {
+              "id": "1",
+              "type": "avg",
+              "field": "t_alert",
+              "settings": {
+                "script": "doc['t_event'].value.toInstant().toEpochMilli() - doc['t_attack_start'].value.toInstant().toEpochMilli()"
+              }
+            }
+          ],
+          "bucketAggs": [
+            {
+              "id": "2",
+              "type": "histogram",
+              "field": "rule_level",
+              "settings": {
+                "interval": "1000",
+                "min_doc_count": "1"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "grafana-opensearch-datasource",
+        "uid": "asox-metrics"
+      },
+      "description": "Mean time to acknowledge (C11): t_ack − t_alert, the TheHive alert's creation to its first status change out of New. Alerts still New are left out.",
+      "id": 3,
+      "title": "MTTA",
+      "type": "stat",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 6,
+        "y": 1
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "decimals": 1,
+          "mappings": [],
+          "noValue": "No data",
+          "unit": "ms",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": 0
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/^Average$/",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "value",
+        "wideLayout": true,
+        "text": {
+          "valueSize": 36
+        }
+      },
+      "pluginVersion": "12.4.11",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-opensearch-datasource",
+            "uid": "asox-metrics"
+          },
+          "query": "NOT outcome:contract-check AND (_exists_:t_ack)",
+          "queryType": "lucene",
+          "refId": "A",
+          "timeField": "t_alert",
+          "metrics": [
+            {
+              "id": "1",
+              "type": "avg",
+              "field": "t_alert",
+              "settings": {
+                "script": "doc['t_ack'].value.toInstant().toEpochMilli() - doc['t_alert'].value.toInstant().toEpochMilli()"
+              }
+            }
+          ],
+          "bucketAggs": [
+            {
+              "id": "2",
+              "type": "histogram",
+              "field": "rule_level",
+              "settings": {
+                "interval": "1000",
+                "min_doc_count": "1"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "grafana-opensearch-datasource",
+        "uid": "asox-metrics"
+      },
+      "description": "Mean time to respond (C11): t_contained − t_alert, else t_closed − t_alert. t_contained is written only once C9 exists (Phase 2), so today this is the time to the first closure. Open alerts are left out.",
+      "id": 4,
+      "title": "MTTR",
+      "type": "stat",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 12,
+        "y": 1
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "decimals": 1,
+          "mappings": [],
+          "noValue": "No data",
+          "unit": "ms",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": 0
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/^Average$/",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "value",
+        "wideLayout": true,
+        "text": {
+          "valueSize": 36
+        }
+      },
+      "pluginVersion": "12.4.11",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-opensearch-datasource",
+            "uid": "asox-metrics"
+          },
+          "query": "NOT outcome:contract-check AND (_exists_:t_closed OR _exists_:t_contained)",
+          "queryType": "lucene",
+          "refId": "A",
+          "timeField": "t_alert",
+          "metrics": [
+            {
+              "id": "1",
+              "type": "avg",
+              "field": "t_alert",
+              "settings": {
+                "script": "(doc['t_contained'].size() > 0 ? doc['t_contained'] : doc['t_closed']).value.toInstant().toEpochMilli() - doc['t_alert'].value.toInstant().toEpochMilli()"
+              }
+            }
+          ],
+          "bucketAggs": [
+            {
+              "id": "2",
+              "type": "histogram",
+              "field": "rule_level",
+              "settings": {
+                "interval": "1000",
+                "min_doc_count": "1"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "grafana-opensearch-datasource",
+        "uid": "asox-metrics"
+      },
+      "description": "asox-metrics documents in the time range: one per Wazuh alert that n8n sent to TheHive (level ≥ C1's threshold). Test alerts and contract checks are excluded.",
+      "id": 5,
+      "title": "Alerts measured",
+      "type": "stat",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 18,
+        "y": 1
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "decimals": 0,
+          "mappings": [],
+          "noValue": "0",
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": 0
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "sum"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "value",
+        "wideLayout": true,
+        "text": {
+          "valueSize": 36
+        }
+      },
+      "pluginVersion": "12.4.11",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-opensearch-datasource",
+            "uid": "asox-metrics"
+          },
+          "query": "NOT outcome:contract-check",
+          "queryType": "lucene",
+          "refId": "A",
+          "timeField": "t_alert",
+          "metrics": [
+            {
+              "id": "1",
+              "type": "count"
+            }
+          ],
+          "bucketAggs": [
+            {
+              "id": "2",
+              "type": "date_histogram",
+              "field": "t_alert",
+              "settings": {
+                "interval": "auto",
+                "min_doc_count": "0"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 6
+      },
+      "id": 6,
+      "panels": [],
+      "title": "Trend",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "grafana-opensearch-datasource",
+        "uid": "asox-metrics"
+      },
+      "id": 7,
+      "title": "MTTA and MTTR over time",
+      "type": "timeseries",
+      "description": "Average MTTA and MTTR per time bucket, by the TheHive alert's creation (t_alert). Same definitions as the stats above.",
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 7
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "ms",
+          "decimals": 1,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "pointSize": 6,
+            "showPoints": "always",
+            "spanNulls": true,
+            "fillOpacity": 0,
+            "axisSoftMin": 0
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-opensearch-datasource",
+            "uid": "asox-metrics"
+          },
+          "query": "NOT outcome:contract-check AND (_exists_:t_ack)",
+          "queryType": "lucene",
+          "refId": "A",
+          "timeField": "t_alert",
+          "metrics": [
+            {
+              "id": "1",
+              "type": "avg",
+              "field": "t_alert",
+              "settings": {
+                "script": "doc['t_ack'].value.toInstant().toEpochMilli() - doc['t_alert'].value.toInstant().toEpochMilli()"
+              }
+            }
+          ],
+          "bucketAggs": [
+            {
+              "id": "2",
+              "type": "date_histogram",
+              "field": "t_alert",
+              "settings": {
+                "interval": "auto",
+                "min_doc_count": "0"
+              }
+            }
+          ],
+          "alias": "MTTA"
+        },
+        {
+          "datasource": {
+            "type": "grafana-opensearch-datasource",
+            "uid": "asox-metrics"
+          },
+          "query": "NOT outcome:contract-check AND (_exists_:t_closed OR _exists_:t_contained)",
+          "queryType": "lucene",
+          "refId": "B",
+          "timeField": "t_alert",
+          "metrics": [
+            {
+              "id": "1",
+              "type": "avg",
+              "field": "t_alert",
+              "settings": {
+                "script": "(doc['t_contained'].size() > 0 ? doc['t_contained'] : doc['t_closed']).value.toInstant().toEpochMilli() - doc['t_alert'].value.toInstant().toEpochMilli()"
+              }
+            }
+          ],
+          "bucketAggs": [
+            {
+              "id": "2",
+              "type": "date_histogram",
+              "field": "t_alert",
+              "settings": {
+                "interval": "auto",
+                "min_doc_count": "0"
+              }
+            }
+          ],
+          "alias": "MTTR"
+        }
+      ]
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 15
+      },
+      "id": 8,
+      "panels": [],
+      "title": "Cases and quality (GRAF-3.2, partial)",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "grafana-opensearch-datasource",
+        "uid": "asox-metrics"
+      },
+      "description": "Closed alerts with resolution FalsePositive over every closed alert with a resolution (C11, A1). An ignored alert counts as a false positive (C11 clarification, 2026-10-14).",
+      "id": 9,
+      "title": "False-positive rate",
+      "type": "stat",
+      "gridPos": {
+        "h": 10,
+        "w": 8,
+        "x": 0,
+        "y": 16
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "decimals": 1,
+          "mappings": [],
+          "noValue": "No data",
+          "unit": "percent",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "orange",
+                "value": 20
+              },
+              {
+                "color": "red",
+                "value": 40
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/^Average$/",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "value",
+        "wideLayout": true,
+        "text": {
+          "valueSize": 36
+        }
+      },
+      "pluginVersion": "12.4.11",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-opensearch-datasource",
+            "uid": "asox-metrics"
+          },
+          "query": "NOT outcome:contract-check AND (_exists_:resolution)",
+          "queryType": "lucene",
+          "refId": "A",
+          "timeField": "t_alert",
+          "metrics": [
+            {
+              "id": "1",
+              "type": "avg",
+              "field": "t_alert",
+              "settings": {
+                "script": "doc['resolution'].value == 'FalsePositive' ? 100 : 0"
+              }
+            }
+          ],
+          "bucketAggs": [
+            {
+              "id": "2",
+              "type": "histogram",
+              "field": "rule_level",
+              "settings": {
+                "interval": "1000",
+                "min_doc_count": "1"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "grafana-opensearch-datasource",
+        "uid": "asox-metrics"
+      },
+      "id": 10,
+      "title": "Closed alerts by resolution",
+      "type": "piechart",
+      "description": "Resolution of closed alerts (TheHive case status, or Ignored = FalsePositive).",
+      "gridPos": {
+        "h": 10,
+        "w": 16,
+        "x": 8,
+        "y": 16
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "short",
+          "decimals": 0
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "TruePositive"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "red",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "FalsePositive"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "green",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Duplicated"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "blue",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Indeterminate"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "yellow",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Other"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "purple",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "pieType": "donut",
+        "displayLabels": [
+          "percent"
+        ],
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true,
+          "values": [
+            "value",
+            "percent"
+          ]
+        },
+        "reduceOptions": {
+          "calcs": [
+            "sum"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-opensearch-datasource",
+            "uid": "asox-metrics"
+          },
+          "query": "NOT outcome:contract-check AND (_exists_:resolution)",
+          "queryType": "lucene",
+          "refId": "A",
+          "timeField": "t_alert",
+          "metrics": [
+            {
+              "id": "1",
+              "type": "count"
+            }
+          ],
+          "bucketAggs": [
+            {
+              "id": "3",
+              "type": "filters",
+              "settings": {
+                "filters": [
+                  {
+                    "label": "TruePositive",
+                    "query": "resolution:TruePositive"
+                  },
+                  {
+                    "label": "FalsePositive",
+                    "query": "resolution:FalsePositive"
+                  },
+                  {
+                    "label": "Duplicated",
+                    "query": "resolution:Duplicated"
+                  },
+                  {
+                    "label": "Indeterminate",
+                    "query": "resolution:Indeterminate"
+                  },
+                  {
+                    "label": "Other",
+                    "query": "resolution:Other"
+                  }
+                ]
+              }
+            },
+            {
+              "id": "2",
+              "type": "date_histogram",
+              "field": "t_alert",
+              "settings": {
+                "interval": "auto",
+                "min_doc_count": "0"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "grafana-opensearch-datasource",
+        "uid": "asox-metrics"
+      },
+      "id": 11,
+      "title": "Open alerts by severity",
+      "type": "bargauge",
+      "description": "Alerts not closed yet (no t_closed), by TheHive severity (1 Low, 2 Medium, 3 High, 4 Critical; D-G4 buckets). Includes alerts still New and acknowledged ones.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 26
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "text"
+          },
+          "unit": "short",
+          "decimals": 0,
+          "min": 0,
+          "noValue": "0"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Low"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "blue",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Medium"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "yellow",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "High"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "orange",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Critical"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "red",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "displayMode": "basic",
+        "orientation": "horizontal",
+        "showUnfilled": true,
+        "valueMode": "color",
+        "namePlacement": "left",
+        "sizing": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "sum"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "text": {
+          "titleSize": 14,
+          "valueSize": 16
+        },
+        "maxVizHeight": 28,
+        "minVizHeight": 16
+      },
+      "pluginVersion": "12.4.11",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-opensearch-datasource",
+            "uid": "asox-metrics"
+          },
+          "query": "NOT outcome:contract-check AND (NOT _exists_:t_closed)",
+          "queryType": "lucene",
+          "refId": "A",
+          "timeField": "t_alert",
+          "metrics": [
+            {
+              "id": "1",
+              "type": "count"
+            }
+          ],
+          "bucketAggs": [
+            {
+              "id": "3",
+              "type": "filters",
+              "settings": {
+                "filters": [
+                  {
+                    "label": "Low",
+                    "query": "severity:1"
+                  },
+                  {
+                    "label": "Medium",
+                    "query": "severity:2"
+                  },
+                  {
+                    "label": "High",
+                    "query": "severity:3"
+                  },
+                  {
+                    "label": "Critical",
+                    "query": "severity:4"
+                  }
+                ]
+              }
+            },
+            {
+              "id": "2",
+              "type": "date_histogram",
+              "field": "t_alert",
+              "settings": {
+                "interval": "auto",
+                "min_doc_count": "0"
+              }
+            }
+          ]
+        }
+      ],
+      "transformations": [
+        {
+          "id": "joinByField",
+          "options": {
+            "byField": "Time",
+            "mode": "outer"
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {},
+            "includeByName": {},
+            "renameByName": {},
+            "indexByName": {
+              "Time": 0,
+              "Critical": 1,
+              "High": 2,
+              "Medium": 3,
+              "Low": 4
+            }
+          }
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "grafana-opensearch-datasource",
+        "uid": "asox-metrics"
+      },
+      "id": 12,
+      "title": "Closed alerts by severity",
+      "type": "bargauge",
+      "description": "Alerts closed in the time range (by t_alert), by TheHive severity. Cases from auto-promotion and from analyst promotion are not split yet: that waits on D-N4 (2026-11-03).",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 26
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "text"
+          },
+          "unit": "short",
+          "decimals": 0,
+          "min": 0,
+          "noValue": "0"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Low"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "blue",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Medium"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "yellow",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "High"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "orange",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Critical"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "red",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "displayMode": "basic",
+        "orientation": "horizontal",
+        "showUnfilled": true,
+        "valueMode": "color",
+        "namePlacement": "left",
+        "sizing": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "sum"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "text": {
+          "titleSize": 14,
+          "valueSize": 16
+        },
+        "maxVizHeight": 28,
+        "minVizHeight": 16
+      },
+      "pluginVersion": "12.4.11",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-opensearch-datasource",
+            "uid": "asox-metrics"
+          },
+          "query": "NOT outcome:contract-check AND (_exists_:t_closed)",
+          "queryType": "lucene",
+          "refId": "A",
+          "timeField": "t_alert",
+          "metrics": [
+            {
+              "id": "1",
+              "type": "count"
+            }
+          ],
+          "bucketAggs": [
+            {
+              "id": "3",
+              "type": "filters",
+              "settings": {
+                "filters": [
+                  {
+                    "label": "Low",
+                    "query": "severity:1"
+                  },
+                  {
+                    "label": "Medium",
+                    "query": "severity:2"
+                  },
+                  {
+                    "label": "High",
+                    "query": "severity:3"
+                  },
+                  {
+                    "label": "Critical",
+                    "query": "severity:4"
+                  }
+                ]
+              }
+            },
+            {
+              "id": "2",
+              "type": "date_histogram",
+              "field": "t_alert",
+              "settings": {
+                "interval": "auto",
+                "min_doc_count": "0"
+              }
+            }
+          ]
+        }
+      ],
+      "transformations": [
+        {
+          "id": "joinByField",
+          "options": {
+            "byField": "Time",
+            "mode": "outer"
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {},
+            "includeByName": {},
+            "renameByName": {},
+            "indexByName": {
+              "Time": 0,
+              "Critical": 1,
+              "High": 2,
+              "Medium": 3,
+              "Low": 4
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "refresh": "1m",
+  "schemaVersion": 42,
+  "tags": [
+    "asox",
+    "c11"
+  ],
+  "templating": {
+    "list": []
+  },
+  "time": {
+    "from": "now-7d",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Desempeño y cumplimiento",
+  "uid": "asox-performance",
+  "version": 1
+}

@@ -1,6 +1,6 @@
 # Wazuh alert → TheHive: format, mapping and alert-to-case rules
 
-Owner: TheHive (Park). **Status: agreed with the n8n owner (2026-10-14, PR #19 and n8n's PR #23; X-02, X-04) and matching n8n's `lib-config` routing row for row; §3 rules confirmed with the Wazuh owner (W1.3). §6 R2 (D-N4) to confirm by 2026-11-03.** Dedup by `sourceRef` (§1) is D-N1 (`docs/decisions.md`). It builds on contract C3 (n8n → TheHive, Service account `n8n@asox.local`) without changing it: C3 fixes *how* n8n authenticates; this document fixes *what* it sends.
+Owner: TheHive (Park). **Status: agreed with the n8n owner (2026-10-14, PR #19 and n8n's PR #23; X-02, X-04) and matching n8n's `lib-config` routing row for row; §3 rules confirmed with the Wazuh owner (W1.3). §6 agreed 2026-10-21 (D-N4 accepted by TheHive, X-13).** Dedup by `sourceRef` (§1) is D-N1 (`docs/decisions.md`). It builds on contract C3 (n8n → TheHive, Service account `n8n@asox.local`) without changing it: C3 fixes *how* n8n authenticates; this document fixes *what* it sends.
 
 Reference implementation: `scripts/thehive-test-alert.sh` sends alerts in exactly this format, and `scripts/lib.sh` (`th_severity`) holds the severity table.
 
@@ -13,7 +13,7 @@ One TheHive alert per Wazuh alert forwarded by C1 (`rule.level >= WAZUH_ALERT_MI
 | `type` | `wazuh` | — |
 | `source` | `wazuh` (test alerts: `asox-test`) | — |
 | `sourceRef` | the Wazuh alert ID | `id` |
-| `title` | `<rule description> (<host>)` | `rule.description`, host (below) |
+| `title` | `<rule description> (<host>)`; for FIM alerts (group `syscheck`) `<rule description> <syscheck.path> (<host>)` | `rule.description`, `syscheck.path`, host (below) |
 | `description` | Markdown table: rule, level, host, MITRE, **time**, alert ID; then `full_log` in a code block **when the alert has one** (SCA alerts don't); for sudo (5404) also `data.command`, `data.pwd`, `data.tty` | several |
 | `severity` | table in section 2 | `rule.level` |
 | `tlp` / `pap` | `2` / `2` (AMBER), section 2 | — |
@@ -22,6 +22,8 @@ One TheHive alert per Wazuh alert forwarded by C1 (`rule.level >= WAZUH_ALERT_MI
 | `caseTemplate` | template name from section 3 | `rule.groups`, `rule.id` |
 | `customFields` | section 4 | several |
 | `observables` | section 5 | several |
+
+**FIM titles (X-44, 2026-10-20).** Wazuh's FIM descriptions don't name the file (553 is just "File deleted."), so for alerts in group `syscheck` the title adds `syscheck.path` after the description, e.g. `File deleted. /etc/cron.d/backup (lab-agent)`. The path can be attacker-chosen: n8n caps its length like any attacker-written value.
 
 **Host of the alert.** Normally `agent.name`. Alerts received over **syslog** (pfSense, routers, anything sent to 514/udp) have `agent.id` = `"000"` and `agent.name` = `wazuh-manager`; for those the host is **`predecoder.hostname`** (the device's own name, e.g. `pfsense`), **else `location`** when the line has no hostname, and its address is **`location`** (the sender's IP). This applies to the title, the `agent:` tag, `wazuh-agent-name` (§4) and the host observables (§5) (Daniel's fields review, item 6).
 
@@ -59,13 +61,15 @@ Checked against live alerts (Wazuh 4.14.8, lab scenarios) and Daniel's rule-ID p
 | `privilege-escalation` | `rule.id` is `5404`, or `rule.mitre.id` has `T1548` (sudo failures carry only `syslog,sudo`, no `authentication_*` group) | 5404, three wrong sudo passwords (T1548.003, level 10) |
 | `account-change` | `rule.groups` has `adduser`, or `rule.mitre.id` has `T1136` (Wazuh files new users **and** new groups under `adduser`; `addgroup` doesn't exist, and 5901 has no MITRE ID, so the group is the main clause) | 5901 new group, 5902 new user (level 8), 5904, 100211 usermod / 100212 gpasswd: user added to a privileged group (level 10, T1098) |
 | `network-scan` | `rule.groups` has `pfsense` and either `recon` or `rule.mitre.id` `T1046` (the `pfsense` group stands for "the firewall", answer D) | 103000 (scan / repeated blocks, groups `pfsense,recon`, seen from `opnsense`) and further 103xxx (W4.3) |
+| `web-attack` *(proposed 2026-10-20)* | `rule.groups` has `web` and `attack` (web access-log attack rules) | 31103 SQL injection attempt, 31152 repeated SQL injection from one source (`web-attack` scenario) |
+| `file-integrity` *(proposed 2026-10-20)* | `rule.groups` has `syscheck` | 550 / 554 modified / added, 553 deleted, 100302 (`fim-tamper` scenario) |
 | `wazuh-generic` | everything else, including single pfSense blocks (`firewall_drop` without `recon`) | |
 
 **MITRE technique:** read `rule.mitre.id` (an array); when it is absent, fall back to `rule.mitre_techniques` (what SCA alerts carry). "Has `T1110`" is a prefix match: it also matches sub-techniques such as `T1110.001`. Some rules have no technique (5901, the test rule 100100, the marker 100101), so no row relies on MITRE alone where that would miss them.
 
 **Why `login-bruteforce` (agreed 2026-10-14 with n8n and Wazuh):** rule 103011 (OPNsense login brute force) carries `T1110` but isn't SSH; with the old `ssh-bruteforce` row it got SSH-specific tasks (rule 5715, `sshd` settings). Requiring `sshd` in `ssh-bruteforce` and adding a generic row right after it keeps every SSH alert where it was (all sshd rules carry `sshd`) and gives other brute force a fitting template.
 
-**Active rows (answer B).** Every row is active in n8n (`lib-config` routing version 2026-10-15); `ioc-match` went active when C14 went live. The route n8n wanted is recorded even while only `pb-generic` runs (answer C: the `playbook` field says the playbook that actually ran).
+**Active rows (answer B).** Every row is active in n8n (`lib-config` routing version 2026-10-15); `ioc-match` went active when C14 went live. `web-attack` and `file-integrity` (2026-10-20) are *proposed* until n8n checks them against Daniel's `web-attack` and `fim-tamper` fixtures; until then those alerts go to `wazuh-generic`. The route n8n wanted is recorded even while only `pb-generic` runs (answer C: the `playbook` field says the playbook that actually ran).
 
 The alert only *names* the template; TheHive applies its tasks and custom fields when the alert is promoted to a case.
 
@@ -101,9 +105,10 @@ Send `customFields` as an **array** of `{name, value}` objects, as `thehive-test
 | sudo (5404): `data.srcuser` / `data.dstuser` | `user-account` | `src` (who ran sudo) / `target` (usually `root`) |
 | `useradd` (5902): `data.dstuser` | `user-account` | `new` |
 | other rules: `data.srcuser`, `data.dstuser` | `user-account` | `src` / `target` |
-| `syscheck.sha256_after` (or `data.virustotal.source.sha256`) | `hash` | `sha256` |
-| `syscheck.path` | `filename` | `path` |
-| `data.url` | `url` | — |
+| `syscheck.sha256_after` (or `data.virustotal.source.sha256`) | `hash` | `sha256`, plus on FIM alerts `fim:modified`, `fim:added` or `fim:deleted` (from `syscheck.event`, or the groups `syscheck_entry_modified` / `_added` / `_deleted`) |
+| `syscheck.path` | `filename` | `path`, plus the same `fim:` tag |
+| `data.url` when it is a full URL (`scheme://host/...`) | `url` | — |
+| `data.url` when it is **path-only** (`/login.php?id=1'--`, what web access logs give) | `uri_path` (TheHive built-in type) | `request` |
 | `data.hostname` | `fqdn` if it contains a dot, `ip` if it is an IP, otherwise `hostname` | — |
 
 n8n also tags each IP observable with its range, `range:internal` (RFC 1918, loopback, link-local) or `range:documentation` (192.0.2.0/24, 198.51.100.0/24, 203.0.113.0/24); nothing is dropped because of its range. `user-account` exists only once `entities/` is loaded: before that, TheHive refuses the **whole alert** (HTTP 404 "Data type not found").
@@ -118,18 +123,20 @@ On MISP warninglists (common, not safe):
 
 No `warninglist:<list name>` tags: TheHive cuts long tags at ~25 characters and pushes `src` / `dst` / `asox:verdict=` behind "Show more", and a value like `github.com` is on ~17 lists. The writeback comment also names the lists. A warninglist match means the value is **common** (public DNS, Tor exit, a well-known site), **not safe**: n8n never changes severity, status or `ioc` because of it.
 
+**Deleted files (X-44).** On 553 the hash is the file's **last known** content (Wazuh still sends `*_after`). The `fim:deleted` tag says so, and the observable's description reads "Last known hash of a deleted file", so nobody looks for the file on disk.
+
 `groupadd` (5901) puts a **group** name in `data.dstuser`: n8n doesn't make a `user-account` observable from it (it stays in the description).
 
 **IOC flag (answer E).** n8n sets `ioc: true` only for a **malicious** verdict (e.g. a hash flagged by VirusTotal). A **MISP hit stays `suspicious` with `ioc: false`**: our MISP also holds public feeds (Botvrij), so a hit can mean "listed in a feed", not "confirmed bad". The analyst marks the observable as IOC after checking it (TRIAGE.md, "Working the case"). To revisit with Diego if MISP later separates the SOC's own confirmed events from feeds.
 
 ## 6. Alert-to-case rules
 
-TheHive 5 has no automatic promotion rules of its own; these rules are applied by the analyst (docs/TRIAGE.md) and, where marked, may later be automated by n8n.
+TheHive 5 has no automatic promotion rules of its own; these rules are applied by the analyst (docs/TRIAGE.md) and, where marked, by n8n. **Agreed 2026-10-21: TheHive accepts D-N4** (X-13, T3.3).
 
 | # | Rule |
 |---|---|
 | R1 | Every forwarded Wazuh alert becomes a TheHive **alert** (status New), never directly a case. |
-| R2 | **Critical** alerts are promoted to a case at once. n8n auto-promotes them (`POST /api/v1/alert/<id>/case`) **only for named playbooks**; otherwise the analyst does it first (D-N4, combining this rule with n8n's proposal). |
+| R2 | **Critical** alerts are promoted to a case at once. n8n auto-promotes them (`POST /api/v1/alert/<id>/case`, with the alert's `caseTemplate`) **only when the route names a playbook other than `pb-generic`** (the list lives in n8n's `lib-config`); every other alert, Critical or not, is promoted by the analyst (D-N4). n8n's writeback comment says "auto-promoted", and C11 records `auto_promoted: true`. An auto-promoted case is unassigned: the analyst on duty takes it within the Critical target (15 min) and works it like any other case. n8n never auto-promotes test alerts (R6) and never merges. |
 | R3 | **High** and **Medium** alerts are promoted when triage says true positive or "needs investigation". |
 | R4 | **Merge instead of a new case** when an open case already exists for the same agent and the same template within 24 h (TheHive: alert → *Merge into case*). |
 | R5 | False positives are closed as **Ignored** with the reason in a comment; the same rule ignored 3 times → tuning request to the Wazuh owner. |
@@ -146,6 +153,7 @@ TheHive 5 has no automatic promotion rules of its own; these rules are applied b
 | IOC flag for MISP hits, §5 | Answer E: suspicious, `ioc: false`; Diego asked the same (his question 6) |
 | SCA, Q4 | No compliance template: W2.7 leaves only SCA regressions at level ≥ 7, routed to `wazuh-generic`; n8n's `sca` exclusion dropped 2026-10-09 |
 | Warninglists, §5 | Answer G revised 2026-10-14: only the `warninglist` tag; all list names in the observable's description, no cap (Diego's proposal, `nodes/intel/misp/request-n8n-warninglist-description.md`). Applied by n8n 2026-10-15; the description survives promotion to a case unchanged |
+| Web and FIM alerts (X-44) | Proposed 2026-10-20: templates `web-attack` and `file-integrity`; path-only `data.url` → `uri_path`; FIM title adds `syscheck.path`; FIM observables tagged `fim:<change>` (`reply-n8n-wazuh-2026-10-20.md`) |
 | `Ignored` = false positive (C11) | Confirmed 2026-10-14: an analyst ignores an alert only when it is a false positive (TRIAGE.md), so n8n's `resolution: Ignored` counts as a false positive in the FP rate |
 | Timing | Alerts are queued in n8n and processed 2 at a time (A87): a few seconds when quiet, up to ~30 s at the end of a burst; format unchanged |
 | R2 / D-N4 (auto-promotion of Critical alerts of named playbooks only) | To confirm by 2026-11-03 |

@@ -4,7 +4,7 @@
 **From:** Inigo (@poinsot), n8n owner
 **Date:** 2026-10-14
 **Refs:** X-10, X-35, C1, A48, A78, A87, N8N-1.8, N8N-1.9; your `nodes/core/wazuh/docs/request-n8n-c1-delivery.md` (2026-10-10)
-**Status:** n8n's answer; C1 behaviour change, built only after checkpoint 1 (2026-10-20), both owners agreeing first (PROJECT.md 11.1, rule 5). **2026-10-15:** both owners agreed; n8n's condition 3 is built (update at the end)
+**Status:** n8n's answer; C1 behaviour change, built only after checkpoint 1 (2026-10-20), both owners agreeing first (PROJECT.md 11.1, rule 5). **2026-10-15:** both owners agreed; n8n's condition 3 is built (update at the end). **2026-10-20:** live (PR #31, D51; update at the end)
 
 Thanks for the source reading on X-35 and the proposal. **Yes to retries in `custom-n8n.py`**, built after checkpoint 1, with the three conditions below. Your other points are fine as written: retry on a connection error, a timeout or HTTP 5xx; never on 2xx, 403 or 422; `<retries>4</retries>` with waits of 2, 5, 10 and 20 s and the 10 s timeout per try; the failure logged in `integrations.log` after the last try; a C1 check in `contracts-check.sh` (stop n8n, send the test alert, start n8n, expect one execution).
 
@@ -44,3 +44,7 @@ Thanks for the answers (`nodes/core/wazuh/docs/request-n8n-x10-x37-2026-10-14.md
 - `contracts-check.sh --only C1,C3,C4,C10,C11,E2E`: all PASS.
 
 **What's left:** your pull request with `wazuh-x10` after checkpoint 1 (2026-10-20); the C1 wording and the C1 retry check in `contracts-check.sh` are the integrator's, at that merge. Nothing else is needed from n8n.
+
+## Update 2026-10-20: live
+
+Your retries are merged (PR #31, checkpoint 1) and C1's behaviour is written down on `main`: PROJECT.md 5, "C1 delivery and retries", and decision **D51** (retries on connection errors, timeouts, HTTP 404 and 5xx, waits of 2, 5, 10 and 20 s, the 300 s fast-fail; `duplicate` is a final 2xx). The opt-in check `scripts/contracts-check.sh --only C1-RETRY` (n8n stopped, test alert fired, n8n started) **passes**: the alert was delivered on try 3, 15 s after n8n came back, with one `recv-wazuh-alert` execution and one TheHive alert. X-10 is closed.

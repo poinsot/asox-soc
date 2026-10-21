@@ -5,7 +5,7 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## recv-n8n-start (alert queue set-up and crash recovery, N8N-1.4)\n**Trigger:** n8n itself: instance started, or this workflow published or updated (import, `bootstrap.sh core`).\n**Inputs:** none (lib-config `alert_queue`).\n**Actions taken:** creates the Data Tables `asox_alert_queue` and `asox_queue_slots` if missing (idempotent: \"reuse existing\"); keeps exactly `alert_queue.slots` slot rows; deletes `done` rows older than `keep_done_h`. **Only when the instance started:** frees the slots and requeues the `running` rows that the stopped process left (claimed more than `restart_grace_s` before this start; a restart takes longer), or marks them `failed` and parks them (lib-error, with the Wazuh alert id) after `max_attempts`. Every change is a compare-and-set on the row's `claim`.\n**Systems changed:** n8n's own Data Tables only.\n**Approval:** not applicable.\n**Owner:** n8n.\nSaved: every run (a few per restart or import).",
+        "content": "## recv-n8n-start (alert queue set-up and crash recovery, N8N-1.4)\n**Trigger:** n8n itself: instance started, or this workflow published or updated (import, `bootstrap.sh core`).\n**Inputs:** none (lib-config `alert_queue`).\n**Actions taken:** creates the Data Tables `asox_alert_queue` and `asox_queue_slots` if missing (idempotent: \"reuse existing\"); keeps exactly `alert_queue.slots` slot rows; deletes `done` rows older than `keep_done_h`. **Only when the instance started:** frees the slots and requeues the `running` rows that the stopped process left (claimed more than `restart_grace_s` before this start; a restart takes longer), or marks them `failed` and parks them (lib-error, with the Wazuh alert id) after `max_attempts`. Every change is a compare-and-set on the row's `claim`.\n**Systems changed:** n8n's own Data Tables only.\n**Approval:** not needed: n8n's own Data Tables only.\n**Owner:** n8n.\nSaved: every run (a few per restart or import).\nError workflow: recv-n8n-error (A77), like every entry point. It runs only for a failed run of this workflow and ends in lib-error (a parked lib-error execution), which never calls this workflow back: no loop. Nothing here calls TheHive (the park has no TheHive alert to comment on), so a failure at start-up while TheHive is still starting parks once; it doesn't stop n8n or repeat. The queue clean-up runs again at the next start-up or import.",
         "height": 600,
         "width": 520
       },
@@ -1008,7 +1008,8 @@
     "executionOrder": "v1",
     "saveDataSuccessExecution": "all",
     "saveDataErrorExecution": "all",
-    "saveManualExecutions": true
+    "saveManualExecutions": true,
+    "errorWorkflow": "asoxRecvN8nError"
   },
   "meta": {
     "templateCredsSetupCompleted": true

@@ -1,0 +1,84 @@
+{
+  "timestamp": "2026-10-20T18:26:33.672+0000",
+  "rule": {
+    "level": 7,
+    "description": "File deleted.",
+    "id": "553",
+    "mitre": {
+      "id": [
+        "T1070.004",
+        "T1485"
+      ],
+      "tactic": [
+        "Defense Evasion",
+        "Impact"
+      ],
+      "technique": [
+        "File Deletion",
+        "Data Destruction"
+      ]
+    },
+    "firedtimes": 1,
+    "mail": true,
+    "groups": [
+      "ossec",
+      "syscheck",
+      "syscheck_entry_deleted",
+      "syscheck_file"
+    ],
+    "pci_dss": [
+      "11.5"
+    ],
+    "gpg13": [
+      "4.11"
+    ],
+    "gdpr": [
+      "II_5.1.f"
+    ],
+    "hipaa": [
+      "164.312.c.1",
+      "164.312.c.2"
+    ],
+    "nist_800_53": [
+      "SI.7"
+    ],
+    "tsc": [
+      "PI1.4",
+      "PI1.5",
+      "CC6.1",
+      "CC6.8",
+      "CC7.2",
+      "CC7.3"
+    ]
+  },
+  "agent": {
+    "id": "002",
+    "name": "lab-agent",
+    "ip": "172.18.0.7"
+  },
+  "manager": {
+    "name": "wazuh-manager"
+  },
+  "id": "1792520793.3462",
+  "full_log": "File '/etc/cron.d/asox-tamper-2cb38505' deleted\nMode: realtime\n",
+  "syscheck": {
+    "path": "/etc/cron.d/asox-tamper-2cb38505",
+    "mode": "realtime",
+    "size_after": "157",
+    "perm_after": "rw-r--r--",
+    "uid_after": "0",
+    "gid_after": "0",
+    "md5_after": "6067d7a1851c54f5c7dead1cbeea3589",
+    "sha1_after": "8a284b86c936dfe023e28fa03d3fa7da31597f87",
+    "sha256_after": "a160e07e3ceb306a991874b408109d729db2616ca098c7939bab727efa44d1bc",
+    "uname_after": "root",
+    "gname_after": "root",
+    "mtime_after": "2026-10-20T18:26:30",
+    "inode_after": 361526,
+    "event": "deleted"
+  },
+  "decoder": {
+    "name": "syscheck_deleted"
+  },
+  "location": "syscheck"
+}

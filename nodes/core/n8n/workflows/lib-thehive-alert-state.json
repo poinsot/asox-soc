@@ -5,7 +5,7 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## lib-thehive-alert-state (N8N-1.4 repair path)\n**Trigger:** called by pb-generic when the TheHive alert already existed (`duplicate`).\n**Inputs:** `{thehive_alert_id, wazuh_alert_id, config}`.\n**Actions taken:** reads the alert's comments and observables (TheHive calls with lib-config `thehive_http` timeouts and retries, N8N-6.2). Returns `writeback_exists` (a comment by n8n's account whose first line is the writeback marker for this Wazuh alert, as lib-thehive-writeback checks it) and the observables with their tags. A failed read returns `ok: false` with the stage: **never parks** (the playbook then writes the writeback as before, without repair).\n**Systems changed:** none (reads only).\n**Approval:** not applicable.\n**Owner:** n8n.\nSaved: failed executions only (lib- convention).",
+        "content": "## lib-thehive-alert-state (N8N-1.4 repair path)\n**Trigger:** called by pb-generic when the TheHive alert already existed (`duplicate`).\n**Inputs:** `{thehive_alert_id, wazuh_alert_id, config}`.\n**Actions taken:** reads the alert's comments and observables (TheHive calls with lib-config `thehive_http` timeouts and retries, N8N-6.2). Returns `writeback_exists` (a comment by n8n's account whose first line is the writeback marker for this Wazuh alert, as lib-thehive-writeback checks it) and the observables with their tags. A failed read returns `ok: false` with the stage: **never parks** (the playbook then writes the writeback as before, without repair).\n**Systems changed:** none (reads only).\n**Approval:** not needed: reads only.\n**Owner:** n8n.\nSaved: failed executions only (lib- convention).",
         "height": 600,
         "width": 520
       },

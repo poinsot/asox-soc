@@ -92,6 +92,104 @@
     ]
   },
   {
+    "name": "file-integrity",
+    "displayName": "File integrity change",
+    "titlePrefix": "[FIM]",
+    "description": "Wazuh file integrity monitoring (rule group `syscheck`) saw a monitored file modified, added or deleted, e.g. 550 / 554 modified or added, 553 deleted, or Daniel's 1003xx rules for sensitive files (100302). The path is the `filename` observable; the hash observable is tagged `fim:modified`, `fim:added` or `fim:deleted` (for a deleted file it is the last known hash). Possible tampering or persistence. Triage procedure: nodes/cases/thehive/docs/TRIAGE.md.",
+    "severity": 2,
+    "tlp": 2,
+    "pap": 2,
+    "flag": false,
+    "tags": [
+      "fim",
+      "integrity",
+      "wazuh"
+    ],
+    "tasks": [
+      {
+        "title": "Identify the change",
+        "group": "Triage",
+        "description": "From the alert: which file (filename observable), on which host, what changed (modified / added / deleted), when. Is it a sensitive file (/etc/passwd, sudoers, ssh keys, cron, binaries)?",
+        "order": 0,
+        "mandatory": false
+      },
+      {
+        "title": "Was it expected?",
+        "group": "Triage",
+        "description": "Check with the host owner: planned update, package install or admin work at that time? If yes, close as false positive (expected activity) and note who confirmed it.",
+        "order": 1,
+        "mandatory": false
+      },
+      {
+        "title": "Check the hash",
+        "group": "Investigation",
+        "description": "Run the Cortex analyzers on the hash observable (fim:modified / fim:added: the new content; fim:deleted: the last known content). A known-malicious hash raises the severity to High.",
+        "order": 2,
+        "mandatory": false
+      },
+      {
+        "title": "Look for related activity",
+        "group": "Investigation",
+        "description": "Search Wazuh on the same host around that time: logins, sudo, new users, other FIM changes. Several together suggest an intrusion; link or merge them.",
+        "order": 3,
+        "mandatory": false
+      },
+      {
+        "title": "Restore and contain",
+        "group": "Response",
+        "description": "Restore the file from a known-good copy if it was tampered with. Host isolation and file removal are manual-only for now (set containment-action yourself and describe it in a comment).",
+        "order": 4,
+        "mandatory": false
+      },
+      {
+        "title": "Document and close",
+        "group": "Closure",
+        "description": "Write the summary (file, change, cause, action taken), set the resolution status and close the case.",
+        "order": 5,
+        "mandatory": false
+      }
+    ],
+    "customFields": [
+      {
+        "name": "wazuh-alert-id",
+        "order": 0
+      },
+      {
+        "name": "wazuh-rule-id",
+        "order": 1
+      },
+      {
+        "name": "wazuh-rule-level",
+        "order": 2
+      },
+      {
+        "name": "wazuh-agent-name",
+        "order": 3
+      },
+      {
+        "name": "mitre-technique",
+        "order": 4
+      },
+      {
+        "name": "asset-criticality",
+        "order": 5
+      },
+      {
+        "name": "containment-action",
+        "value": "none",
+        "order": 6
+      },
+      {
+        "name": "playbook",
+        "order": 7
+      },
+      {
+        "name": "n8n-execution-id",
+        "order": 8
+      }
+    ]
+  },
+  {
     "name": "ids-network-alert",
     "displayName": "IDS network alert",
     "titlePrefix": "[IDS]",
@@ -917,6 +1015,105 @@
       },
       {
         "name": "mitre-technique",
+        "order": 4
+      },
+      {
+        "name": "asset-criticality",
+        "order": 5
+      },
+      {
+        "name": "containment-action",
+        "value": "none",
+        "order": 6
+      },
+      {
+        "name": "playbook",
+        "order": 7
+      },
+      {
+        "name": "n8n-execution-id",
+        "order": 8
+      }
+    ]
+  },
+  {
+    "name": "web-attack",
+    "displayName": "Web application attack",
+    "titlePrefix": "[WEB]",
+    "description": "Attack patterns in a web server's access log: SQL injection, XSS, path traversal, scanners (Wazuh rule groups `web` + `attack`, e.g. 31103 SQL injection attempt, 31152 repeated SQL injection from one source; MITRE T1190). The request path is the `uri_path` observable. Main risk: an attempt that got an HTTP 200 and returned data. Triage procedure: nodes/cases/thehive/docs/TRIAGE.md.",
+    "severity": 3,
+    "tlp": 2,
+    "pap": 2,
+    "flag": false,
+    "tags": [
+      "attack.t1190",
+      "wazuh",
+      "web"
+    ],
+    "tasks": [
+      {
+        "title": "Read the request",
+        "group": "Triage",
+        "description": "From the alert and the uri_path observable: which page, which payload (SQL, script, ../), which HTTP method. Treat the request text as attacker-written: never open it as a link.",
+        "order": 0,
+        "mandatory": false
+      },
+      {
+        "title": "Did it work?",
+        "group": "Triage",
+        "description": "Check the HTTP status in the log line: 4xx/5xx = refused or failed; 200 with a large response = possible success, raise to Critical. Look in Wazuh for other requests from the same source around that time.",
+        "order": 1,
+        "mandatory": false
+      },
+      {
+        "title": "Check the source IP",
+        "group": "Investigation",
+        "description": "Run the Cortex analyzers (MISP) on the source IP; note any warninglist tag (common, not safe). Scanner or targeted attacker?",
+        "order": 2,
+        "mandatory": false
+      },
+      {
+        "title": "Check the application",
+        "group": "Investigation",
+        "description": "Is the targeted page or parameter real? Ask the application owner whether it is vulnerable (input validation, prepared statements). Note the result in the case summary.",
+        "order": 3,
+        "mandatory": false
+      },
+      {
+        "title": "Block the source IP",
+        "group": "Response",
+        "description": "Request the IP block through n8n (analyst approval; active response arrives with C9 in Phase 2) and set containment-action to ip-blocked.",
+        "order": 4,
+        "mandatory": false
+      },
+      {
+        "title": "Document and close",
+        "group": "Closure",
+        "description": "Write the summary (target, payload type, success or not, action taken), set the resolution status and close the case.",
+        "order": 5,
+        "mandatory": false
+      }
+    ],
+    "customFields": [
+      {
+        "name": "wazuh-alert-id",
+        "order": 0
+      },
+      {
+        "name": "wazuh-rule-id",
+        "order": 1
+      },
+      {
+        "name": "wazuh-rule-level",
+        "order": 2
+      },
+      {
+        "name": "wazuh-agent-name",
+        "order": 3
+      },
+      {
+        "name": "mitre-technique",
+        "value": "T1190",
         "order": 4
       },
       {

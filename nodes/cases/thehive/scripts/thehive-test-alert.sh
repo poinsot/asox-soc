@@ -8,8 +8,8 @@
 # Usage: nodes/cases/thehive/scripts/thehive-test-alert.sh [SCENARIO...] [--critical-asset] [--promote]
 #        nodes/cases/thehive/scripts/thehive-test-alert.sh --cleanup
 #   SCENARIO          ssh, malware, ids, generic (the 4 base templates), login,
-#                     sudo, newuser, ioc, portscan, fwlogin (templates for the
-#                     Wazuh detections in progress), or all (default: ssh)
+#                     sudo, newuser, ioc, portscan, fwlogin, web, fim (templates
+#                     for the Wazuh detections in progress), or all (default: ssh)
 #   --critical-asset  mark the host as critical (severity +1, as in the mapping)
 #   --promote         also promote each alert to a case with n8n's account, as
 #                     n8n's auto-promotion will (D-N4), and check the case got
@@ -23,7 +23,7 @@ set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 TEST_SOURCE=asox-test
-SCENARIOS=(ssh malware ids generic login sudo newuser ioc portscan fwlogin)
+SCENARIOS=(ssh malware ids generic login sudo newuser ioc portscan fwlogin web fim)
 
 CLEANUP=0 PROMOTE=0 CRITICALITY=medium
 wanted=()
@@ -34,7 +34,7 @@ for a in "$@"; do
     --critical-asset) CRITICALITY=critical ;;
     --promote) PROMOTE=1 ;;
     all) wanted+=("${SCENARIOS[@]}") ;;
-    ssh|malware|ids|generic|login|sudo|newuser|ioc|portscan|fwlogin) wanted+=("$a") ;;
+    ssh|malware|ids|generic|login|sudo|newuser|ioc|portscan|fwlogin|web|fim) wanted+=("$a") ;;
     *) die "unknown argument: $a (scenarios: ${SCENARIOS[*]} all; options: --critical-asset --promote --cleanup)" ;;
   esac
 done
@@ -128,6 +128,14 @@ scenario() {
           "OPNsense: multiple failed web GUI logins from the same source." \
           opnsense T1110 \
           '[{"dataType":"ip","data":"198.51.100.40","tags":["src"]},{"dataType":"user-account","data":"root","tags":["target"]},{"dataType":"ip","data":"10.99.0.1","tags":["agent"],"message":"location (syslog sender)"},{"dataType":"hostname","data":"opnsense","tags":["agent"],"message":"predecoder.hostname (syslog alert, agent 000)"}]' ;;
+    web) printf '%s\n' web-attack 31103 7 \
+          "SQL injection attempt." \
+          lab-agent T1190 \
+          '[{"dataType":"ip","data":"198.51.100.61","tags":["src"]},{"dataType":"uri_path","data":"/products.php?id=1%27%20OR%201=1--","tags":["request"],"message":"data.url (path-only, attacker-written)"},{"dataType":"hostname","data":"lab-agent","tags":["agent"]}]' ;;
+    fim) printf '%s\n' file-integrity 553 7 \
+          "File deleted. /etc/cron.d/backup" \
+          lab-agent T1070.004 \
+          '[{"dataType":"filename","data":"/etc/cron.d/backup","tags":["path","fim:deleted"]},{"dataType":"hash","data":"9f2feb0f1ef425b292f2f94bcc6e6b1bb8c3a4a1f1e4b1d6f0d5c1b6c3e9a7d2","tags":["sha256","fim:deleted"],"message":"Last known hash of a deleted file"},{"dataType":"hostname","data":"lab-agent","tags":["agent"]}]' ;;
     portscan) printf '%s\n' network-scan 103000 10 \
           "pfSense: multiple blocked connections from the same source (port scan)." \
           pfsense T1046 \
