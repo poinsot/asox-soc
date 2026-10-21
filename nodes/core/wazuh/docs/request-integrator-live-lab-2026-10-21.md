@@ -4,7 +4,7 @@
 **From:** Daniel (@dmelgar1110), Wazuh owner
 **Date:** 2026-10-21
 **Refs:** W4.1, W4.4, W4.5, W7.3, D16 (single binds 127.0.0.1), PROJECT.md 7 (A71, WSL firewall), `nodes/core/wazuh/ENROLLMENT.md`
-**Status:** draft
+**Status:** sent (2026-10-21)
 
 ## Why
 
