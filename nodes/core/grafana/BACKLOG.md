@@ -70,7 +70,7 @@ Based on PROJECT.md (v2.1), docs/decisions.md, docs/handoff.md, CHECKLIST.md, CO
 - `provisioning/dashboards/attack-scenarios.json` ("Attack Scenarios", uid `asox-attack-scenarios`): one stat + sparkline per scenario on the rule IDs it fires, detections over time by scenario, runs per scenario and recent runs (time, scenario, run ID, agent) from the markers. No `$min_level`: each panel is fixed to its rules.
 - Annotation "Inicio de ataque (lab)" (`rule.id:100101`, text `data.scenario`, tags `data.run_id`) on this dashboard and on SOC Status. Answer to Wazuh in `docs/replies-2026-10.md` (A3).
 - The detection panels count every alert of those rules, real or lab: the runs table and the markers say which ones came from a run.
-- `new-user` fired 5902, 100211 and **40501 (level 15)**, not 5901 as `trigger.sh` says. Raised with Wazuh (replies, A3).
+- `new-user` fired 5902, 100211 and **40501 (level 15)**, not 5901 as `trigger.sh` says. Raised with Wazuh (replies, A3). Wazuh: expected (40501 replaces 5901 or 5902 after other scenarios). **2026-10-20:** kept, in its own panel "Attack followed by new account (40501)" (row Correlations; replies, A5).
 
 ## E3: Dashboard "Desempeño y cumplimiento" — Nivel 2/3
 
