@@ -91,8 +91,8 @@
         "overrides": []
       },
       "gridPos": {
-        "h": 5,
-        "w": 4,
+        "h": 4,
+        "w": 8,
         "x": 0,
         "y": 1
       },
@@ -112,7 +112,10 @@
         },
         "showPercentChange": false,
         "textMode": "value",
-        "wideLayout": true
+        "wideLayout": true,
+        "text": {
+          "valueSize": 36
+        }
       },
       "pluginVersion": "12.4.11",
       "targets": [
@@ -179,9 +182,9 @@
         "overrides": []
       },
       "gridPos": {
-        "h": 5,
-        "w": 4,
-        "x": 4,
+        "h": 4,
+        "w": 8,
+        "x": 8,
         "y": 1
       },
       "id": 3,
@@ -200,7 +203,10 @@
         },
         "showPercentChange": false,
         "textMode": "value",
-        "wideLayout": true
+        "wideLayout": true,
+        "text": {
+          "valueSize": 36
+        }
       },
       "pluginVersion": "12.4.11",
       "targets": [
@@ -267,9 +273,9 @@
         "overrides": []
       },
       "gridPos": {
-        "h": 5,
-        "w": 4,
-        "x": 8,
+        "h": 4,
+        "w": 8,
+        "x": 16,
         "y": 1
       },
       "id": 4,
@@ -288,7 +294,10 @@
         },
         "showPercentChange": false,
         "textMode": "value",
-        "wideLayout": true
+        "wideLayout": true,
+        "text": {
+          "valueSize": 36
+        }
       },
       "pluginVersion": "12.4.11",
       "targets": [
@@ -355,10 +364,10 @@
         "overrides": []
       },
       "gridPos": {
-        "h": 5,
-        "w": 4,
-        "x": 12,
-        "y": 1
+        "h": 4,
+        "w": 8,
+        "x": 0,
+        "y": 5
       },
       "id": 5,
       "options": {
@@ -376,7 +385,10 @@
         },
         "showPercentChange": false,
         "textMode": "value",
-        "wideLayout": true
+        "wideLayout": true,
+        "text": {
+          "valueSize": 36
+        }
       },
       "pluginVersion": "12.4.11",
       "targets": [
@@ -443,10 +455,10 @@
         "overrides": []
       },
       "gridPos": {
-        "h": 5,
-        "w": 4,
-        "x": 16,
-        "y": 1
+        "h": 4,
+        "w": 8,
+        "x": 8,
+        "y": 5
       },
       "id": 6,
       "options": {
@@ -464,7 +476,10 @@
         },
         "showPercentChange": false,
         "textMode": "value",
-        "wideLayout": true
+        "wideLayout": true,
+        "text": {
+          "valueSize": 36
+        }
       },
       "pluginVersion": "12.4.11",
       "targets": [
@@ -531,10 +546,10 @@
         "overrides": []
       },
       "gridPos": {
-        "h": 5,
-        "w": 4,
-        "x": 20,
-        "y": 1
+        "h": 4,
+        "w": 8,
+        "x": 16,
+        "y": 5
       },
       "id": 7,
       "options": {
@@ -552,7 +567,10 @@
         },
         "showPercentChange": false,
         "textMode": "value",
-        "wideLayout": true
+        "wideLayout": true,
+        "text": {
+          "valueSize": 36
+        }
       },
       "pluginVersion": "12.4.11",
       "targets": [
@@ -593,7 +611,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 6
+        "y": 9
       },
       "id": 13,
       "panels": [],
@@ -635,7 +653,7 @@
         "h": 4,
         "w": 24,
         "x": 0,
-        "y": 7
+        "y": 10
       },
       "id": 14,
       "options": {
@@ -653,7 +671,10 @@
         },
         "showPercentChange": false,
         "textMode": "value",
-        "wideLayout": true
+        "wideLayout": true,
+        "text": {
+          "valueSize": 36
+        }
       },
       "pluginVersion": "12.4.11",
       "targets": [
@@ -694,7 +715,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 11
+        "y": 14
       },
       "id": 8,
       "panels": [],
@@ -732,7 +753,7 @@
         "h": 9,
         "w": 24,
         "x": 0,
-        "y": 12
+        "y": 15
       },
       "id": 9,
       "options": {
@@ -820,7 +841,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 21
+        "y": 24
       },
       "id": 10,
       "panels": [],
@@ -849,7 +870,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 22
+        "y": 25
       },
       "id": 11,
       "options": {
@@ -863,7 +884,15 @@
           "values": true
         },
         "showUnfilled": true,
-        "valueMode": "color"
+        "valueMode": "color",
+        "namePlacement": "top",
+        "text": {
+          "titleSize": 14,
+          "valueSize": 16
+        },
+        "maxVizHeight": 28,
+        "minVizHeight": 16,
+        "sizing": "auto"
       },
       "pluginVersion": "12.4.11",
       "targets": [
@@ -914,7 +943,7 @@
         "h": 8,
         "w": 16,
         "x": 8,
-        "y": 22
+        "y": 25
       },
       "id": 12,
       "options": {
