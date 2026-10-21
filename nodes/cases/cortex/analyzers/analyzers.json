@@ -72,8 +72,7 @@
       "enabled": true,
       "configuration": {
         "key": "${VIRUSTOTAL_API_KEY}",
-        "polling_interval": 60,
-        "rescan_hash_older_than_days": 30
+        "polling_interval": 60
       },
       "rate": 500,
       "rateUnit": "Day",
