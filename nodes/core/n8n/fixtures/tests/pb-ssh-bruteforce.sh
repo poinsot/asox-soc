@@ -19,6 +19,13 @@
 #   d  40112, then 5763 (the parallel-slot order): the 5763 escalates itself
 #   e  5763 from an address with no history: no related alert, no escalation
 #   f  100200: still pb-generic, caseTemplate suspicious-login
+#   g  the parallel-slot race (N8N-4.2 follow-up): a 5763 whose TheHive alert
+#      is raised to 4 with n8n's key (C4 drops the event, as it drops a
+#      40112's raise) as soon as it appears, before its writeback: the run
+#      writes its document with 3, then re-reads TheHive and re-syncs it to 4.
+#      The re-read follows the writeback comment, so a raise that returns
+#      while the comment is still missing came before the re-read; when the
+#      writeback wins instead, the case is tried again (3 tries, then SKIP)
 #
 # Everything it created (TheHive alerts, asox-metrics documents) is deleted at
 # the end, also on failure or interruption; the ids are listed. Needs core
@@ -28,7 +35,7 @@
 # file descriptor.
 #
 # Usage: nodes/core/n8n/fixtures/tests/pb-ssh-bruteforce.sh [options]
-#   --only CASES   run only these cases, e.g. a,e (default: a,b,c,d,e,f; c needs b)
+#   --only CASES   run only these cases, e.g. a,e (default: a,b,c,d,e,f,g; c needs b)
 #   --timeout S    seconds to wait for each alert's writeback (default 120)
 #   -h, --help     show this help
 # Exit code 1 if any check failed, 2 on usage errors.
@@ -48,7 +55,7 @@ source "$REPO_ROOT/scripts/lib/wazuh.sh"
 usage() { print_usage "$0"; }
 usage_error() { printf 'ERROR %s\n' "$*" >&2; usage >&2; exit 2; }
 
-CASES="a,b,c,d,e,f" TIMEOUT=120
+CASES="a,b,c,d,e,f,g" TIMEOUT=120
 while (( $# > 0 )); do
   case $1 in
     --only) CASES=${2:?--only needs a list, e.g. a,e}; shift ;;
@@ -58,7 +65,7 @@ while (( $# > 0 )); do
   esac
   shift
 done
-[[ $CASES =~ ^[a-f](,[a-f])*$ ]] || usage_error "--only takes letters a-f separated by commas"
+[[ $CASES =~ ^[a-g](,[a-g])*$ ]] || usage_error "--only takes letters a-g separated by commas"
 [[ $TIMEOUT =~ ^[1-9][0-9]*$ ]] || usage_error "--timeout must be a positive number of seconds"
 [[ ,$CASES, == *,c,* && ,$CASES, != *,b,* ]] && usage_error "case c replays case b's 40112: add b"
 
@@ -303,6 +310,43 @@ if run_case f; then
       "Route: suspicious-login (rule 100200): playbook pb-generic, case template suspicious-login."
     check "f: caseTemplate suspicious-login" field_is "$a8" caseTemplate '"suspicious-login"'
     check "f: no $CAMPAIGN tag" jqt "$a8" '[(.tags // [])[] | select(startswith($p))] | length == 0' --arg p "$CAMPAIGN"
+  fi
+fi
+
+if run_case g; then
+  hit="" stopped=""
+  for try in 1 2 3; do
+    pick_ip; ip=$PICKED; info "g: address $ip (try $try)"
+    copy_fixture "$F5763" "$ip"; f9=$COPY; id9=$(jq -r .id "$f9")
+    if ! "$FIXTURES_DIR/replay.sh" --file "$f9" >/dev/null; then fail "g: replay of $id9 failed"; stopped=yes; break; fi
+    th9="" deadline=$(( SECONDS + TIMEOUT ))
+    while [[ -z $th9 ]] && (( SECONDS < deadline )); do
+      th9=$(alerts_by_ref "$id9" | jq -r 'if length == 1 then .[0]._id else empty end')
+      [[ -n $th9 ]] || sleep 0.2
+    done
+    [[ -n $th9 ]] || { fail "g: no TheHive alert for $id9 within ${TIMEOUT}s"; stopped=yes; break; }
+    r=$(th PATCH "/api/v1/alert/$th9" '{"severity":4}')
+    [[ $(http_code "$r") == 204 ]] || { fail "g: raising $th9 returned HTTP $(http_code "$r")"; stopped=yes; break; }
+    if [[ -z $(writeback_text "$th9" "$id9") ]]; then hit=yes; break; fi
+    info "g: the writeback of $th9 came before the raise: try again"
+  done
+  if [[ $hit == yes ]]; then
+    wb9="" deadline=$(( SECONDS + TIMEOUT ))
+    while [[ -z $wb9 ]] && (( SECONDS < deadline )); do
+      wb9=$(writeback_text "$th9" "$id9"); [[ -n $wb9 ]] || sleep 1
+    done
+    # The re-sync runs right after the writeback: poll the document briefly.
+    doc9="" deadline=$(( SECONDS + 30 ))
+    while (( SECONDS < deadline )); do
+      doc9=$(metrics_doc "$id9"); [[ -n $doc9 ]] || doc9='{}'
+      jqt "$doc9" '.severity == 4' && break
+      sleep 1
+    done
+    check "g: the run didn't see the raise (writeback: created with severity 3)" wb_line "$wb9" "TheHive alert created:" "severity 3,"
+    check "g: TheHive alert $th9 at severity 4" field_is "$(alert_json "$th9")" severity 4
+    check "g: asox-metrics document $id9 re-synced to severity 4" field_is "$doc9" severity 4
+  elif [[ -z $stopped ]]; then
+    skip "g: the writeback won the race 3 times: re-sync not exercised"
   fi
 fi
 

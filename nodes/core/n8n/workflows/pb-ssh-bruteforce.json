@@ -5,7 +5,7 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## pb-ssh-bruteforce (N8N-4.2)\n**Trigger:** called by lib-alert-queue-drain through Execute Workflow (waited for; by recv-wazuh-alert, not waited for, only when the queue is unavailable), when lib-route-alert routes the alert here: rows `ssh-bruteforce` (5712, 5763) and `suspicious-login-40112` (40112) of lib-config `routing`.\n**Inputs:** `{alert: <raw Wazuh alert>, config: <lib-config>, recv_execution_id, route: <lib-route-alert route>}`, as pb-generic.\n**Actions taken:** pb-generic's chain, same libs, same order, same repair path on `duplicate` (custom field and metrics `playbook` = pb-ssh-bruteforce; severity and enrichment start reach lib-enrich-observable as in pb-generic, D-N7, D-N8): lib-normalize-wazuh-alert -> lib-extract-observables -> lib-misp-warninglist -> lib-thehive-upsert-alert -> created (or repaired) only: lib-enrich-observable -> **lib-ssh-correlate** (read-only, one bounded TheHive query: alerts from the same `data.srcip` within lib-config `ssh_correlation.window_s` (3600 s) of the event time, templates ssh-bruteforce / suspicious-login; On Error = continue, a failure is `failed (<class>)`, never parked) -> one TheHive alert at a time (Loop Over Items; TheHive retry pattern N8N-6.2, the attempt number carried by the item; after a call fails all its retries the rest are not attempted; never parks): this alert gets the tag `ssh-campaign:<srcip>`; a brute-force alert with a related 40112 in the window escalates itself; a 40112 escalates every related `ssh-bruteforce` alert. Escalation = tag `ssh:login-after-bruteforce`, severity raised to `escalate_severity` (4) if lower (never lowered, D12), one comment starting `[asox-n8n escalation] wazuh-alert-id=<40112 id>` (written only if n8n's account has none with that first line), and the related alert's asox-metrics `severity` through lib-metrics-upsert (mode update; this alert's own goes into its writeback's document) -> lib-thehive-writeback (pb-generic's sections, then \"Related (same source within 1 h)\": the total and up to `max_listed` (10) alerts with rule and time, the tag, the escalations with old -> new severity, and `Recommended: block <srcip> (response actions, C9, Phase 2); nothing was changed.`). Never suppresses, closes, merges or lowers anything; creates no case (D-N4 is N8N-5.1).\n**Systems changed:** TheHive (this alert: alert, comments, observable tags and IOC flag, its tags and an escalation's severity raise; related ssh-bruteforce alerts: tag, severity raise, escalation comment) and the Wazuh indexer (asox-metrics documents, C11); Cortex and MISP run read-only lookups.\n**Approval:** not needed: SOC bookkeeping only (TheHive tags, comments, severity raise; asox-metrics), no system changes.\n**Owner:** n8n.\nResult: pb-generic's (`outcome`, `metrics`, `enrichment`, ...) plus `correlation` (status, srcip, related, escalated). Error workflow: recv-n8n-error. The response itself (blocking the address) waits for C9 (Phase 2).",
+        "content": "## pb-ssh-bruteforce (N8N-4.2)\n**Trigger:** called by lib-alert-queue-drain through Execute Workflow (waited for; by recv-wazuh-alert, not waited for, only when the queue is unavailable), when lib-route-alert routes the alert here: rows `ssh-bruteforce` (5712, 5763) and `suspicious-login-40112` (40112) of lib-config `routing`.\n**Inputs:** `{alert: <raw Wazuh alert>, config: <lib-config>, recv_execution_id, route: <lib-route-alert route>}`, as pb-generic.\n**Actions taken:** pb-generic's chain, same libs, same order, same repair path on `duplicate` (custom field and metrics `playbook` = pb-ssh-bruteforce; severity and enrichment start reach lib-enrich-observable as in pb-generic, D-N7, D-N8): lib-normalize-wazuh-alert -> lib-extract-observables -> lib-misp-warninglist -> lib-thehive-upsert-alert -> created (or repaired) only: lib-enrich-observable -> **lib-ssh-correlate** (read-only, one bounded TheHive query: alerts from the same `data.srcip` within lib-config `ssh_correlation.window_s` (3600 s) of the event time, templates ssh-bruteforce / suspicious-login; On Error = continue, a failure is `failed (<class>)`, never parked) -> one TheHive alert at a time (Loop Over Items; TheHive retry pattern N8N-6.2, the attempt number carried by the item; after a call fails all its retries the rest are not attempted; never parks): this alert gets the tag `ssh-campaign:<srcip>`; a brute-force alert with a related 40112 in the window escalates itself; a 40112 escalates every related `ssh-bruteforce` alert. Escalation = tag `ssh:login-after-bruteforce`, severity raised to `escalate_severity` (4) if lower (never lowered, D12), one comment starting `[asox-n8n escalation] wazuh-alert-id=<40112 id>` (written only if n8n's account has none with that first line), and the related alert's asox-metrics `severity` through lib-metrics-upsert (mode update; this alert's own goes into its writeback's document) -> lib-thehive-writeback (pb-generic's sections, then \"Related (same source within 1 h)\": the total and up to `max_listed` (10) alerts with rule and time, the tag, the escalations with old -> new severity, and `Recommended: block <srcip> (response actions, C9, Phase 2); nothing was changed.`). -> when the writeback created (or repaired) this alert's asox-metrics document: re-read its severity from TheHive (retry pattern) and, if a 40112 in the other queue slot raised it meanwhile, lib-metrics-upsert mode update with `severity` only (never parks). Never suppresses, closes, merges or lowers anything; creates no case (D-N4 is N8N-5.1).\n**Systems changed:** TheHive (this alert: alert, comments, observable tags and IOC flag, its tags and an escalation's severity raise; related ssh-bruteforce alerts: tag, severity raise, escalation comment) and the Wazuh indexer (asox-metrics documents, C11); Cortex and MISP run read-only lookups.\n**Approval:** not needed: SOC bookkeeping only (TheHive tags, comments, severity raise; asox-metrics), no system changes.\n**Owner:** n8n.\nResult: pb-generic's (`outcome`, `metrics`, `enrichment`, ...) plus `correlation` (status, srcip, related, escalated) and `metrics_resync` (`metrics: severity re-synced <old> -> <new>`, `unchanged`, a failure, or null). Error workflow: recv-n8n-error. The response itself (blocking the address) waits for C9 (Phase 2).",
         "height": 640,
         "width": 520
       },
@@ -216,14 +216,14 @@
     },
     {
       "parameters": {
-        "jsCode": "const u = $('Upsert (lib-thehive-upsert-alert)').first().json;\nconst r = $input.first().json;\nreturn [{ json: {\n  // repaired: duplicate whose earlier run stopped before its writeback (N8N-1.4).\n  outcome: u.duplicate ? ($('Repair enrich input').isExecuted ? 'repaired' : 'duplicate') : 'created',\n  after_retry: u.after_retry === true, // duplicate found by a retried create (N8N-6.2)\n  wazuh_alert_id: u.wazuh_alert_id,\n  thehive_alert_id: u.thehive_alert_id,\n  // N8N-2.4: counts, `not run (duplicate)` or `failed` (unexpected; never parks).\n  enrichment: u.duplicate && !$('Repair enrich input').isExecuted ? 'not run (duplicate)'\n    : ($('Enrich (lib-enrich-observable)').first().json.ok === true ? $('Enrich (lib-enrich-observable)').first().json.counts : 'failed'),\n  writeback: r.ok ? (r.written ? 'written' : 'already written') : 'failed (parked by lib-error)',\n  // C11 (N8N-2.9): metrics: ok | skipped (<why>) | failed (<class>).\n  metrics: r.metrics ?? null,\n  // N8N-4.2: done / skipped / failed, the related alerts found and the alerts\n  // escalated (this one included); `not run` on a duplicate.\n  correlation: (() => {\n    if (!$('Correlate (lib-ssh-correlate)').isExecuted) return 'not run';\n    const cr = $('Correlate (lib-ssh-correlate)').first().json;\n    if (typeof cr.status !== 'string') return 'failed (unexpected)';\n    const esc = $('Escalation result').isExecuted ? $('Escalation result').first().json : null;\n    const escalated = [...(esc?.self?.escalation ? [esc.self] : []), ...(esc?.related ?? [])]\n      .filter((t) => t.patch?.ok).map((t) => t.thehive_alert_id);\n    return { status: cr.status, reason: cr.reason ?? cr.class ?? null, srcip: cr.srcip, related: cr.related_total ?? 0, escalated };\n  })(),\n  playbook: $workflow.name,\n  route_id: $('Context').first().json.route?.route_id ?? null,\n} }];\n"
+        "jsCode": "const u = $('Upsert (lib-thehive-upsert-alert)').first().json;\nconst r = $('Writeback (lib-thehive-writeback)').first().json;\nreturn [{ json: {\n  // repaired: duplicate whose earlier run stopped before its writeback (N8N-1.4).\n  outcome: u.duplicate ? ($('Repair enrich input').isExecuted ? 'repaired' : 'duplicate') : 'created',\n  after_retry: u.after_retry === true, // duplicate found by a retried create (N8N-6.2)\n  wazuh_alert_id: u.wazuh_alert_id,\n  thehive_alert_id: u.thehive_alert_id,\n  // N8N-2.4: counts, `not run (duplicate)` or `failed` (unexpected; never parks).\n  enrichment: u.duplicate && !$('Repair enrich input').isExecuted ? 'not run (duplicate)'\n    : ($('Enrich (lib-enrich-observable)').first().json.ok === true ? $('Enrich (lib-enrich-observable)').first().json.counts : 'failed'),\n  writeback: r.ok ? (r.written ? 'written' : 'already written') : 'failed (parked by lib-error)',\n  // C11 (N8N-2.9): metrics: ok | skipped (<why>) | failed (<class>).\n  metrics: r.metrics ?? null,\n  // N8N-4.2 follow-up: this alert's document re-synced to TheHive's severity\n  // after the writeback (the comment is already posted, so only here). null\n  // when not run (duplicate, or no document written).\n  metrics_resync: (() => {\n    if (!$('Severity re-sync plan').isExecuted) return null;\n    const p = $('Severity re-sync plan').first().json;\n    if (p.status === 'failed') return p.line;\n    if (p.status === 'unchanged') return `metrics: severity unchanged (${p.to})`;\n    const m = $('Re-sync (lib-metrics-upsert)').first().json;\n    if (m.ok === true && !m.skipped) return `metrics: severity re-synced ${p.from} -> ${p.to}`;\n    return `metrics: severity re-sync ${p.from} -> ${p.to} failed (${m.skipped ? `skipped: ${m.skipped}` : (m.class ?? 'unexpected')})`;\n  })(),\n  // N8N-4.2: done / skipped / failed, the related alerts found and the alerts\n  // escalated (this one included); `not run` on a duplicate.\n  correlation: (() => {\n    if (!$('Correlate (lib-ssh-correlate)').isExecuted) return 'not run';\n    const cr = $('Correlate (lib-ssh-correlate)').first().json;\n    if (typeof cr.status !== 'string') return 'failed (unexpected)';\n    const esc = $('Escalation result').isExecuted ? $('Escalation result').first().json : null;\n    const escalated = [...(esc?.self?.escalation ? [esc.self] : []), ...(esc?.related ?? [])]\n      .filter((t) => t.patch?.ok).map((t) => t.thehive_alert_id);\n    return { status: cr.status, reason: cr.reason ?? cr.class ?? null, srcip: cr.srcip, related: cr.related_total ?? 0, escalated };\n  })(),\n  playbook: $workflow.name,\n  route_id: $('Context').first().json.route?.route_id ?? null,\n} }];\n"
       },
       "id": "b1b9a8ca-405f-5726-86bd-817a9bba6cd2",
       "name": "Outcome",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        9140,
+        11080,
         -200
       ]
     },
@@ -1182,6 +1182,220 @@
         5360,
         -700
       ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "7bc96e83-fcb2-59b2-bfa0-a2734b322935",
+              "leftValue": "={{ $json.metrics === 'metrics: ok' && $('Writeback input').first().json.metrics.mode === 'create' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a97be721-e754-5ade-b707-6a9e9bfb8a77",
+      "name": "Re-sync severity?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        9140,
+        -200
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.THEHIVE_URL }}/api/v1/query",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "theHiveProjectApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ query: [ { _name: 'getAlert', idOrName: $('Writeback input').first().json.thehive_alert_id } ] }) }}",
+        "options": {
+          "timeout": "={{ $('Context').first().json.config.thehive_http.timeout_ms }}",
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "84b44d25-49f8-58df-b9f3-56c33a8d5242",
+      "name": "Re-read TheHive alert",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        9380,
+        -300
+      ],
+      "credentials": {
+        "theHiveProjectApi": {
+          "id": "asoxTheHiveApi01",
+          "name": "TheHive API (n8n)"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Retry policy for TheHive calls (N8N-6.2; lib-config thehive_http): a\n// connection error, a timeout or HTTP 5xx -> wait and call again; anything\n// else (2xx, and 4xx, which a retry never fixes) -> passed on. Outside the\n// loop: this node runs once per call, so $runIndex counts the attempts.\n// Never parks: the last failure goes into the result.\nconst r = $input.first().json;\nconst policy = $('Context').first().json.config.thehive_http;\nconst NODE = 'Re-read TheHive alert';\nconst attempt = $runIndex + 1;\nconst status = typeof r.statusCode === 'number' ? r.statusCode : null;\nconst thrown = r.error !== undefined && status === null; // HTTP node error output\nconst NETWORK = /ECONNREFUSED|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|ECONNRESET|EHOSTUNREACH|ENETUNREACH|ECONNABORTED|timeout|timed out|socket hang up|connection cannot be established/i;\nconst transient = thrown ? NETWORK.test(JSON.stringify(r)) : status >= 500;\nconst calls = policy.retry_waits_s.length + 1;\nif (transient && attempt < calls) {\n  return [{ json: { decision: 'retry', stage: NODE, attempt, wait_s: policy.retry_waits_s[attempt - 1],\n    reason: thrown ? 'connection error or timeout' : `HTTP ${status}` } }];\n}\nif (thrown || transient) {\n  const e = r.error;\n  const detail = thrown\n    ? (typeof e === 'string' ? e : [e?.message, e?.description].filter(Boolean).join(': ') || JSON.stringify(r))\n    : `HTTP ${status}: ${typeof r.body === 'string' ? r.body : JSON.stringify(r.body)}`;\n  return [{ json: { decision: 'error', stage: NODE, attempts: attempt, retry_exhausted: transient, http_status: status,\n    message: `${detail}`.slice(0, 500) + (transient ? ` (${attempt} calls)` : '') } }];\n}\nreturn [{ json: { decision: 'response', stage: NODE, attempts: attempt, statusCode: status, body: r.body } }];\n"
+      },
+      "id": "3cf7e573-3208-537c-9b1d-c40d4d4ea41b",
+      "name": "Assess: Re-read TheHive alert",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        9620,
+        -300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "2b6c4d4f-32a5-5c68-a5a3-341d8f02a09d",
+              "leftValue": "={{ $json.decision === 'retry' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "c3966c1e-d485-5895-bea3-48f696d4cb59",
+      "name": "Retry: Re-read TheHive alert?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        9860,
+        -300
+      ]
+    },
+    {
+      "parameters": {
+        "resume": "timeInterval",
+        "amount": "={{ $json.wait_s }}",
+        "unit": "seconds"
+      },
+      "id": "8b6ff816-0900-5394-9767-f6732bcd3198",
+      "name": "Wait before retry: Re-read TheHive alert",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        9860,
+        -500
+      ],
+      "webhookId": "64b48526-7ad0-5da7-8c37-a6ade7015d33"
+    },
+    {
+      "parameters": {
+        "jsCode": "// N8N-4.2 follow-up: this alert's asox-metrics document was just created (or\n// repaired) with the severity this run knew. A 40112 in the other queue slot\n// may have raised the TheHive alert meanwhile, and its metrics update then\n// found no document (skipped). Re-read the severity now that the document\n// exists: a raise before this read is seen here, a raise after it finds the\n// document. Follows TheHive both ways (an analyst may lower it, C4). Never\n// parks: a failure is only reported in the result (`metrics_resync`).\nconst j = $input.first().json;\nconst m = $('Writeback input').first().json.metrics;\nconst written = m.fields.severity;\nconst fail = (why) => ({ status: 'failed', from: written, line: `metrics: severity re-sync failed (re-read: ${why})` });\nconst calls = j.attempts ? ` after ${j.attempts} call(s)` : '';\nlet out;\nif (j.decision === 'error') {\n  out = fail(`${j.retry_exhausted ? 'thehive_unreachable' : 'thehive_error'}${calls}`);\n} else if (j.statusCode !== 200) {\n  out = fail(`${j.statusCode >= 400 && j.statusCode < 500 ? 'thehive_4xx' : 'http'} ${j.statusCode}`);\n} else if (!Array.isArray(j.body) || j.body.length !== 1 || !Number.isInteger(j.body[0]?.severity)) {\n  out = fail('unexpected answer');\n} else {\n  const now = j.body[0].severity;\n  out = now === written\n    ? { status: 'unchanged', from: written, to: now }\n    : { status: 'update', from: written, to: now,\n      metrics: { mode: 'update', alert_id: m.alert_id, source: m.source, fields: { severity: now } } };\n}\nreturn [{ json: out }];\n"
+      },
+      "id": "de574dc4-0f91-548f-884b-7b741a9fc850",
+      "name": "Severity re-sync plan",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        10100,
+        -200
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "2775b651-3b65-5ebc-b281-ba59d1c2be97",
+              "leftValue": "={{ $json.status === 'update' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "9e1c5749-822a-532f-8b5f-1dfc450a7d56",
+      "name": "Re-sync needed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        10340,
+        -200
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// lib-metrics-upsert, mode update, `severity` only (its overwrite rule is\n// unchanged: the latest value wins).\nreturn [{ json: { ...$input.first().json.metrics, config: $('Context').first().json.config } }];\n"
+      },
+      "id": "055bd83f-422a-5516-ac09-35372a5375d3",
+      "name": "Re-sync input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        10580,
+        -300
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "asoxLibMetricsUp",
+          "cachedResultName": "lib-metrics-upsert"
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "e486d610-0037-519e-bb93-7bea7283b10b",
+      "name": "Re-sync (lib-metrics-upsert)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        10820,
+        -300
+      ],
+      "onError": "continueRegularOutput"
     }
   ],
   "connections": {
@@ -1291,7 +1505,7 @@
       "main": [
         [
           {
-            "node": "Outcome",
+            "node": "Re-sync severity?",
             "type": "main",
             "index": 0
           }
@@ -1892,6 +2106,133 @@
         [
           {
             "node": "Writeback input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Re-sync severity?": {
+      "main": [
+        [
+          {
+            "node": "Re-read TheHive alert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Outcome",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Re-read TheHive alert": {
+      "main": [
+        [
+          {
+            "node": "Assess: Re-read TheHive alert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Assess: Re-read TheHive alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Assess: Re-read TheHive alert": {
+      "main": [
+        [
+          {
+            "node": "Retry: Re-read TheHive alert?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Retry: Re-read TheHive alert?": {
+      "main": [
+        [
+          {
+            "node": "Wait before retry: Re-read TheHive alert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Severity re-sync plan",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait before retry: Re-read TheHive alert": {
+      "main": [
+        [
+          {
+            "node": "Re-read TheHive alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Severity re-sync plan": {
+      "main": [
+        [
+          {
+            "node": "Re-sync needed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Re-sync needed?": {
+      "main": [
+        [
+          {
+            "node": "Re-sync input",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Outcome",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Re-sync input": {
+      "main": [
+        [
+          {
+            "node": "Re-sync (lib-metrics-upsert)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Re-sync (lib-metrics-upsert)": {
+      "main": [
+        [
+          {
+            "node": "Outcome",
             "type": "main",
             "index": 0
           }
