@@ -274,10 +274,12 @@ Not part of the 1 December delivery. C9 as decided in D44 (useful once Phase 2 b
   - Done when: Separate Wazuh API user and role `n8n-response` (`active-response:command` plus `agent:read`, limited to actionable agent groups, never the SOC's own hosts), created by Inigo in `scripts/lib/wazuh.sh` (R-17); `n8n-api` stays read-only, so C2 still passes. Catalog v1 = built-in `firewall-drop`, `host-deny`, `disable-account`, each with a timeout; Wazuh's `<white_list>` matches n8n's allowlist of protected hosts.
   - With: Inigo (n8n owner and integrator)
   - Refs: X-20, X-21, R-17, D44, D12
+  - **2026-10-22 (C9 v0 for the live demo, Inigo):** manager `<active-response>` blocks `firewall-drop60` / `firewall-drop300` (rules_id 100999, no rule), `<white_list>` 192.168.1.1, group `groups/asox-response`; `analysisd -t` clean, `ar.conf` entries confirmed; `contracts-check.sh --only C9` passes.
 - [ ] **W7.2** Active response in the lab · P3, C9
   - Done when: `<active-response>` blocks prepared; the lab image can run `firewall-drop` (iptables, `NET_ADMIN`); C9's check `chk-wazuh-response` passes: `firewall-drop` of `192.0.2.1` on the lab agent with a 60 s timeout succeeds, and a non-AR call as `n8n-response` gets 403.
   - Files: `nodes/core/wazuh/config/ossec.conf`, `nodes/lab/Dockerfile`, `nodes/lab/docker-compose.yml`
   - Refs: X-22
+  - **2026-10-22:** lab agent has `iptables` and `NET_ADMIN`, enrolls into `linux-servers,asox-response`; firewall-drop60 via the API as n8n-response blocked 192.0.2.77 and the agent removed it after ~60 s; agent 000 refused (403).
 - [ ] **W7.3** Suricata on a dedicated sensor · P3
   - Done when: Guide and test for Suricata plus a Wazuh agent (`network-sensors`) on its own machine, fed by a mirror (SPAN) port of the router, as planned for Phase 2.
   - Files: `nodes/core/wazuh/ENROLLMENT.md`

@@ -4,10 +4,11 @@ ARG LAB_BASE_IMAGE
 FROM ${LAB_BASE_IMAGE}
 
 ARG WAZUH_AGENT_VERSION
-# procps: wazuh-control needs ps.
+# procps: wazuh-control needs ps. iptables: active response firewall-drop
+# (C9, W7.2), with NET_ADMIN in docker-compose.yml.
 RUN apt-get update \
  && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-      ca-certificates curl gnupg procps \
+      ca-certificates curl gnupg procps iptables \
  && curl -fsSL https://packages.wazuh.com/key/GPG-KEY-WAZUH \
       | gpg --no-default-keyring --keyring gnupg-ring:/usr/share/keyrings/wazuh.gpg --import \
  && chmod 644 /usr/share/keyrings/wazuh.gpg \

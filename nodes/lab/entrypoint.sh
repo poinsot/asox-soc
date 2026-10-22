@@ -21,8 +21,10 @@ chown root:wazuh "$OSSEC/etc/authd.pass"
 
 # ossec.conf from the package default.
 # Enrolls into agent group linux-servers (W5.3), like a real Linux server
-# (ENROLLMENT.md); the manager pushes that group's agent.conf.
-enrollment="    <enrollment>\n      <enabled>yes</enabled>\n      <agent_name>${AGENT_NAME}</agent_name>\n      <groups>${WAZUH_AGENT_GROUP:-linux-servers}</groups>\n      <authorization_pass_path>etc/authd.pass</authorization_pass_path>\n    </enrollment>"
+# (ENROLLMENT.md); the manager pushes that group's agent.conf. Also into
+# asox-response (C9): the lab agent is the target of n8n's active-response
+# check, and a re-enrollment would otherwise drop it from that group.
+enrollment="    <enrollment>\n      <enabled>yes</enabled>\n      <agent_name>${AGENT_NAME}</agent_name>\n      <groups>${WAZUH_AGENT_GROUP:-linux-servers,asox-response}</groups>\n      <authorization_pass_path>etc/authd.pass</authorization_pass_path>\n    </enrollment>"
 sed -e "s|<address>MANAGER_IP</address>|<address>${WAZUH_MANAGER_ADDR}</address>|" \
     -e "0,/^  <\/client>/s||${enrollment}\n  </client>|" \
     /opt/asox/ossec.conf.dist > "$OSSEC/etc/ossec.conf"
