@@ -72,7 +72,8 @@ Your machine runs the `cases` mode, licensed and backed up, before you change an
 - [ ] **T0.6** Read the contracts and the TheHive chapter · P2
   - Done when: Read PROJECT.md 5, 6.4, 11, `nodes/cases/thehive/README.md`, CONTRIBUTING.md; run `scripts/ci-checks.sh all` once.
   - Files: `PROJECT.md`, `CONTRIBUTING.md`, `nodes/cases/thehive/README.md`
-- [ ] **T0.7** Tell the integrator your RAM and Windows version · P3
+- [x] **T0.7** Tell the integrator your RAM and Windows version · P3
+  - **Done 2026-10-21:** 64 GB, Windows 11, WSL 16 GB, `cases` / `standard` (`docs/reply-n8n-2026-10-21.md`).
   - Done when: Inigo has PROJECT.md 16 questions 1 and 3 (64 GB, Windows 11). The license result (X-19) is already recorded in the register.
   - With: Inigo (integrator)
 ## M1 · Configuration as code and tools (target: 2026-10-09)
@@ -86,6 +87,7 @@ Everything built in the UI reaches git, and alerts can be tested without Wazuh.
   - Done when: `thehive-test-alert.sh [SCENARIO...|all] [--critical-asset] [--promote]` creates realistic Wazuh-style alerts through n8n's own account, one scenario per template (ssh, malware, ids, generic, login, sudo, newuser, ioc, portscan); `--promote` turns each into a case as n8n would; `--cleanup` deletes test alerts and test cases; `shellcheck` clean.
   - Files: `nodes/cases/thehive/scripts/thehive-test-alert.sh`
 - [ ] **T1.3** Run the starter configuration on the real instance · P1, X-03, X-15
+  - Note (2026-10-22): `bootstrap.sh cases` now runs `thehive-import.sh` itself (A102, R-35), so new instances get `entities/` automatically; the test-alert round on your own instance is still the check.
   - Done when: `thehive-import.sh` creates 9 fields, 1 observable type, 12 templates; `thehive-test-alert.sh all --promote` creates 12 alerts and promotes each **with n8n's key** (`POST /api/v1/alert/<id>/case`, D-N4's auto-promotion: X-15), each case getting its template's tasks; `thehive-export.sh` then shows no diff. Tell Inigo, so X-03 and X-15 can be marked provided.
   - Status (2026-10-06): **done on the build instance**: Inigo ran `thehive-import.sh` (after `backup.sh cases --with-secrets`): 9 fields, 9 templates, `user-account`; `caseTemplate` and custom fields now kept on n8n's alerts. Left: the same run on your own machine, then tick.
   - Earlier (2026-09-30): Inigo measured that the **build instance** had no `entities/` loaded (templates and fields silently dropped, `user-account` alerts refused). Run `thehive-import.sh` there too, before 2026-10-20. n8n's account promoting an alert (HTTP 201) is already confirmed by him.
@@ -145,7 +147,8 @@ Analysts can work every alert type from queue to closed case.
 - [ ] **T3.5** Templates for the new detections · P2, X-12
   - Done when: A template (or a documented choice of `wazuh-generic`) for each detection Daniel adds: login success after failures, sudo failure / privilege escalation, new user, IOC match (W6.4), pfSense port scan (W4.3). Exported, and routed in ALERT-FORMAT.md §3.
   - Files: `nodes/cases/thehive/entities/case-templates.json`, `nodes/cases/thehive/docs/ALERT-FORMAT.md`
-  - Status (2026-10-20): + `web-attack` (groups `web` + `attack`: 31103, 31152) and `file-integrity` (group `syscheck`: 550, 553, 554, 100302) for Daniel's new `web-attack` and `fim-tamper` scenarios, proposed until n8n checks them against the fixtures (X-44); test scenarios `web` and `fim`.
+  - Status (2026-10-22): `web-attack` and `file-integrity` **active** in n8n (X-44 built, groups confirmed by the fixtures; 100301 → `file-integrity`, 100300 → `privilege-escalation`, Cisco 102000/102001 → `login-bruteforce`). Left: the full `all --promote` run on your instance (T1.3).
+  - Earlier (2026-10-20): + `web-attack` (groups `web` + `attack`: 31103, 31152) and `file-integrity` (group `syscheck`: 550, 553, 554, 100302) for Daniel's new `web-attack` and `fim-tamper` scenarios, proposed until n8n checks them against the fixtures (X-44); test scenarios `web` and `fim`.
   - Earlier (2026-10-14): + `login-bruteforce` (non-SSH brute force: 103011, 40111, 2502), agreed and routed by n8n; `fwlogin` test scenario passes on the real instance. Test IOC is now `101.99.75.184` (X-36); `ioc` uses rule 108000, `portscan` 103000.
   - Earlier (2026-10-08): 5 templates written, loaded on the build instance, and routed in §3 with Daniel's confirmed groups and rules (all rows active). Descriptions name the real rules (40112, 100200, 5404, 5901/5902, 100211/100212; ranges 103xxx, 108xxx). Left: import + export on your machine; `ioc-match` and `network-scan` get real rules with C14 and W4.3.
   - With: Daniel (W2.2, W4.3, W6.4)

@@ -123,7 +123,7 @@
       {
         "title": "Check the hash",
         "group": "Investigation",
-        "description": "Run the Cortex analyzers on the hash observable (fim:modified / fim:added: the new content; fim:deleted: the last known content). A known-malicious hash raises the severity to High.",
+        "description": "Run the Cortex analyzers on the hash observable (fim:modified / fim:added: the new content; fim:deleted: the last known content). A known-malicious hash is Critical: n8n's malware playbook raises it and tags the alert asox:verdict=malicious; check its \"Same hash on other alerts\" list.",
         "order": 2,
         "mandatory": false
       },

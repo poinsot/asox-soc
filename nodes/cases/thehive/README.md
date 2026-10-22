@@ -10,7 +10,7 @@ Alert triage and case management for analysts. **Apply your Community license be
 |---|---|
 | `compose.yml` | `thehive` (TheHive 5, served on port 9000 at the root path) |
 | `config/application.conf` | TheHive configuration; secrets come from the environment (`${VAR}`), never from this file |
-| `scripts/` | `thehive-export.sh` / `thehive-import.sh` (UI configuration ↔ `entities/`), `thehive-test-alert.sh` (test alerts) and their shared `lib.sh` |
+| `scripts/` | `thehive-export.sh` / `thehive-import.sh` (UI configuration ↔ `entities/`), `thehive-test-alert.sh` (test alerts), `thehive-fp-report.sh` (false positives by Wazuh rule) and their shared `lib.sh` |
 | `entities/` | Exported configuration: 9 custom fields, observable types (+ `user-account`), 12 case templates (JSON, committed) |
 | `BACKLOG.md` | TheHive's backlog: milestones M0–M7 to the 2026-12-01 delivery, tasks `T0.1`… with priority, "done when" and links to the integration register (`X-nn`) |
 | `docs/` | [ALERT-FORMAT.md](docs/ALERT-FORMAT.md) (alert format, severity / TLP / PAP, template routing, alert-to-case rules), [TRIAGE.md](docs/TRIAGE.md) (triage procedure, users and roles); [DEMO.md](docs/DEMO.md) (practice run, demo script, evidence checklist); `reply-<owner>-<date>.md`: TheHive's replies to other owners' requests, kept as sent |
@@ -31,6 +31,8 @@ UI: `http://localhost:9000`, logins from `scripts/soc.sh info` (the analyst for 
 | Bootstrap user `THEHIVE_BOOTSTRAP_USER` | **Service** account, profile `org-admin` in `SOC`: `bootstrap.sh`'s own identity for organisation settings the platform admin can't reach. Its API key is created, used and **revoked** on every run, so no key exists between runs (D42) |
 | Cortex connector | Server "Cortex" at `CORTEX_URL`, authenticated with the key of Cortex's `thehive` user (C5); rewritten on every run |
 | Webhook to n8n (C4) | Global endpoint `n8n` → `${N8N_WEBHOOK_URL}/webhook/thehive-event`, authentication "bearer" with `N8N_WEBHOOK_TOKEN` (TheHive sends `Authorization: Bearer <token>`), and the `SOC` notification rule **"n8n (C4)"**: every event (`AnyEvent`) → that endpoint. Both rewritten on every run |
+
+At the end it runs **`thehive-import.sh`** (A102, R-35): a fresh TheHive gets the custom fields, observable types and the 12 case templates from `entities/` without a manual step. When TheHive refuses to update a case template in place, the import deletes and recreates it from the file; existing cases keep their own copy of the tasks.
 
 Check: `scripts/contracts-check.sh --only C3,C4,C5`.
 
@@ -97,7 +99,7 @@ Both take kinds as arguments (default: all), e.g. `thehive-export.sh case-templa
 - **Accounts:** the platform admin for custom fields and observable types; for case templates (organisation settings the admin can't reach) the Service account `THEHIVE_BOOTSTRAP_USER`, through a temporary API key revoked when the script exits, as `bootstrap.sh` does (D42). No password or key is written anywhere.
 - **Limits:** a custom field's `type` and an observable type's `isAttachment` can't be changed through the API (import warns; change them in the UI). If TheHive refuses to update a case template, import deletes and recreates it; cases already created from it keep their own copy.
 
-After a `restore.sh cases`, nothing needs re-importing (the configuration is in the backup); after a reset or on a new machine, run `thehive-import.sh`.
+After a `restore.sh cases`, nothing needs re-importing (the configuration is in the backup). After a reset or on a new machine, `bootstrap.sh cases` (run by `soc.sh init`) imports `entities/` itself (R-35); run `thehive-import.sh` by hand only after changing `entities/`.
 
 ## Local patches and deprecations (re-check on upgrade)
 
@@ -123,7 +125,7 @@ The plan and the features of this component are in [BACKLOG.md](BACKLOG.md): wha
 ## Trying it out
 
 ```bash
-nodes/cases/thehive/scripts/thehive-import.sh                  # load the templates and fields (fresh machine)
+nodes/cases/thehive/scripts/thehive-import.sh                  # only after changing entities/ (bootstrap imports them on a fresh machine)
 nodes/cases/thehive/scripts/thehive-test-alert.sh all          # 12 test alerts, one per case template
 nodes/cases/thehive/scripts/thehive-test-alert.sh all --promote  # same, and promote each to a case as n8n would
 # triage them in the UI (docs/TRIAGE.md), then:

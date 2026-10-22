@@ -15,7 +15,7 @@ One TheHive alert per Wazuh alert forwarded by C1 (`rule.level >= WAZUH_ALERT_MI
 | `sourceRef` | the Wazuh alert ID | `id` |
 | `title` | `<rule description> (<host>)`; for FIM alerts (group `syscheck`) `<rule description> <syscheck.path> (<host>)` | `rule.description`, `syscheck.path`, host (below) |
 | `description` | Markdown table: rule, level, host, MITRE, **time**, alert ID; then `full_log` in a code block **when the alert has one** (SCA alerts don't); for sudo (5404) also `data.command`, `data.pwd`, `data.tty` | several |
-| `severity` | table in section 2 | `rule.level` |
+| `severity` | table in section 2 (a playbook may raise it later, never lower it: see below) | `rule.level` |
 | `tlp` / `pap` | `2` / `2` (AMBER), section 2 | — |
 | `date` | alert time, epoch milliseconds | `timestamp` |
 | `tags` | `wazuh`, `rule:<id>`, `agent:<host>`, `attack.<technique, lowercase>`, plus `rule.groups` | `rule.id`, `agent.name`, `rule.mitre.id` (see §3 for the fallback), `rule.groups` |
@@ -23,13 +23,25 @@ One TheHive alert per Wazuh alert forwarded by C1 (`rule.level >= WAZUH_ALERT_MI
 | `customFields` | section 4 | several |
 | `observables` | section 5 | several |
 
-**FIM titles (X-44, 2026-10-20).** Wazuh's FIM descriptions don't name the file (553 is just "File deleted."), so for alerts in group `syscheck` the title adds `syscheck.path` after the description, e.g. `File deleted. /etc/cron.d/backup (lab-agent)`. The path can be attacker-chosen: n8n caps its length like any attacker-written value.
+**FIM titles (X-44, 2026-10-20).** Wazuh's FIM descriptions don't name the file (553 is just "File deleted."), so for alerts in group `syscheck` the title adds `syscheck.path` after the description, e.g. `File deleted. /etc/cron.d/backup (lab-agent)`, unless the description already ends with that path (ASOX rules 100300–100302 do). The path can be attacker-chosen: n8n caps it at 200 characters in the title; the `filename` observable keeps the full path.
 
 **Host of the alert.** Normally `agent.name`. Alerts received over **syslog** (pfSense, routers, anything sent to 514/udp) have `agent.id` = `"000"` and `agent.name` = `wazuh-manager`; for those the host is **`predecoder.hostname`** (the device's own name, e.g. `pfsense`), **else `location`** when the line has no hostname, and its address is **`location`** (the sender's IP). This applies to the title, the `agent:` tag, `wazuh-agent-name` (§4) and the host observables (§5) (Daniel's fields review, item 6).
 
+**Changes made later by playbooks (N8N-4.2, `pb-ssh-bruteforce`, acknowledged 2026-10-22).** After the alert exists, n8n's SSH playbook correlates 5712, 5763 and 40112 by `data.srcip` within ±1 h:
+- tag `ssh-campaign:<ip>` on every SSH brute-force and 40112 alert from that address;
+- tag `ssh:login-after-bruteforce` on brute-force alerts later followed by a 40112 from the same address;
+- on those escalated alerts: severity raised to **4** (never lowered) and one comment whose first line is `[asox-n8n escalation] wazuh-alert-id=<40112 id>`, written once.
+
+**`pb-malware-hash` (N8N-4.3, acknowledged 2026-10-22)**, for `file-integrity` and `malware-detection`, after enrichment:
+- tag `asox:verdict=<worst>` **on the alert** when the worst verdict over its `hash` observables is `suspicious` or `malicious` (same name as the observable tag, §5, so the alert list can be filtered on it; `info` adds nothing; a `fim:deleted` hash counts the same);
+- on `malicious`: severity raised to **4** (never lowered; a known-malicious file on a host is Critical, so R2 applies) and the writeback line `Recommended: isolate or clean <host> after review …`;
+- writeback section "Same hash on other alerts (7 days)": up to 10 other alerts with the same hash; nothing is written on those alerts.
+
+For both playbooks, an alert already promoted or merged keeps its case as it is: **the case's severity stays with the analyst** (case-level automation is D-N4, N8N-5.1).
+
 **Deduplication for free:** TheHive refuses a second alert with the same `type` + `source` + `sourceRef`. Using the Wazuh alert ID as `sourceRef` makes a re-run of the same alert harmless (the n8n "idempotent and safe to re-run" convention, PROJECT.md 6.2); the playbook should treat that refusal (HTTP 400 `CreateError`, "already exists") as "already done", not as an error.
 
-**Limit (measured by n8n on 5.7.6, 2026-09-30):** the refusal is not atomic. Two *simultaneous* `POST /api/v1/alert` with the same `type` + `source` + `sourceRef` both return 201 and create two alerts; only copies sent one after another are refused, and TheHive has no setting to enforce it. C1 can't cause this (Wazuh sends each alert once, no retries, X-10); anything that re-sends alerts (tests, n8n's replay N8N-6.3) must send them one at a time and look the `sourceRef` up first.
+**Limit (measured by n8n on 5.7.6, 2026-09-30):** the refusal is not atomic. Two *simultaneous* `POST /api/v1/alert` with the same `type` + `source` + `sourceRef` both return 201 and create two alerts; only copies sent one after another are refused, and TheHive has no setting to enforce it. Since 2026-10-20 C1 **retries** (D51, X-10): Wazuh's `custom-n8n.py` re-sends on connection errors, timeouts, 404 and 5xx, and n8n deduplicates at enqueue (N8N-1.9: a known alert ID gets `200 {"status":"duplicate"}`, a second guard at drain catches the race), so a retry never creates a second TheHive alert. Anything else that re-sends alerts (tests, n8n's replay N8N-6.3) must still send them one at a time and look the `sourceRef` up first.
 
 ## 2. Severity, TLP and PAP
 
@@ -53,23 +65,23 @@ Checked against live alerts (Wazuh 4.14.8, lab scenarios) and Daniel's rule-ID p
 | Template (`entities/case-templates.json`) | When (first match wins) | Rules today |
 |---|---|---|
 | `ioc-match` | `rule.groups` has `misp_ioc` | 108000 / 108001 (C14, W6.4, live since 2026-10-15; test IOC `101.99.75.184`, X-36; the alert carries only the groups `asox`, `misp_ioc`); above every other row, so an IOC match wins |
-| `suspicious-login` | `rule.id` is `40112` or `100200` (rule IDs only: every normal SSH login, 5715, also carries `T1078`) | 40112 failures then success (level 12), 100200 SSH login as root (level 10) |
+| `suspicious-login` | `rule.id` is `40112` or `100200` (rule IDs only: every normal SSH login, 5715, also carries `T1078`) | 40112 failures then success (level 12; playbook `pb-ssh-bruteforce`), 100200 SSH login as root (level 10; `pb-generic`). Two routes in n8n, one template |
 | `ssh-bruteforce` | `rule.groups` has `sshd` and either one of `authentication_failures`, `authentication_failed`, `invalid_login`, or `rule.mitre.id` `T1110` (`sshd` required in both clauses, 2026-10-14) | 5712, 5763 (level 10) |
-| `login-bruteforce` | `rule.mitre.id` has `T1110` (any other service: firewall / router admin GUI, web app, VPN) | 103011 OPNsense / pfSense GUI login brute force; built-in 40111, 2502 |
+| `login-bruteforce` | `rule.mitre.id` has `T1110` (any other service: firewall / router admin GUI, web app, VPN) | 103011 OPNsense / pfSense GUI login brute force; built-in 40111, 2502; Cisco IOS 102000 / 102001 (W4.4) |
 | `malware-detection` | `rule.groups` has one of `virustotal`, `rootcheck`, `yara`, `clamd`, `malware` | |
 | `ids-network-alert` | `rule.groups` has `suricata` or `ids` (Suricata network IDS, D49; built-in rule 86601 "Suricata: Alert - …", fields `data.alert.signature`, `data.alert.severity`, `data.src_ip`, `data.dest_ip`, `data.dest_port`) | 86601, 101xxx (M3) |
-| `privilege-escalation` | `rule.id` is `5404`, or `rule.mitre.id` has `T1548` (sudo failures carry only `syslog,sudo`, no `authentication_*` group) | 5404, three wrong sudo passwords (T1548.003, level 10) |
+| `privilege-escalation` | `rule.id` is `5404`, or `rule.mitre.id` has `T1548` (sudo failures carry only `syslog,sudo`, no `authentication_*` group) | 5404, three wrong sudo passwords (T1548.003, level 10); 100300 sudoers changed (FIM, but this row comes first through T1548) |
 | `account-change` | `rule.groups` has `adduser`, or `rule.mitre.id` has `T1136` (Wazuh files new users **and** new groups under `adduser`; `addgroup` doesn't exist, and 5901 has no MITRE ID, so the group is the main clause) | 5901 new group, 5902 new user (level 8), 5904, 100211 usermod / 100212 gpasswd: user added to a privileged group (level 10, T1098) |
 | `network-scan` | `rule.groups` has `pfsense` and either `recon` or `rule.mitre.id` `T1046` (the `pfsense` group stands for "the firewall", answer D) | 103000 (scan / repeated blocks, groups `pfsense,recon`, seen from `opnsense`) and further 103xxx (W4.3) |
-| `web-attack` *(proposed 2026-10-20)* | `rule.groups` has `web` and `attack` (web access-log attack rules) | 31103 SQL injection attempt, 31152 repeated SQL injection from one source (`web-attack` scenario) |
-| `file-integrity` *(proposed 2026-10-20)* | `rule.groups` has `syscheck` | 550 / 554 modified / added, 553 deleted, 100302 (`fim-tamper` scenario) |
+| `web-attack` | `rule.groups` has `web` and `attack` (web access-log attack rules) | 31103 SQL injection attempt, 31152 repeated SQL injection from one source (`web-attack` scenario) |
+| `file-integrity` | `rule.groups` has `syscheck` | 550 / 554 modified / added, 553 deleted, 100301 `authorized_keys`, 100302 (`fim-tamper` scenario); 100300 goes to `privilege-escalation` (earlier row) |
 | `wazuh-generic` | everything else, including single pfSense blocks (`firewall_drop` without `recon`) | |
 
 **MITRE technique:** read `rule.mitre.id` (an array); when it is absent, fall back to `rule.mitre_techniques` (what SCA alerts carry). "Has `T1110`" is a prefix match: it also matches sub-techniques such as `T1110.001`. Some rules have no technique (5901, the test rule 100100, the marker 100101), so no row relies on MITRE alone where that would miss them.
 
 **Why `login-bruteforce` (agreed 2026-10-14 with n8n and Wazuh):** rule 103011 (OPNsense login brute force) carries `T1110` but isn't SSH; with the old `ssh-bruteforce` row it got SSH-specific tasks (rule 5715, `sshd` settings). Requiring `sshd` in `ssh-bruteforce` and adding a generic row right after it keeps every SSH alert where it was (all sshd rules carry `sshd`) and gives other brute force a fitting template.
 
-**Active rows (answer B).** Every row is active in n8n (`lib-config` routing version 2026-10-15); `ioc-match` went active when C14 went live. `web-attack` and `file-integrity` (2026-10-20) are *proposed* until n8n checks them against Daniel's `web-attack` and `fim-tamper` fixtures; until then those alerts go to `wazuh-generic`. The route n8n wanted is recorded even while only `pb-generic` runs (answer C: the `playbook` field says the playbook that actually ran).
+**Active rows (answer B).** Every row is active in n8n (`lib-config` routing version `2026-10-21.3`, 13 routes for these 12 templates: `suspicious-login` is split, 40112 → `pb-ssh-bruteforce`, 100200 → `pb-generic`). `web-attack` and `file-integrity` went active with X-44, checked against Daniel's fixtures (31103 / 31152 carry `web` + `attack`; 553, 100301, 100302 carry `syscheck`). Playbooks: `ssh-bruteforce` and 40112 → `pb-ssh-bruteforce`; `file-integrity` and `malware-detection` → `pb-malware-hash`; the rest → `pb-generic`. 102010 (Cisco port security, T1200) goes to `wazuh-generic`.
 
 The alert only *names* the template; TheHive applies its tasks and custom fields when the alert is promoted to a case.
 
@@ -83,7 +95,7 @@ The alert only *names* the template; TheHive applies its tasks and custom fields
 | `wazuh-agent-name` | the host (§1: `agent.name`, or `predecoder.hostname` on syslog alerts) |
 | `mitre-technique` | first of `rule.mitre.id` (else `rule.mitre_techniques`), if any |
 | `asset-criticality` | `medium` until an asset inventory exists |
-| `playbook` | the playbook that actually ran (`pb-generic` while it is the only one; answer C) |
+| `playbook` | the playbook that actually ran (answer C): `pb-ssh-bruteforce`, `pb-malware-hash` or `pb-generic` today (§3) |
 | `n8n-execution-id` | `$execution.id` |
 
 Send `customFields` as an **array** of `{name, value}` objects, as `thehive-test-alert.sh` does. A field TheHive doesn't know is dropped silently (HTTP 201), so the fields exist only once `entities/` is loaded (`thehive-import.sh`, T1.3).
@@ -107,8 +119,8 @@ Send `customFields` as an **array** of `{name, value}` objects, as `thehive-test
 | other rules: `data.srcuser`, `data.dstuser` | `user-account` | `src` / `target` |
 | `syscheck.sha256_after` (or `data.virustotal.source.sha256`) | `hash` | `sha256`, plus on FIM alerts `fim:modified`, `fim:added` or `fim:deleted` (from `syscheck.event`, or the groups `syscheck_entry_modified` / `_added` / `_deleted`) |
 | `syscheck.path` | `filename` | `path`, plus the same `fim:` tag |
-| `data.url` when it is a full URL (`scheme://host/...`) | `url` | — |
-| `data.url` when it is **path-only** (`/login.php?id=1'--`, what web access logs give) | `uri_path` (TheHive built-in type) | `request` |
+| `data.url` with a scheme and a host (`https://…`, `ftp://…`, `ssh://user@host`) | `url` (online analyzers only take `http(s)`) | — |
+| `data.url` when it is **path-only** (`/login.php?id=1'--`, what web access logs give) | `uri_path` (TheHive built-in type), capped at 512 characters (the description gives the original length); never enriched: no analyzer takes it | `request` |
 | `data.hostname` | `fqdn` if it contains a dot, `ip` if it is an IP, otherwise `hostname` | — |
 
 n8n also tags each IP observable with its range, `range:internal` (RFC 1918, loopback, link-local) or `range:documentation` (192.0.2.0/24, 198.51.100.0/24, 203.0.113.0/24); nothing is dropped because of its range. `user-account` exists only once `entities/` is loaded: before that, TheHive refuses the **whole alert** (HTTP 404 "Data type not found").
@@ -149,11 +161,13 @@ TheHive 5 has no automatic promotion rules of its own; these rules are applied b
 | Item | State (2026-10-14) |
 |---|---|
 | Fields and names, §1, §4, §5 (`source` = `wazuh`, `sourceRef` = Wazuh alert ID) | Reviewed by Inigo 2026-10-06; his questions A (Time row, optional `full_log`), C (`playbook`) answered here. F: syslog host rule (`predecoder.hostname`, else `location`) in §1 and sshd/groupadd user rules in §5, as n8n already does |
-| Template routing, §3 (D-N2: n8n keeps it as data in `lib-config`) | Rows corrected with Daniel's live alerts (A1–A6) and his 2026-10-08 rules (100200, 100211, 100212); n8n's `lib-config` routing 2026-10-14 matches §3 row for row, incl. `login-bruteforce` (103011, 40111, 2502); `network-scan` active (103000); `ioc-match` active since 2026-10-15 (C14 live, routing version 2026-10-15) |
+| Template routing, §3 (D-N2: n8n keeps it as data in `lib-config`) | Routing `2026-10-21.3` (13 routes, all active). Earlier: rows corrected with Daniel's live alerts (A1–A6) and his 2026-10-08 rules (100200, 100211, 100212); n8n's `lib-config` routing 2026-10-14 matches §3 row for row, incl. `login-bruteforce` (103011, 40111, 2502); `network-scan` active (103000); `ioc-match` active since 2026-10-15 (C14 live, routing version 2026-10-15) |
 | IOC flag for MISP hits, §5 | Answer E: suspicious, `ioc: false`; Diego asked the same (his question 6) |
 | SCA, Q4 | No compliance template: W2.7 leaves only SCA regressions at level ≥ 7, routed to `wazuh-generic`; n8n's `sca` exclusion dropped 2026-10-09 |
 | Warninglists, §5 | Answer G revised 2026-10-14: only the `warninglist` tag; all list names in the observable's description, no cap (Diego's proposal, `nodes/intel/misp/request-n8n-warninglist-description.md`). Applied by n8n 2026-10-15; the description survives promotion to a case unchanged |
-| Web and FIM alerts (X-44) | Proposed 2026-10-20: templates `web-attack` and `file-integrity`; path-only `data.url` → `uri_path`; FIM title adds `syscheck.path`; FIM observables tagged `fim:<change>` (`reply-n8n-wazuh-2026-10-20.md`) |
+| Web and FIM alerts (X-44) | Agreed 2026-10-21: templates `web-attack` and `file-integrity` active; path-only `data.url` → `uri_path` (cap 512); FIM title adds `syscheck.path` (cap 200); FIM observables tagged `fim:<change>`, deleted files' hashes described as last known (`reply-n8n-wazuh-2026-10-20.md`) |
+| `pb-malware-hash` (N8N-4.3, §12 of n8n's doc) | Acknowledged 2026-10-22: alert tag `asox:verdict=<worst>`, severity 4 on `malicious`, same-hash writeback section; cases untouched (§1) |
+| `pb-ssh-bruteforce` (N8N-4.2, §10 of n8n's doc) | Acknowledged 2026-10-22: tags `ssh-campaign:<ip>` and `ssh:login-after-bruteforce`, escalation comment, alert severity raised to 4; cases untouched (§1) |
 | `Ignored` = false positive (C11) | Confirmed 2026-10-14: an analyst ignores an alert only when it is a false positive (TRIAGE.md), so n8n's `resolution: Ignored` counts as a false positive in the FP rate |
 | Timing | Alerts are queued in n8n and processed 2 at a time (A87): a few seconds when quiet, up to ~30 s at the end of a burst; format unchanged |
 | R2 / D-N4 (auto-promotion of Critical alerts of named playbooks only) | To confirm by 2026-11-03 |
