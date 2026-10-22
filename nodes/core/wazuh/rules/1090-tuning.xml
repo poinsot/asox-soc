@@ -71,3 +71,23 @@
   </rule>
 
 </group>
+
+<!--
+  W4.4: built-in 4724 (0075-cisco-ios_rules.xml), one failed login to a
+  Cisco device, is level 9, so every mistyped password on the router or
+  switch would reach n8n. Lowered to 5, like one failed SSH password (5760);
+  repeated failures from one source are 102000 (level 10, T1110).
+  Overwrites repeat the whole rule; groups as in the built-in file.
+-->
+<group name="syslog,cisco_ios,">
+
+  <rule id="4724" level="5" overwrite="yes">
+    <if_sid>4714</if_sid>
+    <field name="cisco.facility">^SEC_LOGIN$</field>
+    <field name="cisco.severity">4</field>
+    <field name="cisco.mnemonic">^LOGIN_FAILED$</field>
+    <description>Cisco IOS: Failed login to the router</description>
+    <group>authentication_failed,pci_dss_10.2.5,pci_dss_10.2.4,gpg13_5.3,gdpr_IV_35.7.d,gdpr_IV_32.2,hipaa_164.312.b,nist_800_53_AU.14,nist_800_53_AC.7,</group>
+  </rule>
+
+</group>

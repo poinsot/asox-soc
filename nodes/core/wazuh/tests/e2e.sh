@@ -54,6 +54,7 @@ PLAN=(
   "ids-scan|101010|0"
   "opnsense-scan|103000|0"
   "opnsense-gui-bruteforce|103011|0"
+  "router-bruteforce|102000 102001|0"
   "ssh-success-after-fail|5763 40112|0"
   "ioc-ip|5712|108000|0"
 )

@@ -130,6 +130,9 @@ Every custom rule, the alert it produces and how to fire it. Built-in rules the 
 | 100301 | `1003-linux-system.xml` | 10 | `syscheck` | T1098.004 | SSH `authorized_keys` added or changed (FIM) | `persistence` | `wazuh-generic` |
 | 100302 | `1003-linux-system.xml` | 10 | `syscheck` | T1053.003 | System cron job added or changed (FIM) | `persistence`, `fim-tamper` | `wazuh-generic` |
 | 100303 | `1003-linux-system.xml` | 10 | `syscheck` | T1543.002 | New systemd service (FIM) | — | `wazuh-generic` |
+| 102000 | `1020-router.xml` | 10 | `router`, `cisco_ios`, `authentication_failures` | T1110 | Login brute force on a Cisco router or switch: 5 failures from one source in 2 min | `router-bruteforce` | `login-bruteforce` (T1110 without `sshd`) |
+| 102001 | `1020-router.xml` | 10 | `router`, `cisco_ios`, `authentication_failures` | T1110 | The Cisco device blocked logins after repeated failures (`login block-for`) | `router-bruteforce` | `login-bruteforce` |
+| 102010 | `1020-router.xml` | 8 | `router`, `cisco_ios`, `policy_violation` | T1200 | Switch port security violation: an unknown device on a secured port | — | `wazuh-generic` |
 | 103000 | `1030-opnsense.xml` | 10 | `opnsense`, `pfsense`, `firewall_block`, `recon` | T1046 | Port scan: one source blocked on 10 different ports in 60 s | `opnsense-scan` | `network-scan` |
 | 103010 | `1030-opnsense.xml` | 5 | `opnsense`, `pfsense`, `authentication_failed` | T1110.001 | Web GUI login failure (context) | — | — (not forwarded) |
 | 103011 | `1030-opnsense.xml` | 10 | `opnsense`, `pfsense`, `authentication_failures` | T1110 | Web GUI brute force: 5 failures in 2 min from one source | `opnsense-gui-bruteforce` | `login-bruteforce` (T1110 without `sshd`) |
@@ -142,6 +145,7 @@ Every custom rule, the alert it produces and how to fire it. Built-in rules the 
 | 553 (built-in) | Wazuh `0015-ossec_rules.xml` | 7 | `syscheck`, `syscheck_entry_deleted` | T1070.004, T1485 | File deleted (FIM). The alert has `syscheck.event` `deleted` and the file's last known `*_after` fields, no `*_before` | `fim-tamper` | `wazuh-generic` |
 | 31103 (built-in) | Wazuh `0245-web_rules.xml` | 7 | `web`, `accesslog`, `attack`, `sql_injection` | T1190 | SQL injection pattern in the URL of a web access log line (decoder `web-accesslog`: `data.srcip`, `data.url`, `data.protocol`, `data.id`) | `web-attack` | `wazuh-generic` (no web template yet) |
 | 31152 (built-in) | Wazuh `0245-web_rules.xml` | 10 | `web`, `accesslog`, `attack`, `sql_injection` | T1055 (Wazuh's mapping) | 8 SQL injection attempts from one address in 120 s | `web-attack` | `wazuh-generic` (no web template yet) |
+| 4724 | `1090-tuning.xml` | 5 | `cisco_ios`, `authentication_failed` | — | Built-in "Cisco IOS: failed login", lowered from 9 so one mistyped password doesn't reach n8n (102000 counts them) | `router-bruteforce` | — (not forwarded) |
 | 19004, 19007 | `1090-tuning.xml` | 5 | `sca` | (SCA's own) | Built-in SCA, lowered (W2.7) | re-enrolling an agent | — (not forwarded) |
 
 Decoder `asox-usermod` (`decoders/1002-linux-auth.xml`) gives `data.dstuser` (the account) and `data.group`, the same names as the built-in gpasswd decoder.
@@ -253,7 +257,41 @@ OPNsense sends its logs as syslog to the manager's 514/udp; the sender must be i
 2. Firewall → Settings → Advanced: enable **"Log packets matched from the default block rules"**, or tick "Log" on the block rules you care about. Without it, scans leave no `filterlog` lines.
 3. On the core machine: `SYSLOG_ALLOWED_IPS=<OPNsense LAN IP>` in `topology.env`, then `./scripts/render-env.sh` and `./scripts/soc.sh up core`.
 4. Check: `docker logs <instance>-core-wazuh-manager-1 | grep "syslog 514"` lists the address, and a scan of the firewall from another machine (`nmap -sS <firewall IP>`) gives 103000 within a minute.
-5. Replace the sample lines in `tests/cases/1030-opnsense.cases` with real ones from the firewall (W4.1), and re-run `tests/run.sh`.
+5. Add real lines from the firewall to `tests/cases/1030-opnsense.cases` and re-run `tests/run.sh`.
+
+**Checked with a real OPNsense 26.7** (lab VM, 2026-10-21, W4.1; the lines are pinned at the end of `tests/cases/1030-opnsense.cases`):
+- Remote syslog arrives in BSD format as `<pri>Oct 21 04:58:19 OPNsense.internal filterlog[92549]: …`, and every line decodes with no change on our side. 26.x rules carry a UUID instead of an MD5 in the label field; the `pf` decoder doesn't mind. A scan of 17 ports gives 103000.
+- **SSH on the firewall:** OpenSSH 9.8+ logs as `sshd-session`, still decoded by `sshd`. A root login gives **100200 (level 10)**, and OPNsense's admin user *is* `root`, so every admin SSH login to the firewall raises one. Use a named admin account for SSH, or expect these alerts.
+- **Time zones:** `filterlog` and `sshd-session` stamp local time while `configd.py` and `cron` stamp UTC. Wazuh's `timestamp` is the time of reception, so this doesn't change alert times.
+- **No alerts from the noise:** `configd.py` ("action allowed … for user root", every 10 s while the dashboard is open), `dhclient`, `devd`, `cron`, `syslog-ng`, `ntpd`. A config save logs `config[pid]: config-event: new_config /conf/backup/config-….xml`, without the user, so no rule for it yet.
+- **Not captured yet:** web GUI login lines and SSH failures (103010–103012 still rest on the documented format).
+
+## Cisco router and switch (W4.4)
+
+The lab's router (Cisco 2900) and switch (Catalyst 2960, the SPAN source) run IOS and send syslog to the manager's 514/udp; each device's address must be in the allowed sources (`SYSLOG_ALLOWED_IPS`).
+
+- **Decoding:** Wazuh's built-in `cisco-ios` decoders give `cisco.facility`, `cisco.severity`, `cisco.mnemonic`. For logins (`%SEC_LOGIN-*`) `decoders/1020-cisco.xml` adds `dstuser` and `srcip` from `[user: x] [Source: a.b.c.d]` (a sibling of the built-in `cisco-ios-default`, so both run).
+- **Rules:** built-ins 4710–4717 by IOS severity, 4721 configuration changed (3), 4722 login (3), 4724 failed login (5, lowered from 9). ASOX: 102000 brute force, 102001 the device's own login block, 102010 port security (`rules/1020-router.xml`).
+- **Fields on these alerts:** like OPNsense, `agent.id` `000`; the device's address is in `location`.
+- **Try it without the devices:** `nodes/lab/trigger.sh --scenario router-bruteforce` (102000, 102001, sent as syslog).
+- **Samples:** Cisco's documented format; confirm with the real devices (W4.1), `tests/cases/1020-cisco.cases`.
+
+**Configuring a Cisco device** (`configure terminal`; `<SOC IP>` is the core machine's LAN address):
+```
+service timestamps log datetime msec
+logging host <SOC IP>
+logging trap informational
+login block-for 60 attempts 5 within 30
+login on-failure log
+login on-success log
+archive
+ log config
+  logging enable
+  notify syslog contenttype plaintext
+end
+```
+Port security on a switch port (102010), e.g. the victim's: `interface Gi0/5`, `switchport mode access`, `switchport port-security`, `switchport port-security maximum 1`, `switchport port-security violation restrict`.
+Check: a wrong password over SSH to the device gives 4724 in `scripts/wazuh-query.sh -r 4724`.
 
 ## MISP IOCs as CDB lists (C14)
 
@@ -292,6 +330,7 @@ MISP (published, to_ids, not on a warninglist) --REST, read-only key--> misp-syn
 A containerized Wazuh agent (`lab-agent`), enrolled exactly like a real endpoint: the package's default configuration plus the manager address and the enrollment password (see `nodes/lab/entrypoint.sh`). It also produces realistic alerts (SCA, rootcheck, FIM) for Grafana.
 
 - **Test alert:** `id=$(nodes/lab/trigger.sh) && scripts/wazuh-query.sh --rule 100100 --match "$id"` (the alert takes a few seconds to be indexed).
+- **Demo** (WD.5): `nodes/core/wazuh/tests/demo.sh` tells one attack in 7 steps (scan, firewall, SSH break-in, backdoor user, persistence, web attack, MISP IOC), pausing between steps; the talk track and checklist are in [DEMO.md](DEMO.md).
 - **Attack scenarios** (W1.5): `id=$(nodes/lab/trigger.sh --scenario ssh-bruteforce) && scripts/wazuh-query.sh --match "$id"`. `--list` shows the scenarios (`ssh-bruteforce`, `ssh-success-after-fail`, `sudo-fail`, `new-user`, `ioc-ip`, `root-login`, `persistence` and `fim-tamper` (real file changes, FIM), `web-attack` (Apache access log lines); the IDS ones `ids-test`, `ids-scan`; the firewall ones `opnsense-scan`, `opnsense-gui-bruteforce`, sent as syslog); `--help` shows the alerts each one produces; `--print` shows the lines without sending them. Each run starts with the attack-start marker (rule 100101, level 3, fields `data.scenario` and `data.run_id`; W1.6), and every event of the run ends with `asox_run=<run id>`. Wait a minute between SSH scenarios: the brute-force rules stay quiet for 60 s after firing.
 - **Enrollment** happens once; the agent's keys are kept in a volume. A fresh agent with the same name is refused while the manager still knows the old one, so `scripts/soc.sh reset lab` first removes that registration (when core runs on the same machine). For a real endpoint that is reinstalled, remove its old registration the same way: `docker exec <instance>-core-wazuh-manager-1 /var/ossec/bin/manage_agents -r <agent-id>`.
 - **Group:** the lab agent enrolls into `linux-servers` (W5.3) and gets its real-time integrity checks; `entrypoint.sh` creates `/root/.ssh` and `/etc/sudoers.d` first, because real-time checks only watch folders that exist when the agent starts.

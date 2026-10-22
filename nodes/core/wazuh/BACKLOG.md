@@ -125,6 +125,7 @@ The first real detections, tuned and mapped, merged at checkpoint 1 (milestone t
   - Refs: X-01, X-26
 - [ ] **W2.6** Checkpoint 1 pull request (by 2026-10-20) · P1, C1, C2, C8
   - Done when: `git pull --no-rebase --no-edit origin main`, `healthcheck.sh` green, `contracts-check.sh --only C1,C2,C8` passes, `ci-checks.sh all` passes, pull request `wazuh` → `main` opened and merged by the integrator. The first slice of `v1.1-detections` (alert → enriched TheHive alert) depends on it, together with TheHive's T2.7.
+  - **2026-10-19:** `main` merged into `wazuh`; `healthcheck.sh` all PASS; `contracts-check.sh --only C1,C2,C8` passes; `ci-checks.sh all` passes; rule tests 63/63, `e2e.sh` 33/34 (`EVIDENCE.md`). Left: Daniel opens the PR, Inigo merges.
   - With: Inigo (review and merge)
 - [x] **W2.7** Answer X-09: should SCA alerts reach n8n? · P1, C1
   - Done when: Decided with Inigo by 2026-10-20 and written in the README. Each agent start sends ~130 level-7 SCA alerts (rules 19007, 19004), and n8n excludes group `sca` only temporarily. Inigo's options (memo item 6): raise their level threshold, exclude the `sca` group from `custom-n8n`, or let n8n aggregate them (N8N-1.4). Recommendation: fix it at the source with overwrite rules in your tuning file that lower 19007/19004 below `WAZUH_ALERT_MIN_LEVEL` (e.g. level 5). They stay in the indexer for Grafana's compliance panels, never flood n8n or TheHive, and Inigo can then remove the temporary exclusion from `lib-config`. Also answer TheHive's question whether SCA needs a compliance template (ALERT-TO-THEHIVE.md, question 4).
@@ -136,8 +137,8 @@ The first real detections, tuned and mapped, merged at checkpoint 1 (milestone t
 
 A Suricata sensor watches the lab traffic and its alerts arrive in Wazuh through an agent, then reach Grafana and n8n like any other alert. Chosen over Snort: EVE JSON output that Wazuh reads natively, built-in Wazuh rules for Suricata, free ET Open rules with no account, multi-threaded.
 
-- [ ] **W3.1** Record the decision: Suricata instead of Snort *(in progress)* · P1
-  - Done when: Done on `main` 2026-09-30 as D49 (PROJECT.md sections 1, 2, 6.1, 13). Left: record the pinned image tag (`jasonish/suricata`, exact 8.0.x version) in `docs/decisions.md` when W3.2 is built.
+- [x] **W3.1** Record the decision: Suricata instead of Snort · P1
+  - Done when: Done on `main` 2026-09-30 as D49 (PROJECT.md sections 1, 2, 6.1, 13). The pinned tag `jasonish/suricata:8.0.7` is in `docs/decisions.md` (images table and A96, recorded by the integrator with R-07).
   - With: Inigo (integrator), team
   - Refs: D49, X-34
 - [x] **W3.2** Suricata container in the lab node · P1
@@ -171,13 +172,15 @@ Syslog from network devices is decoded and classified, ready for the real device
   - Done when: Sanitized samples in `tests/samples/`: OPNsense `filterlog`, OPNsense web GUI and SSH logins, configuration changes, and the router's logs. Router vendor and model confirmed with the team.
   - Files: `nodes/core/wazuh/tests/samples/`
   - With: Team: which router and pfSense version
+  - **2026-10-21:** real OPNsense 26.7 captures (remote syslog, BSD): filterlog, scan, sshd-session, noise; pinned in `tests/cases/1030-opnsense.cases`. Still to capture: web GUI logins, SSH failures, Cisco lines.
 - [x] **W4.2** Check built-in coverage, then write decoders for the gaps · P1
   - Done when: Every sample run through logtest; the result of the built-in ruleset noted; custom decoders only where fields are missing (`srcip`, `dstip`, `dstport`, `action`, `protocol`). Decoders use Wazuh's standard field names (`srcip`, `dstip`, `srcuser`, `dstuser`), which n8n, C13 and TheHive rely on (memo item 3).
   - Files: `nodes/core/wazuh/decoders/`
 - [x] **W4.3** OPNsense rules · P1
   - Done when: Port scan (many blocked ports from one source, frequency rule), bursts of blocked connections, failed GUI logins, configuration changes. Test cases and MITRE IDs.
   - Files: `nodes/core/wazuh/rules/`
-- [ ] **W4.4** Router rules · P3
+- [x] **W4.4** Router rules · P3
+  - **2026-10-21:** Cisco IOS (router Cisco 2900, switch Catalyst 2960): `decoders/1020-cisco.xml` (user, source on logins), `rules/1020-router.xml` (102000 brute force, 102001 device login block, 102010 port security), 4724 lowered to 5; `router-bruteforce` scenario; 10 cases. Documented format; confirm with the real devices (W4.1).
   - Done when: Login failures, interface or configuration changes, and whatever the samples show matters. Test cases and MITRE IDs.
   - Files: `nodes/core/wazuh/rules/`, `nodes/core/wazuh/decoders/`
 - [x] **W4.5** End-to-end syslog test · P1, C1
@@ -258,6 +261,7 @@ Everything merged into `main`, tested end to end and ready to show one day early
   - Files: `nodes/core/wazuh/README.md`
 - [ ] **WD.5** Rehearse the demo (by 2026-11-30) *(in progress)* · P1
   - Done when: A short script that runs start to finish without surprises: attack scenario → Wazuh alert → Grafana → n8n; IOC from MISP → alert; syslog from pfSense → alert; Suricata detection → alert.
+  - **2026-10-19:** `tests/demo.sh` (7 steps, `--auto` for a rehearsal, `--from N`) and `DEMO.md` (checklist, talk track, fallbacks). Rehearsed on `low`: steps 1–6 pass; step 7 needs intel. Left: a rehearsal with the team in `full`, after WD.3.
   - With: Team
 
 ## M7 · After the delivery (target: after 2026-12-01)
