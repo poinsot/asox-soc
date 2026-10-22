@@ -18,6 +18,10 @@ same events locally). Use `demo.sh` as the fallback if a device fails on the day
 | Suricata sensor | `<SENSOR_IP>` | `network-sensors` agent, sees SPAN traffic |
 | Kali (attacker) | `<KALI_IP>` | source of every command below |
 
+**Two settings the detections depend on** (checked on 2026-10-22, both easy to miss):
+- **Suricata's `HOME_NET` is the victim only**, e.g. `"[<VICTIM_IP>]"`, not the whole LAN. ET SCAN rules fire only for traffic from `EXTERNAL_NET` (everything outside `HOME_NET`) into `HOME_NET`; with Kali inside a `/24` `HOME_NET`, the scan gives no 101010.
+- **OPNsense keeps the logged block rule** "ASOX prueba escaneo" (Firewall › Rules › LAN: Block, TCP, source LAN net, destination This Firewall, ports 1024–65535, Log), above "Default allow LAN". From the LAN, the default allow rule lets every packet to the firewall through, so a scan from Kali leaves no `block` lines and no 103000.
+
 Before starting: the victim and sensor agents are enrolled and `Active`
 (`agent_control -lc` on the manager, or Grafana → Agents), and the three network devices
 point their syslog at `<SOC_IP>`. Open Grafana **Attack Scenarios** and the n8n
@@ -33,7 +37,8 @@ point their syslog at `<SOC_IP>`. Open Grafana **Attack Scenarios** and the n8n
 # SYN scan of the victim; the SPAN port feeds this to Suricata, and the scan
 # of the firewall's interface is logged by OPNsense itself.
 nmap -sS -p 1-1024 <VICTIM_IP>
-nmap -sS -p 1-1024 192.168.1.1
+# Ports 1024+ of the firewall hit the logged block rule (setup above).
+nmap -sS -p 1024-1100 192.168.1.1
 ```
 
 **Wazuh should show:**
@@ -46,8 +51,10 @@ nmap -sS -p 1-1024 192.168.1.1
 Show in Grafana: Top rules and Top source IPs. Talking point: "the same recon is seen two
 ways — on the wire by the IDS, and by the firewall's own log."
 
-If 103000 does not fire, the scan was too slow or too few ports were blocked: re-run the
-second `nmap` without `-p` (full range) so at least 10 distinct ports are denied inside 60 s.
+If 103000 does not fire, check that the block rule is enabled, above the allow rule, with
+Log ticked (Firewall › Log Files › Live View shows red `block` lines during the scan). If 101010
+does not fire, check `HOME_NET` on the sensor (setup above) and that the SPAN mirrors the
+victim's port in both directions.
 
 ---
 

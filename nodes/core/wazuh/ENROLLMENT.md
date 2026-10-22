@@ -103,7 +103,7 @@ In `/etc/suricata/suricata.yaml`:
 
 | Setting | Value |
 |---|---|
-| `vars.address-groups.HOME_NET` | the protected lab network, e.g. `"[192.168.10.0/24]"` (the LAN behind OPNsense). Not every private range: ET SCAN rules only fire for traffic from `EXTERNAL_NET` into `HOME_NET` |
+| `vars.address-groups.HOME_NET` | the hosts Suricata protects: **in the live lab, the victim only**, e.g. `"[192.168.1.50]"`. ET SCAN rules only fire for traffic from `EXTERNAL_NET` (everything outside `HOME_NET`) into `HOME_NET`, so an attacker inside `HOME_NET` (Kali on the same `/24`) is never seen as a scanner. In a real deployment: the LAN behind OPNsense, with attackers outside it |
 | `af-packet` | `interface: <adapter 2 name>` |
 | `outputs` → `eve-log` → `types` | keep only `- alert` (as in `nodes/lab/suricata/asox.yaml`) |
 
