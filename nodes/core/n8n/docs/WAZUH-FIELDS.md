@@ -83,7 +83,7 @@ All **optional**. Decoder field names are agreed (custom decoders use `srcip`, `
 | `data.srcuser` | sshd 5712 and ioc 108000 (invalid user: the **attempted** name), sudo 5404 (who ran sudo) | string | observable `user-account`: tag `src`, except on sshd (`target`, below); C13 `user-account` |
 | `data.dstuser` | sshd 5763, 100200, 40112 (the targeted existing account), sudo 5404 (the target, `root`), useradd 5902, usermod 100211 (the account), OPNsense web GUI 103011 (the account tried), **groupadd 5901 (a group name)** | string | observable `user-account` tag `target`, except groupadd (skipped, below); C13 `user-account` |
 | `data.hostname` | **not seen** (M4) | — | observable `domain`/`fqdn`; C13 `hostname` |
-| `data.url` | web 31103 / 31152 (decoder `web-accesslog`) | string: **path and query only**, no scheme or host (`/products.php?id=1%27%20UNION%20SELECT…`), URL-encoded as sent; **attacker-written, untrusted**, and it can exceed 500 characters | ALERT-FORMAT §5 says observable `url`, but `lib-extract-observables` refuses it (`invalid: not a valid URL`, listed in `skipped` with the full value; no length limit): X-44 |
+| `data.url` | web 31103 / 31152 (decoder `web-accesslog`) | string: **path and query only**, no scheme or host (`/products.php?id=1%27%20UNION%20SELECT…`), URL-encoded as sent; **attacker-written, untrusted**, and it can exceed 500 characters | observable `uri_path` tagged `request` (X-44, ALERT-FORMAT §5, since 2026-10-21): the value as sent (not decoded, not refanged), cut to 512 characters with a note in the observable's `message` (`lib-config` `observable_caps`); an absolute `http(s)://host/…` value stays `url`. Never enriched. Before 2026-10-21 it was refused (`invalid: not a valid URL`) and copied in full into the writeback |
 | `data.protocol` | web | string, the HTTP method (`GET`) | not read |
 | `data.id` | web | **string**, the HTTP status (`"500"`) | not read |
 
@@ -107,9 +107,9 @@ All **optional**. Decoder field names are agreed (custom decoders use `srcip`, `
 
 | Field | Seen in | Type (seen) | Used for |
 |---|---|---|---|
-| `syscheck.path` | fim, fim-change | string (`/etc/sudoers.d/90-svc-backup-86a41b1d`) | observable `filename` (tag `path`); the TheHive title (Wazuh puts it in `rule.description` too) |
+| `syscheck.path` | fim, fim-change | string (`/etc/sudoers.d/90-svc-backup-86a41b1d`) | observable `filename` (tags `path`, `fim:<event>`); the TheHive title of every `syscheck` alert, cut to 200 characters (X-44; the ASOX rules 100300–100302 put it in `rule.description` too, so their title shows it twice) |
 | `syscheck.md5_after`, `syscheck.sha1_after`, `syscheck.sha256_after` | fim, fim-change | string, lowercase hex | observable `hash` from `sha256_after` only (tag `sha256`, ALERT-FORMAT §5; md5 and sha1 make no observable); C13 `hash` maps all three; `pb-malware-hash` |
-| `syscheck.event` | fim (`added`), fim-change (`modified`, `deleted`) | string | added / modified / deleted |
+| `syscheck.event` | fim (`added`), fim-change (`modified`, `deleted`) | string | added / modified / deleted: the `fim:<event>` tag on the hash and `filename` (else the groups `syscheck_entry_*`), and the deleted-hash note (X-44) |
 | `syscheck.changed_attributes` | fim-change, **`modified` only** | **list of strings** (`["size","mtime","md5","sha1","sha256"]`) | not read |
 | `syscheck.*_before` (`size_before`, `mtime_before`, `md5_before`, `sha1_before`, `sha256_before`, …) | fim-change, **`modified` only, and only for what changed** (the attributes in `changed_attributes`) | string, like the `*_after` values | not read |
 | `syscheck.mode` | fim | string (`realtime`) | not read |
@@ -121,7 +121,7 @@ All **optional**. Decoder field names are agreed (custom decoders use `srcip`, `
 **By event (2026-10-20):**
 - **`added`:** `*_after` only.
 - **`modified`:** `*_after` (the new state, as on `added`), `changed_attributes`, and a `*_before` for each changed attribute only (here `size`, `mtime`, the three hashes; no `perm_before`, `uid_before`, …).
-- **`deleted`:** `*_after` **present**: the file's last known state (here the same hashes as the `modified` alert 3 s before). **No `*_before`, no `changed_attributes`.** So a `hash` observable on a deleted file is the hash of what was removed; `lib-extract-observables` makes it like any other (`sha256`, no marker that the file is gone; fixtures README). Built-in 553's `rule.description` is only `File deleted.`: the path is in `syscheck.path` (and the `filename` observable), not in the TheHive title.
+- **`deleted`:** `*_after` **present**: the file's last known state (here the same hashes as the `modified` alert 3 s before). **No `*_before`, no `changed_attributes`.** So a `hash` observable on a deleted file is the hash of what was removed. Since 2026-10-21 (X-44) `lib-extract-observables` tags it `fim:deleted` and its `message` says `Last known hash of a deleted file` (still enriched); every FIM alert's hash and `filename` get `fim:<event>`. Built-in 553's `rule.description` is only `File deleted.`, so `lib-thehive-upsert-alert` adds `syscheck.path` to the title of every `syscheck` alert (cut to 200 characters).
 
 ## Suricata (D49, PROJECT.md 5, ALERT-FORMAT §3)
 
@@ -160,7 +160,7 @@ All **optional**. Decoder field names are agreed (custom decoders use `srcip`, `
 | What | Comes with |
 |---|---|
 | `data.hostname` (no decoder in use produces it yet), syslog device alerts with real devices (`data.dstip` seen 2026-10-14) | firewall and router decoders, Wazuh M4 (2026-11-10) |
-| ~~`data.url`~~ seen 2026-10-20 (31103, 31152): path and query only; its observable type is X-44 (TheHive, n8n) | — |
+| ~~`data.url`~~ seen 2026-10-20 (31103, 31152): path and query only; observable `uri_path` since 2026-10-21 (X-44) | — |
 | ~~`syscheck.*`~~ seen 2026-10-15 (`added`); ~~`modified` / `deleted` events (`*_before`, `changed_attributes`)~~ seen 2026-10-20 (100302, 553) | — |
 | ~~Suricata fields~~ seen 2026-10-15 (101001, 101010) | — |
 | TheHive title / `agent:` tag / `wazuh-agent-name` on syslog alerts (`agent.name` is the manager) | ALERT-TO-THEHIVE §8 question F (TheHive); C13 `hostname` mapping (Cortex + MISP) |
