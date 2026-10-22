@@ -37,6 +37,8 @@ One TheHive alert per Wazuh alert forwarded by C1 (`rule.level >= WAZUH_ALERT_MI
 - on `malicious`: severity raised to **4** (never lowered; a known-malicious file on a host is Critical, so R2 applies) and the writeback line `Recommended: isolate or clean <host> after review …`;
 - writeback section "Same hash on other alerts (7 days)": up to 10 other alerts with the same hash; nothing is written on those alerts.
 
+**Demo interim, response (C9 v0, n8n §13, acknowledged 2026-10-22):** `pb-ssh-bruteforce` writes a proposal in its writeback (`Proposed: firewall-drop <ip> on <agent> for 300 s (<mode>) …` and the line `[asox-n8n response-proposal] <agent id> <ip> firewall-drop 300`); the analyst approves with the alert tag `approve:firewall-drop` within 1 h; n8n (`pb-ssh-response`) answers with a comment `[asox-n8n response] …` or `[asox-n8n response-refused] <code>`, and after a live send Wazuh accepted, tags `asox:response=firewall-drop` and sets `containment-action` = `ip-blocked` on the alert (TRIAGE.md, "Interim for the physical-lab demo"). Replaced by E7's approval tasks.
+
 For both playbooks, an alert already promoted or merged keeps its case as it is: **the case's severity stays with the analyst** (case-level automation is D-N4, N8N-5.1).
 
 **Deduplication for free:** TheHive refuses a second alert with the same `type` + `source` + `sourceRef`. Using the Wazuh alert ID as `sourceRef` makes a re-run of the same alert harmless (the n8n "idempotent and safe to re-run" convention, PROJECT.md 6.2); the playbook should treat that refusal (HTTP 400 `CreateError`, "already exists") as "already done", not as an error.
@@ -100,7 +102,7 @@ The alert only *names* the template; TheHive applies its tasks and custom fields
 
 Send `customFields` as an **array** of `{name, value}` objects, as `thehive-test-alert.sh` does. A field TheHive doesn't know is dropped silently (HTTP 201), so the fields exist only once `entities/` is loaded (`thehive-import.sh`, T1.3).
 
-`containment-action` is set later, by the playbook that performs the action (default `none`). Option lists are enforced by TheHive: `asset-criticality` ∈ low / medium / high / critical; `containment-action` ∈ none / ip-blocked / host-isolated / user-disabled / file-removed.
+`containment-action` is set later, by the playbook that performs the action (default `none`). It exists on **alerts and cases** (custom fields are defined once for both): n8n sets it on the alert it acted on, and on the alert's case when the alert is already in one. A case created from the alert afterwards copies the alert's custom fields; check at the dry run that the template's default `none` doesn't override `ip-blocked`. Option lists are enforced by TheHive: `asset-criticality` ∈ low / medium / high / critical; `containment-action` ∈ none / ip-blocked / host-isolated / user-disabled / file-removed.
 
 **Which `containment-action` values a playbook can set (C9, D44, X-21).** C9's action catalog v1 is Wazuh's built-in active-response commands only, in Phase 2: `firewall-drop` or `host-deny` → `ip-blocked`, `disable-account` → `user-disabled`. `host-isolated` and `file-removed` have no active-response command yet (they need custom scripts from the Wazuh owner), so they are **manual-only**: set by the analyst for an action done outside the SOC's automation and described in a case comment.
 

@@ -63,6 +63,21 @@ Some playbook actions change systems (block an IP, disable an account: C9). n8n 
 
 Only one pending approval per action and case. Closing the case cancels any pending approval task. A Slack button may later approve the same task through n8n's channel abstraction; TheHive stays the record of who approved what.
 
+### Interim for the physical-lab demo (2026-10-23): approval by tag
+
+Until n8n's approval tasks (E7) exist, **only for the demo**, the SSH playbook (`pb-ssh-bruteforce`) proposes and the analyst approves with a tag. Only one action exists: **`firewall-drop` of the attacking IP on the attacked agent, 300 s**, which Wazuh reverts by itself (C9 v0, D44; n8n's `ALERT-TO-THEHIVE.md` §13).
+
+1. **Read the proposal** in n8n's writeback comment on the alert: *Proposed: firewall-drop `<ip>` on `<agent>` for 300 s (`live` or `dry_run`). Approve by adding the tag approve:firewall-drop to this alert within 1 h.*, followed by the line `[asox-n8n response-proposal] <agent id> <ip> firewall-drop 300`. Without a proposal the writeback says `Recommended: block <ip> … (no proposal: <reason>)` and nothing can be approved.
+2. **Check before approving:** the IP is the attacker in this alert (`src`), it is **not** a SOC host, gateway, DNS or the manager, and the agent is the attacked host.
+3. **Approve:** add the tag **`approve:firewall-drop`** to that alert, from **your own analyst account**, within 1 h. To reject, don't add it and write the reason in a comment.
+4. **Check n8n's answer**, a comment on the alert:
+   - `[asox-n8n response] firewall-drop <ip> on <agent> (live): sent`: Wazuh accepted it and sent it to the agent (not yet proof that the packet filter changed). n8n tags the alert `asox:response=firewall-drop` and sets `containment-action` = `ip-blocked`; the comment says when the automatic revert happens (about 300 s). If it says **NO automatic revert**, unblock by hand as it explains.
+   - `… (dry_run): not sent (dry_run)`: test mode, nothing was blocked.
+   - `[asox-n8n response-refused] <code>`: nothing ran, e.g. `expired` (more than 1 h), `already-executed`, `protected` (protected host), `agent_not_in_group` (agent not in `asox-response`).
+5. If the alert is already in a case, set `containment-action` = `ip-blocked` on the case too (n8n sets it on the alert only) and add a log saying who approved.
+
+No tag, no action. This interim is replaced by the approval task above as soon as E7 is built; it is not part of the delivery procedure unless the team decides so after the demo.
+
 ## Closing
 
 1. All tasks completed or cancelled with a reason.
