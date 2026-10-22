@@ -5,7 +5,7 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## recv-thehive-event (C4, N8N-1.5; C11 writer, N8N-2.9)\n**Trigger:** `POST /webhook/thehive-event` from TheHive's webhook (every event of the SOC organisation), token as `Authorization: Bearer` (C4).\n**Inputs:** the TheHive audit event (`operation`, `objectType`, `objectId`, top-level `_createdBy` = the actor, top-level `_createdAt` = the event time, `details`, `object`).\n**Actions taken:** records a summary of every event (operation, object type and id, actor, request id, source, sourceRef), then routes it (first match wins): (1) actor n8n@asox.local (lib-config): ignored, loop prevention; (2) delete: ignored (decided 2026-10-14, N8N-1.5); (3) alert update with caseId: promoted or merged; (4) alert update with status; (5) case create; (6) case update with status/stage (closing); (7) alert or case update with severity; (8) Task / Log / Comment: analyst activity (no-op stub, N8N-7.2); (9) anything else: recorded, no handler.\n**C11 (routes 3-7):** updates the asox-metrics documents of the alerts concerned through lib-metrics-upsert (mode update: a missing document is skipped, never created), with the event's own time (`_createdAt`): status leaves New -> `t_ack`; Ignored / closed -> `resolution` (the status), `t_closed`; promoted, merged or case created from it -> `case_id`, `t_case`; case closed -> `resolution` (the case status) and `t_closed` on each of the case's alerts (read from TheHive); severity -> `severity`. First-time times are kept when already set. Never parks; the execution's `Event result` lists `<Wazuh alert id>: metrics: ok | skipped (<why>) | failed (<class>)`. Routes 3, 5 and 6 are also where N8N-5.3 attaches.\n**Systems changed:** Wazuh indexer (asox-metrics documents).\n**Approval:** not needed: SOC bookkeeping only (asox-metrics documents), no change to a monitored system.\n**Owner:** n8n.\nThe C4 check's test alert is created by n8n's account, so its event ends at (1); the execution is still saved. Error workflow: recv-n8n-error.\nEvents caused by n8n's own account are ignored right after the summary, before lib-config (fast path, N8N-1.4); the execution is still saved.",
+        "content": "## recv-thehive-event (C4, N8N-1.5; C11 writer, N8N-2.9)\n**Trigger:** `POST /webhook/thehive-event` from TheHive's webhook (every event of the SOC organisation), token as `Authorization: Bearer` (C4).\n**Inputs:** the TheHive audit event (`operation`, `objectType`, `objectId`, top-level `_createdBy` = the actor, top-level `_createdAt` = the event time, `details`, `object`).\n**Actions taken:** records a summary of every event (operation, object type and id, actor, request id, source, sourceRef), then routes it (first match wins): (1) actor n8n@asox.local (lib-config): ignored, loop prevention; (2) delete: ignored (decided 2026-10-14, N8N-1.5); (3) alert update with caseId: promoted or merged; (4) alert update with status; (5) case create; (6) case update with status/stage (closing); (7) alert or case update with severity; (8) Task / Log / Comment: analyst activity (no-op stub, N8N-7.2); (9) anything else: recorded, no handler. **Next to the route** (C9 v0): an alert update whose tags newly include lib-config `response.approval.tag` (`approve:firewall-drop`; `details.tagChanges` added it, or without tagChanges `details.tags` has it), by anyone but n8n, calls **pb-ssh-response** (waited for, On Error = continue), which checks the approval and runs the response (interim approval for D-N5).\n**C11 (routes 3-7):** updates the asox-metrics documents of the alerts concerned through lib-metrics-upsert (mode update: a missing document is skipped, never created), with the event's own time (`_createdAt`): status leaves New -> `t_ack`; Ignored / closed -> `resolution` (the status), `t_closed`; promoted, merged or case created from it -> `case_id`, `t_case`; case closed -> `resolution` (the case status) and `t_closed` on each of the case's alerts (read from TheHive); severity -> `severity`. First-time times are kept when already set. Never parks; the execution's `Event result` lists `<Wazuh alert id>: metrics: ok | skipped (<why>) | failed (<class>)`. Routes 3, 5 and 6 are also where N8N-5.3 attaches.\n**Systems changed:** Wazuh indexer (asox-metrics documents); through pb-ssh-response, an agent's firewall (C9, live mode only) and TheHive.\n**Approval:** not needed here: SOC bookkeeping only (asox-metrics documents); the response it hands on is pb-ssh-response's, which requires the analyst's approval tag.\n**Owner:** n8n.\nThe C4 check's test alert is created by n8n's account, so its event ends at (1); the execution is still saved. Error workflow: recv-n8n-error.\nEvents caused by n8n's own account are ignored right after the summary, before lib-config (fast path, N8N-1.4); the execution is still saved.",
         "height": 480,
         "width": 700
       },
@@ -122,7 +122,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Routing table (N8N-1.5), first match wins. The summary above is kept in this\n// execution for every event, routed or not.\nconst s = $('Event summary').first().json;\nconst body = $('TheHive event').first().json.body ?? {};\nconst cfg = $input.first().json;\nconst details = body.details !== null && typeof body.details === 'object' ? body.details : {};\nconst op = s.operation;\nconst type = s.object_type;\nconst has = (k) => Object.prototype.hasOwnProperty.call(details, k);\nlet route;\nlet status;\nif (s.actor === cfg.thehive.n8n_user) {\n  // TheHive's webhook reports n8n's own writes back to n8n: stop here.\n  route = 'loop'; status = `ignored: caused by ${cfg.thehive.n8n_user} (loop prevention)`;\n} else if (op === 'delete') {\n  // No object and no useful details (ALERT-TO-THEHIVE §6): open question, N8N-1.5.\n  route = 'delete'; status = 'ignored: delete (open question, N8N-1.5)';\n} else if (type === 'Alert' && op === 'update' && has('caseId')) {\n  route = 'alert-promoted'; status = 'alert promoted to a case (C11; N8N-5.3 stub)';\n} else if (type === 'Alert' && op === 'update' && has('status')) {\n  route = 'alert-status'; status = 'alert status changed (C11)';\n} else if (type === 'Case' && op === 'create') {\n  route = 'case-created'; status = 'case created (C11; N8N-5.3 stub)';\n} else if (type === 'Case' && op === 'update' && (has('status') || has('stage'))) {\n  route = 'case-status'; status = 'case status changed, closing included (C11; N8N-5.3 stub)';\n} else if ((type === 'Alert' || type === 'Case') && op === 'update' && has('severity')) {\n  route = 'severity-changed'; status = 'severity changed (C11)';\n} else if (['Task', 'Log', 'Comment'].includes(type)) {\n  route = 'analyst-activity'; status = 'stub: analyst activity (task, log, comment)';\n} else {\n  route = 'other'; status = 'recorded: no handler';\n}\nreturn [{ json: { ...s, route, status, details_keys: Object.keys(details) } }];\n"
+        "jsCode": "// Routing table (N8N-1.5), first match wins. The summary above is kept in this\n// execution for every event, routed or not.\nconst s = $('Event summary').first().json;\nconst body = $('TheHive event').first().json.body ?? {};\nconst cfg = $input.first().json;\nconst details = body.details !== null && typeof body.details === 'object' ? body.details : {};\nconst op = s.operation;\nconst type = s.object_type;\nconst has = (k) => Object.prototype.hasOwnProperty.call(details, k);\nlet route;\nlet status;\nif (s.actor === cfg.thehive.n8n_user) {\n  // TheHive's webhook reports n8n's own writes back to n8n: stop here.\n  route = 'loop'; status = `ignored: caused by ${cfg.thehive.n8n_user} (loop prevention)`;\n} else if (op === 'delete') {\n  // No object and no useful details (ALERT-TO-THEHIVE §6): open question, N8N-1.5.\n  route = 'delete'; status = 'ignored: delete (open question, N8N-1.5)';\n} else if (type === 'Alert' && op === 'update' && has('caseId')) {\n  route = 'alert-promoted'; status = 'alert promoted to a case (C11; N8N-5.3 stub)';\n} else if (type === 'Alert' && op === 'update' && has('status')) {\n  route = 'alert-status'; status = 'alert status changed (C11)';\n} else if (type === 'Case' && op === 'create') {\n  route = 'case-created'; status = 'case created (C11; N8N-5.3 stub)';\n} else if (type === 'Case' && op === 'update' && (has('status') || has('stage'))) {\n  route = 'case-status'; status = 'case status changed, closing included (C11; N8N-5.3 stub)';\n} else if ((type === 'Alert' || type === 'Case') && op === 'update' && has('severity')) {\n  route = 'severity-changed'; status = 'severity changed (C11)';\n} else if (['Task', 'Log', 'Comment'].includes(type)) {\n  route = 'analyst-activity'; status = 'stub: analyst activity (task, log, comment)';\n} else {\n  route = 'other'; status = 'recorded: no handler';\n}\n// C9 v0 (interim approval until D-N5's approval task): an alert update whose\n// tags newly include lib-config response.approval.tag, by anyone but n8n.\n// TheHive 5.7.6 (captured 2026-10-22) sends the tags after the change in\n// details.tags, plus details.tagChanges [{operation: added | removed, values}]\n// when the tags were set as a list (the UI); an addTags call has no\n// tagChanges, so then the tag being in details.tags counts and\n// pb-ssh-response's re-read and comment markers decide. Handled next to the\n// route above (an event can be both), never instead of it.\nconst tag = cfg.response?.approval?.tag ?? null;\nlet approval = null;\nif (tag && route !== 'loop' && type === 'Alert' && op === 'update' && Array.isArray(details.tags) && details.tags.includes(tag)) {\n  const changes = Array.isArray(details.tagChanges) ? details.tagChanges : null;\n  const added = changes === null ? null\n    : changes.filter((c) => c && c.operation === 'added').flatMap((c) => (Array.isArray(c.values) ? c.values : []));\n  if (added === null || added.includes(tag)) approval = { tag, how: added === null ? 'details.tags (no tagChanges)' : 'details.tagChanges' };\n}\nreturn [{ json: { ...s, route, status, details_keys: Object.keys(details), approval } }];\n"
       },
       "id": "8aa55ad4-0fc8-5414-bc95-e3832191e71e",
       "name": "Route",
@@ -752,6 +752,88 @@
         3960,
         60
       ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "bf294bb6-6743-50de-9c5b-ee61460db69e",
+              "leftValue": "={{ $json.approval !== null }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "4a341827-99a7-5f9f-b277-ed2ab9e1bdfb",
+      "name": "Approval tag added?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1040,
+        800
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// C9 v0: the approval event for pb-ssh-response, which checks it (actor, tag\n// on the alert, proposal, window, nothing sent yet) and runs the response.\nconst s = $input.first().json;\nconst body = $('TheHive event').first().json.body ?? {};\nreturn [{ json: {\n  config: $('Config (lib-config)').first().json,\n  recv_execution_id: $execution.id,\n  event: {\n    thehive_alert_id: s.object_id, actor: s.actor,\n    event_time_ms: typeof body._createdAt === 'number' ? body._createdAt : null,\n    request_id: s.request_id ?? null, how: s.approval.how,\n  },\n} }];\n"
+      },
+      "id": "d1edbd12-1eb4-5e00-8c83-3b33c8d54463",
+      "name": "Approval input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1360,
+        700
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "asoxPbSshResp001",
+          "cachedResultName": "pb-ssh-response"
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "a2bbf15f-9874-56a8-91ff-9cd43045cc80",
+      "name": "Response (pb-ssh-response)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1620,
+        700
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// pb-ssh-response's result, kept on this execution. On Error = continue: a\n// failure inside it arrives as {error} (its own execution and recv-n8n-error\n// have the details).\nconst r = $input.first().json;\nconst s = $('Route').first().json;\nreturn [{ json: { ...s, approval_result: typeof r.outcome === 'string'\n  ? { outcome: r.outcome, code: r.code ?? null, reason: r.reason ?? null, comment: r.comment ?? null }\n  : { outcome: 'failed (unexpected)', error: r.error ?? null } } }];\n"
+      },
+      "id": "13b22b76-1cd6-5f8e-aa8d-5db8e7fb5034",
+      "name": "Approval result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1880,
+        700
+      ]
     }
   ],
   "connections": {
@@ -793,6 +875,11 @@
         [
           {
             "node": "Route by event",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Approval tag added?",
             "type": "main",
             "index": 0
           }
@@ -1089,6 +1176,39 @@
         [
           {
             "node": "One document at a time",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Approval tag added?": {
+      "main": [
+        [
+          {
+            "node": "Approval input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Approval input": {
+      "main": [
+        [
+          {
+            "node": "Response (pb-ssh-response)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Response (pb-ssh-response)": {
+      "main": [
+        [
+          {
+            "node": "Approval result",
             "type": "main",
             "index": 0
           }

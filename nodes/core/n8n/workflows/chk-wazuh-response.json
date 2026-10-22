@@ -1,0 +1,469 @@
+{
+  "id": "asoxChkWazuhResp",
+  "name": "chk-wazuh-response",
+  "active": true,
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## chk-wazuh-response (contract check C9, v0 2026-10-22)\n**Trigger:** POST /webhook/chk-wazuh-response from scripts/contracts-check.sh (`--only C9`, opt-in), header `X-ASOX-Token` required.\n**Inputs:** `{agent, srcip, timeout}`: the lab agent's name, `192.0.2.1`, 60. Only an address in 192.0.2.0/24 (RFC 5737) with timeout 60 is accepted.\n**Actions taken:** as n8n-response (credential \"Wazuh API (n8n-response)\"): logs in, lists agents (only group asox-response must come back), tries a harmless non-active-response write (`DELETE /groups?groups_list=<a group that doesn't exist>`, 403 expected) and an active response on agent 000, the manager, in no group (403 expected), then, if the input is accepted and the agent is listed, `firewall-drop` of the address on that agent with lib-config `response.commands['firewall-drop'].check_api_command` (`firewall-drop60`: the manager's <active-response> block with a 60 s timeout). No fallback to `!firewall-drop`. Answers the fields contracts-check.sh's C9 entry reads (authenticated, agent_id, outside_group, write_status, ar_outside_status, ar_status, ar_affected) plus ar_error, command, result PASS/FAIL and details; Wazuh error 1652 = `ar_status` `200 (error 1652)`, FAIL \"manager <active-response> block missing (Wazuh owner)\".\n**Systems changed:** the lab agent: a firewall-drop of a documentation address for 60 s (reverted by the manager).\n**Approval:** not needed: a contract check acting only on a documentation address (192.0.2.0/24) for 60 s, run by the integrator on purpose (opt-in); the kill switch (lib-config response.enabled false) stops it.\n**Owner:** n8n (check maintained with the integrator).",
+        "height": 500,
+        "width": 620
+      },
+      "id": "a32d8df2-e15b-50ca-bdc1-30454e01fa53",
+      "name": "About this workflow",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -40,
+        -560
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "chk-wazuh-response",
+        "authentication": "headerAuth",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "b010394f-eeb6-51bf-ada9-2baeff7d27d0",
+      "name": "Contract check request",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "f197af1a-a832-5f50-bc36-4ffb049e6c50",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "asoxWebhookToken",
+          "name": "ASOX webhook token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "asoxLibConfig001",
+          "cachedResultName": "lib-config"
+        },
+        "options": {}
+      },
+      "id": "6dbbae56-43b8-50b0-ac59-e9c7d859028e",
+      "name": "Config (lib-config)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        240,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// chk-wazuh-response (C9 check, PROJECT.md 5): the request from\n// contracts-check.sh, `{agent, srcip, timeout}`. Only a documentation address\n// (192.0.2.0/24, RFC 5737) with the check's 60 s timeout is ever sent (the\n// manager's ar.conf command response.commands['firewall-drop'].check_api_command),\n// so the webhook can't be used to block anything else. The kill switch\n// (response.enabled false) stops the active response too.\n// Addresses: IPv4 and IPv6 (an embedded IPv4 tail allowed), as BigInt; an\n// IPv4-mapped IPv6 address (::ffff:a.b.c.d) is checked as IPv4. Pure.\nfunction parseIp(s) {\n  if (typeof s !== 'string') return null;\n  const v = s.trim().toLowerCase();\n  const v4 = (t) => {\n    const m = /^(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})$/.exec(t);\n    if (!m) return null;\n    const o = m.slice(1);\n    if (o.some((x) => Number(x) > 255 || (x.length > 1 && x[0] === '0'))) return null;\n    return o.reduce((a, x) => (a << 8n) + BigInt(x), 0n);\n  };\n  const n4 = v4(v);\n  if (n4 !== null) return { v: 4, n: n4, text: v };\n  if (!v.includes(':') || !/^[0-9a-f:.]+$/.test(v)) return null;\n  const halves = v.split('::');\n  if (halves.length > 2) return null;\n  const words = (h) => (h === '' ? [] : h.split(':'));\n  const left = words(halves[0]);\n  const right = halves.length === 2 ? words(halves[1]) : [];\n  const last = halves.length === 2 ? right : left;\n  if (last.length > 0 && last[last.length - 1].includes('.')) {\n    const t = v4(last.pop());\n    if (t === null) return null;\n    last.push((t >> 16n).toString(16), (t & 0xffffn).toString(16));\n  }\n  if (![...left, ...right].every((w) => /^[0-9a-f]{1,4}$/.test(w))) return null;\n  const fill = 8 - left.length - right.length;\n  if (halves.length === 2 ? fill < 1 : fill !== 0) return null;\n  const all = [...left, ...Array(halves.length === 2 ? fill : 0).fill('0'), ...right];\n  const n = all.reduce((a, w) => (a << 16n) + BigInt(parseInt(w, 16)), 0n);\n  if (n >> 32n === 0xffffn) {\n    const m = n & 0xffffffffn;\n    return { v: 4, n: m, text: [24n, 16n, 8n, 0n].map((k) => String((m >> k) & 255n)).join('.'), mapped: true };\n  }\n  return { v: 6, n, text: v };\n}\n// A CIDR (or a single address) -> {v, n, len}, or null when it isn't valid.\nfunction parseCidr(c) {\n  if (typeof c !== 'string') return null;\n  const [a, l, extra] = c.trim().split('/');\n  if (extra !== undefined) return null;\n  const net = parseIp(a);\n  if (!net || net.mapped) return null;\n  const bits = net.v === 4 ? 32 : 128;\n  const len = l === undefined ? bits : (/^\\d{1,3}$/.test(l) ? Number(l) : NaN);\n  if (!Number.isInteger(len) || len > bits) return null;\n  return { v: net.v, n: net.n, len, bits };\n}\nfunction inCidr(ip, cidr) {\n  const c = typeof cidr === 'string' ? parseCidr(cidr) : cidr;\n  if (!c || !ip || ip.v !== c.v) return false;\n  const shift = BigInt(c.bits - c.len);\n  return (ip.n >> shift) === (c.n >> shift);\n}\nconst b = $('Contract check request').first().json.body ?? {};\nconst cfg = $input.first().json.response;\nconst cmd = cfg?.commands?.['firewall-drop'];\nconst ip = parseIp(typeof b.srcip === 'string' ? b.srcip : '');\nconst problems = [];\nif (typeof b.agent !== 'string' || b.agent === '') problems.push('no agent name given');\nif (!ip || !inCidr(ip, '192.0.2.0/24')) problems.push(`srcip ${b.srcip ?? '(none)'} is not in 192.0.2.0/24 (the check acts only on a documentation address)`);\nif (b.timeout !== 60) problems.push(`timeout ${b.timeout ?? '(none)'} is not 60 (the check's command is ${cmd?.check_api_command ?? 'not configured'})`);\nif (!cmd?.check_api_command) problems.push(\"lib-config response.commands['firewall-drop'].check_api_command is missing\");\nif (cfg?.enabled !== true) problems.push('response actions are disabled (lib-config response.enabled, the kill switch)');\nreturn [{ json: { agent: b.agent ?? null, srcip: ip ? ip.text : null, timeout: b.timeout ?? null,\n  command: cmd?.check_api_command ?? null, agent_group: cfg?.agent_group ?? null, problems } }];\n"
+      },
+      "id": "0ab7480d-9af4-515d-8a74-c352379d5299",
+      "name": "Check input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.WAZUH_API_URL }}/security/user/authenticate",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "options": {
+          "allowUnauthorizedCerts": true,
+          "timeout": "={{ $('Config (lib-config)').first().json.wazuh_http.timeout_ms }}",
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "bcd6c42c-224d-5a94-a63b-233435272628",
+      "name": "Log in (n8n-response)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        720,
+        0
+      ],
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "asoxWazuhResp01",
+          "name": "Wazuh API (n8n-response)"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.WAZUH_API_URL }}/agents?select=id,name,group&limit=500",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Log in (n8n-response)').first().json.body?.data?.token ?? '' }}"
+            }
+          ]
+        },
+        "options": {
+          "allowUnauthorizedCerts": true,
+          "timeout": "={{ $('Config (lib-config)').first().json.wazuh_http.timeout_ms }}",
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "c942dab7-3757-51a6-a34b-0793a195fc44",
+      "name": "List agents (n8n-response)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        960,
+        0
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "DELETE",
+        "url": "={{ $env.WAZUH_API_URL }}/groups?groups_list=asox-c9-probe-nonexistent",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Log in (n8n-response)').first().json.body?.data?.token ?? '' }}"
+            }
+          ]
+        },
+        "options": {
+          "allowUnauthorizedCerts": true,
+          "timeout": "={{ $('Config (lib-config)').first().json.wazuh_http.timeout_ms }}",
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "5ddc38bd-9ec0-530d-8053-7a07a0104f8a",
+      "name": "Non-AR write (n8n-response)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1200,
+        0
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "={{ $env.WAZUH_API_URL }}/active-response?agents_list=000",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Log in (n8n-response)').first().json.body?.data?.token ?? '' }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\"command\": \"!asox-contract-probe\", \"arguments\": []}",
+        "options": {
+          "allowUnauthorizedCerts": true,
+          "timeout": "={{ $('Config (lib-config)').first().json.wazuh_http.timeout_ms }}",
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "1cb257c0-079e-5113-aa61-59f0d3034197",
+      "name": "Active response on agent 000",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1440,
+        0
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// The agent as n8n-response lists it; the active response is sent only when\n// the input was accepted and the agent is listed.\nconst i = $('Check input').first().json;\nconst l = $('List agents (n8n-response)').first().json;\nconst items = l.statusCode === 200 && Array.isArray(l.body?.data?.affected_items) ? l.body.data.affected_items : null;\nconst agent = items ? items.find((a) => a.name === i.agent) ?? null : null;\nreturn [{ json: { send: i.problems.length === 0 && agent !== null, agent_id: agent ? agent.id : null } }];\n"
+      },
+      "id": "1d4fc9d9-f264-5cc4-8a73-cbcc64fe32c4",
+      "name": "AR plan",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1680,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "b9b8a2e0-6777-5a3c-87e0-d53583b518cb",
+              "leftValue": "={{ $json.send === true }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "f038819f-d648-5940-8a1f-d2694786f65f",
+      "name": "Send?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1920,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "={{ $env.WAZUH_API_URL }}/active-response?agents_list={{ encodeURIComponent($('AR plan').first().json.agent_id) }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Log in (n8n-response)').first().json.body?.data?.token ?? '' }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ command: $('Check input').first().json.command, arguments: [], alert: { data: { srcip: $('Check input').first().json.srcip } } }) }}",
+        "options": {
+          "allowUnauthorizedCerts": true,
+          "timeout": "={{ $('Config (lib-config)').first().json.wazuh_http.timeout_ms }}",
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "4e48cd08-bab7-5f1b-aa8e-fd4144a91b59",
+      "name": "Active response on the agent",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2160,
+        -100
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// The answer contracts-check.sh's C9 entry reads (field names and meaning\n// fixed there): authenticated, agent_id, outside_group, write_status,\n// ar_outside_status, ar_status, ar_affected; plus ar_error, command, result\n// (PASS/FAIL) and details. ar_status is the HTTP status, with the Wazuh error\n// added when Wazuh answered 200 but sent nothing (e.g. `200 (error 1652)`:\n// the manager has no <active-response> block for the command, Wazuh owner).\nconst i = $('Check input').first().json;\nconst st = (n) => ($(n).isExecuted ? $(n).first().json : null);\nconst login = st('Log in (n8n-response)');\nconst list = st('List agents (n8n-response)');\nconst write = st('Non-AR write (n8n-response)');\nconst outside = st('Active response on agent 000');\nconst plan = st('AR plan');\nconst ar = st('Active response on the agent');\nconst code = (r) => (r && typeof r.statusCode === 'number' ? r.statusCode : null);\nconst authenticated = code(login) === 200 && typeof login.body?.data?.token === 'string';\nconst items = code(list) === 200 && Array.isArray(list.body?.data?.affected_items) ? list.body.data.affected_items : null;\nconst outsideGroup = items ? items.filter((a) => !(Array.isArray(a.group) && a.group.includes(i.agent_group))).length : null;\nconst details = [...i.problems];\nlet arStatus = null;\nlet arAffected = null;\nlet arError = null;\nif (ar) {\n  const d = ar.body?.data ?? {};\n  arAffected = Array.isArray(d.affected_items) ? d.affected_items.map(String) : [];\n  const errs = (Array.isArray(d.failed_items) ? d.failed_items : []).map((f) => f?.error?.code).filter(Number.isInteger);\n  arError = errs[0] ?? null;\n  arStatus = code(ar) === 200 && arError !== null ? `200 (error ${arError})` : code(ar);\n  if (arError === 1652) details.push(`manager <active-response> block missing (Wazuh owner): ${i.command} is not defined in the manager's ar.conf`);\n  else if (arError !== null) details.push(`Wazuh error ${arError}: ${d.failed_items[0]?.error?.message ?? ''}`);\n  else if (code(ar) !== 200) details.push(`active response HTTP ${code(ar) ?? 'no answer'}`);\n} else if (plan && plan.agent_id === null && items) {\n  details.push(`agent ${i.agent} is not listed by n8n-response (not in group ${i.agent_group})`);\n}\nif (!authenticated) details.push(`login as n8n-response failed (HTTP ${code(login) ?? 'no answer'})`);\nif (outsideGroup !== null && outsideGroup !== 0) details.push(`${outsideGroup} agent(s) listed outside group ${i.agent_group}`);\nif (code(write) !== 403) details.push(`non-AR write answered HTTP ${code(write) ?? 'no answer'} (403 expected)`);\nif (code(outside) !== 403) details.push(`active response on agent 000 answered HTTP ${code(outside) ?? 'no answer'} (403 expected)`);\nconst agentId = plan?.agent_id ?? null;\nconst pass = authenticated && agentId !== null && outsideGroup === 0 && code(write) === 403 && code(outside) === 403\n  && arStatus === 200 && arAffected.includes(agentId) && details.length === 0;\nreturn [{ json: {\n  authenticated, agent_id: agentId, outside_group: outsideGroup, write_status: code(write), ar_outside_status: code(outside),\n  ar_status: arStatus, ar_affected: arAffected, ar_error: arError, command: i.command,\n  result: pass ? 'PASS' : 'FAIL', details,\n} }];\n"
+      },
+      "id": "e29d5d80-a765-573d-b23d-482d64cc80e6",
+      "name": "Report",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2400,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {}
+      },
+      "id": "6d55c0b6-006f-5b26-ba86-0eac651e04ab",
+      "name": "Respond",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        2640,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Contract check request": {
+      "main": [
+        [
+          {
+            "node": "Config (lib-config)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config (lib-config)": {
+      "main": [
+        [
+          {
+            "node": "Check input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check input": {
+      "main": [
+        [
+          {
+            "node": "Log in (n8n-response)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log in (n8n-response)": {
+      "main": [
+        [
+          {
+            "node": "List agents (n8n-response)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "List agents (n8n-response)": {
+      "main": [
+        [
+          {
+            "node": "Non-AR write (n8n-response)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Non-AR write (n8n-response)": {
+      "main": [
+        [
+          {
+            "node": "Active response on agent 000",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Active response on agent 000": {
+      "main": [
+        [
+          {
+            "node": "AR plan",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AR plan": {
+      "main": [
+        [
+          {
+            "node": "Send?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send?": {
+      "main": [
+        [
+          {
+            "node": "Active response on the agent",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Active response on the agent": {
+      "main": [
+        [
+          {
+            "node": "Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Report": {
+      "main": [
+        [
+          {
+            "node": "Respond",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataSuccessExecution": "all",
+    "saveDataErrorExecution": "all",
+    "saveManualExecutions": true
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "nodeGroups": [],
+  "tags": [],
+  "pinData": {}
+}

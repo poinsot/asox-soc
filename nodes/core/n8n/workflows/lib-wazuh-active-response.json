@@ -1,0 +1,1423 @@
+{
+  "id": "asoxLibWazuhAR01",
+  "name": "lib-wazuh-active-response",
+  "active": true,
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## lib-wazuh-active-response (C9 v0, 2026-10-22)\n**Trigger:** called through Execute Workflow (waited for) by pb-ssh-bruteforce (`action: propose`: is a response possible? nothing is sent) and pb-ssh-response (`action: execute`, after an analyst's approval).\n**Inputs:** `{action: propose | execute, command: 'firewall-drop', srcip, agent: {name} | {id}, config: <lib-config>, context}`.\n**Actions taken:** re-checks every guardrail of lib-config `response` on each call: the kill switch (`enabled`), `mode` (dry_run / live), the command in the catalog (`commands`), a valid source address (IPv4 / IPv6), `protected_cidrs` (and in live mode at least one entry beyond loopback), the agent listed by n8n-response (so in `agent_group`, `asox-response`) and active, the address not any agent's (`protect_agent_ips`, every agent n8n-api lists), and for a live send the rate cap (`rate_cap_per_hour`, live sends in the last hour, all alerts: this workflow's static data). Logins and agent lists: credentials Wazuh API (n8n-response) and Wazuh API (n8n-api), lib-config `wazuh_http` timeout and retries (connection error, timeout, 5xx). propose: returns the request it would send. execute in dry_run: builds the request and returns it without sending. execute in live: `PUT /active-response?agents_list=<agent id>` (always that one agent) with `{\"command\": <api_command, e.g. firewall-drop300>, \"arguments\": [], \"alert\": {\"data\": {\"srcip\": <ip>}}}` as n8n-response, retried only when the request never reached the API; success = the agent in `data.affected_items` (Wazuh error 1652 inside a 200 = the manager has no <active-response> block: `not_sent`, or with `response.allow_no_timeout` sent again as `!firewall-drop`, which never reverts).\n**Systems changed:** in live mode only, the target agent (Wazuh active response: firewall-drop of one address, reverted by the manager's <active-response> timeout); nothing in dry_run or propose.\n**Approval:** required: the action blocks an IP on an agent; executed only for pb-ssh-response after an analyst's approval (tag approve:firewall-drop, interim for D-N5). propose never acts.\n**Owner:** n8n.\nResult: `{ok, status: proposed | dry_run | sent | not_sent | unknown | refused, code, reason, line, mode, agent, request, api, answered_at, revert}`. Never parks: failures go back to the caller. Saved: failed executions only (lib- convention); no error workflow.",
+        "height": 720,
+        "width": 620
+      },
+      "id": "c66c2309-44eb-5f87-a7d0-4d89601e4e8f",
+      "name": "About this workflow",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -440,
+        -760
+      ]
+    },
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "id": "ecda182b-c390-5d33-a757-24eac47c818d",
+      "name": "Called by a workflow",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// lib-wazuh-active-response (C9 v0): the guardrails that need no API call,\n// in this order: input, kill switch, mode, command in the catalog, a valid\n// source address, protected_cidrs, and in mode live protected_cidrs filled\n// beyond loopback (README \"Response actions (C9 v0)\"). Pure. The agent\n// lookups (\"Guard\") come next; every caller goes through both, so proposing\n// and executing check the same things.\n// Addresses: IPv4 and IPv6 (an embedded IPv4 tail allowed), as BigInt; an\n// IPv4-mapped IPv6 address (::ffff:a.b.c.d) is checked as IPv4. Pure.\nfunction parseIp(s) {\n  if (typeof s !== 'string') return null;\n  const v = s.trim().toLowerCase();\n  const v4 = (t) => {\n    const m = /^(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})$/.exec(t);\n    if (!m) return null;\n    const o = m.slice(1);\n    if (o.some((x) => Number(x) > 255 || (x.length > 1 && x[0] === '0'))) return null;\n    return o.reduce((a, x) => (a << 8n) + BigInt(x), 0n);\n  };\n  const n4 = v4(v);\n  if (n4 !== null) return { v: 4, n: n4, text: v };\n  if (!v.includes(':') || !/^[0-9a-f:.]+$/.test(v)) return null;\n  const halves = v.split('::');\n  if (halves.length > 2) return null;\n  const words = (h) => (h === '' ? [] : h.split(':'));\n  const left = words(halves[0]);\n  const right = halves.length === 2 ? words(halves[1]) : [];\n  const last = halves.length === 2 ? right : left;\n  if (last.length > 0 && last[last.length - 1].includes('.')) {\n    const t = v4(last.pop());\n    if (t === null) return null;\n    last.push((t >> 16n).toString(16), (t & 0xffffn).toString(16));\n  }\n  if (![...left, ...right].every((w) => /^[0-9a-f]{1,4}$/.test(w))) return null;\n  const fill = 8 - left.length - right.length;\n  if (halves.length === 2 ? fill < 1 : fill !== 0) return null;\n  const all = [...left, ...Array(halves.length === 2 ? fill : 0).fill('0'), ...right];\n  const n = all.reduce((a, w) => (a << 16n) + BigInt(parseInt(w, 16)), 0n);\n  if (n >> 32n === 0xffffn) {\n    const m = n & 0xffffffffn;\n    return { v: 4, n: m, text: [24n, 16n, 8n, 0n].map((k) => String((m >> k) & 255n)).join('.'), mapped: true };\n  }\n  return { v: 6, n, text: v };\n}\n// A CIDR (or a single address) -> {v, n, len}, or null when it isn't valid.\nfunction parseCidr(c) {\n  if (typeof c !== 'string') return null;\n  const [a, l, extra] = c.trim().split('/');\n  if (extra !== undefined) return null;\n  const net = parseIp(a);\n  if (!net || net.mapped) return null;\n  const bits = net.v === 4 ? 32 : 128;\n  const len = l === undefined ? bits : (/^\\d{1,3}$/.test(l) ? Number(l) : NaN);\n  if (!Number.isInteger(len) || len > bits) return null;\n  return { v: net.v, n: net.n, len, bits };\n}\nfunction inCidr(ip, cidr) {\n  const c = typeof cidr === 'string' ? parseCidr(cidr) : cidr;\n  if (!c || !ip || ip.v !== c.v) return false;\n  const shift = BigInt(c.bits - c.len);\n  return (ip.n >> shift) === (c.n >> shift);\n}\nconst BUILTIN_PROTECTED = ['127.0.0.0/8', '::1/128'];\n\nfunction plan(input) {\n  const cfg = input?.config?.response;\n  const refuse = (code, reason) => ({ action: 'refuse', code, reason });\n  if (!cfg || !input.config.wazuh_http) return refuse('invalid', 'lib-wazuh-active-response needs the lib-config output (with response and wazuh_http) as `config`');\n  if (!['propose', 'execute'].includes(input.action)) return refuse('invalid', `unknown action ${input.action} (propose or execute)`);\n  if (cfg.enabled !== true) return refuse('disabled', 'response actions are disabled (lib-config response.enabled, the kill switch)');\n  if (!['dry_run', 'live'].includes(cfg.mode)) return refuse('config', `unknown lib-config response.mode ${cfg.mode} (dry_run or live)`);\n  const cmd = cfg.commands?.[input.command];\n  if (!cmd) return refuse('command', `${input.command} is not in the catalog (lib-config response.commands)`);\n  if (!Number.isInteger(cmd.timeout_s) || cmd.timeout_s <= 0 || typeof cmd.api_command !== 'string' || cmd.api_command === '') {\n    return refuse('config', `lib-config response.commands['${input.command}'] needs timeout_s and api_command`);\n  }\n  const ip = parseIp(input.srcip);\n  if (!ip) return refuse('srcip', `no valid source address (${input.srcip ?? 'none given'})`);\n  const cidrs = Array.isArray(cfg.protected_cidrs) ? cfg.protected_cidrs : [];\n  const invalid = cidrs.filter((c) => !parseCidr(c));\n  if (invalid.length > 0) return refuse('config', `lib-config response.protected_cidrs has invalid entries (${invalid.join(', ')}): nothing is proposed or sent until fixed`);\n  const hit = cidrs.find((c) => inCidr(ip, c));\n  if (hit) return refuse('protected', `${ip.text} is protected (lib-config response.protected_cidrs: ${hit})`);\n  if (cfg.mode === 'live' && cidrs.filter((c) => !BUILTIN_PROTECTED.includes(c.trim())).length === 0) {\n    return refuse('protected_unset', 'mode live needs lib-config response.protected_cidrs filled for this network (SOC machine, gateway, DNS, manager) first');\n  }\n  const agent = input.agent && typeof input.agent === 'object' ? input.agent : {};\n  const name = typeof agent.name === 'string' && agent.name !== '' ? agent.name : null;\n  const id = typeof agent.id === 'string' && agent.id !== '' ? agent.id : null;\n  if (!name && !id) return refuse('agent', 'no agent given (name or id)');\n  return {\n    action: 'lookup', act: input.action, mode: cfg.mode, command: input.command, api_command: cmd.api_command,\n    timeout_s: cmd.timeout_s, srcip: ip.text, ip_version: ip.v, agent: { name, id },\n    protect_agent_ips: cfg.protect_agent_ips !== false,\n  };\n}\n\nreturn [{ json: plan($input.first().json) }];\n"
+      },
+      "id": "fbe5c458-e464-545b-9944-9c1342f67b93",
+      "name": "Plan",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "45a177d5-ac2c-5b56-8146-08695af96524",
+              "leftValue": "={{ $json.action === 'lookup' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a0e7c14e-620a-5130-9831-df1083db8b97",
+      "name": "Look up?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        480,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.WAZUH_API_URL }}/security/user/authenticate",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "options": {
+          "allowUnauthorizedCerts": true,
+          "timeout": "={{ $('Called by a workflow').first().json.config.wazuh_http.timeout_ms }}",
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "469483d4-65b4-5037-aab1-ee15b79d0d84",
+      "name": "Log in (n8n-response)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        720,
+        -100
+      ],
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "asoxWazuhResp01",
+          "name": "Wazuh API (n8n-response)"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Retry policy for Wazuh API calls (C9; lib-config wazuh_http, the TheHive\n// pattern of N8N-6.2): a connection error, a timeout or HTTP 5xx -> wait and call again; anything else\n// is passed on. This node runs once per call, so $runIndex counts the calls.\n// Never parks: the last failure goes into the result.\nconst r = $input.first().json;\nconst policy = $('Called by a workflow').first().json.config.wazuh_http;\nconst NODE = 'Log in (n8n-response)';\nconst attempt = $runIndex + 1;\nconst status = typeof r.statusCode === 'number' ? r.statusCode : null;\nconst thrown = r.error !== undefined && status === null; // HTTP node error output\nconst NETWORK = /ECONNREFUSED|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|ECONNRESET|EHOSTUNREACH|ENETUNREACH|ECONNABORTED|timeout|timed out|socket hang up|connection cannot be established/i;\nconst transient = thrown ? NETWORK.test(JSON.stringify(r)) : status >= 500;\nconst calls = policy.retry_waits_s.length + 1;\nif (transient && attempt < calls) {\n  return [{ json: { decision: 'retry', stage: NODE, attempt, wait_s: policy.retry_waits_s[attempt - 1],\n    reason: thrown ? 'connection error or timeout' : `HTTP ${status}` } }];\n}\nif (thrown || transient) {\n  const e = r.error;\n  const detail = thrown\n    ? (typeof e === 'string' ? e : [e?.message, e?.description].filter(Boolean).join(': ') || JSON.stringify(r))\n    : `HTTP ${status}: ${typeof r.body === 'string' ? r.body : JSON.stringify(r.body)}`;\n  return [{ json: { decision: 'error', stage: NODE, attempts: attempt, retry_exhausted: transient, http_status: status,\n    timed_out: thrown && /timeout|timed out|ETIMEDOUT|ECONNABORTED|socket hang up|ECONNRESET/i.test(JSON.stringify(r)),\n    message: `${detail}`.slice(0, 500) + (transient ? ` (${attempt} calls)` : '') } }];\n}\nreturn [{ json: { decision: 'response', stage: NODE, attempts: attempt, statusCode: status, body: r.body,\n  date: r.headers?.date ?? null } }];\n"
+      },
+      "id": "6c2bb742-6988-57bb-b5d0-120198608740",
+      "name": "Assess: Log in (n8n-response)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        960,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "e9fecf5b-73da-56a5-b4cc-fbcc5225c00b",
+              "leftValue": "={{ $json.decision === 'retry' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "922f366d-531f-5bc1-8b88-fb8a668e310b",
+      "name": "Retry: Log in (n8n-response)?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1200,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "resume": "timeInterval",
+        "amount": "={{ $json.wait_s }}",
+        "unit": "seconds"
+      },
+      "id": "d3f136aa-3fa7-5278-a3a8-87b325adfe4f",
+      "name": "Wait before retry: Log in (n8n-response)",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1200,
+        -300
+      ],
+      "webhookId": "4a96cd14-efc0-5f33-8b12-9f8028236a54"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "6a7694ff-9cb6-5482-8465-1940b4a26a13",
+              "leftValue": "={{ $json.decision === 'response' && $json.statusCode === 200 }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "2df9afd7-88e1-5ace-830b-b0af87b8414d",
+      "name": "Logged in? (n8n-response)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1440,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.WAZUH_API_URL }}/agents?select=id,name,ip,registerIP,group,status&limit=500",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Assess: Log in (n8n-response)').first().json.body.data.token }}"
+            }
+          ]
+        },
+        "options": {
+          "allowUnauthorizedCerts": true,
+          "timeout": "={{ $('Called by a workflow').first().json.config.wazuh_http.timeout_ms }}",
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "ffb0cb55-bcf1-5465-a4c1-72b1e9ceec61",
+      "name": "List agents (n8n-response)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1680,
+        -100
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Retry policy for Wazuh API calls (C9; lib-config wazuh_http, the TheHive\n// pattern of N8N-6.2): a connection error, a timeout or HTTP 5xx -> wait and call again; anything else\n// is passed on. This node runs once per call, so $runIndex counts the calls.\n// Never parks: the last failure goes into the result.\nconst r = $input.first().json;\nconst policy = $('Called by a workflow').first().json.config.wazuh_http;\nconst NODE = 'List agents (n8n-response)';\nconst attempt = $runIndex + 1;\nconst status = typeof r.statusCode === 'number' ? r.statusCode : null;\nconst thrown = r.error !== undefined && status === null; // HTTP node error output\nconst NETWORK = /ECONNREFUSED|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|ECONNRESET|EHOSTUNREACH|ENETUNREACH|ECONNABORTED|timeout|timed out|socket hang up|connection cannot be established/i;\nconst transient = thrown ? NETWORK.test(JSON.stringify(r)) : status >= 500;\nconst calls = policy.retry_waits_s.length + 1;\nif (transient && attempt < calls) {\n  return [{ json: { decision: 'retry', stage: NODE, attempt, wait_s: policy.retry_waits_s[attempt - 1],\n    reason: thrown ? 'connection error or timeout' : `HTTP ${status}` } }];\n}\nif (thrown || transient) {\n  const e = r.error;\n  const detail = thrown\n    ? (typeof e === 'string' ? e : [e?.message, e?.description].filter(Boolean).join(': ') || JSON.stringify(r))\n    : `HTTP ${status}: ${typeof r.body === 'string' ? r.body : JSON.stringify(r.body)}`;\n  return [{ json: { decision: 'error', stage: NODE, attempts: attempt, retry_exhausted: transient, http_status: status,\n    timed_out: thrown && /timeout|timed out|ETIMEDOUT|ECONNABORTED|socket hang up|ECONNRESET/i.test(JSON.stringify(r)),\n    message: `${detail}`.slice(0, 500) + (transient ? ` (${attempt} calls)` : '') } }];\n}\nreturn [{ json: { decision: 'response', stage: NODE, attempts: attempt, statusCode: status, body: r.body,\n  date: r.headers?.date ?? null } }];\n"
+      },
+      "id": "230abe91-e0b3-5f85-ad40-f752004401fd",
+      "name": "Assess: List agents (n8n-response)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1920,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "99e2d01e-4f1a-5057-8cb0-84b7ef4de919",
+              "leftValue": "={{ $json.decision === 'retry' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "b125f94c-834c-5cbe-9b90-48f351972af5",
+      "name": "Retry: List agents (n8n-response)?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2160,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "resume": "timeInterval",
+        "amount": "={{ $json.wait_s }}",
+        "unit": "seconds"
+      },
+      "id": "ae5b92b2-1ce3-5856-9a71-16693a67637f",
+      "name": "Wait before retry: List agents (n8n-response)",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        2160,
+        -300
+      ],
+      "webhookId": "fda65a60-69b2-5bee-8f06-0e0dd8bc3254"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "21c55280-25cc-58e6-9e38-565ed64ec436",
+              "leftValue": "={{ $json.decision === 'response' && $json.statusCode === 200 }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "b8bbb609-3ec8-502f-81a7-5cfcc3c056f4",
+      "name": "Listed? (n8n-response)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2400,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "e020bff0-005c-5a37-bb53-05c8b0f6d7ca",
+              "leftValue": "={{ $('Plan').first().json.protect_agent_ips === true }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "1e1d006d-4eda-5520-bcf2-6dddfe454422",
+      "name": "Agent addresses needed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2640,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.WAZUH_API_URL }}/security/user/authenticate",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "options": {
+          "allowUnauthorizedCerts": true,
+          "timeout": "={{ $('Called by a workflow').first().json.config.wazuh_http.timeout_ms }}",
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "2fc9139e-1bda-5518-8a10-b95e6407bf4b",
+      "name": "Log in (n8n-api)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2880,
+        -100
+      ],
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "asoxWazuhApiRo01",
+          "name": "Wazuh API (n8n-api)"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Retry policy for Wazuh API calls (C9; lib-config wazuh_http, the TheHive\n// pattern of N8N-6.2): a connection error, a timeout or HTTP 5xx -> wait and call again; anything else\n// is passed on. This node runs once per call, so $runIndex counts the calls.\n// Never parks: the last failure goes into the result.\nconst r = $input.first().json;\nconst policy = $('Called by a workflow').first().json.config.wazuh_http;\nconst NODE = 'Log in (n8n-api)';\nconst attempt = $runIndex + 1;\nconst status = typeof r.statusCode === 'number' ? r.statusCode : null;\nconst thrown = r.error !== undefined && status === null; // HTTP node error output\nconst NETWORK = /ECONNREFUSED|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|ECONNRESET|EHOSTUNREACH|ENETUNREACH|ECONNABORTED|timeout|timed out|socket hang up|connection cannot be established/i;\nconst transient = thrown ? NETWORK.test(JSON.stringify(r)) : status >= 500;\nconst calls = policy.retry_waits_s.length + 1;\nif (transient && attempt < calls) {\n  return [{ json: { decision: 'retry', stage: NODE, attempt, wait_s: policy.retry_waits_s[attempt - 1],\n    reason: thrown ? 'connection error or timeout' : `HTTP ${status}` } }];\n}\nif (thrown || transient) {\n  const e = r.error;\n  const detail = thrown\n    ? (typeof e === 'string' ? e : [e?.message, e?.description].filter(Boolean).join(': ') || JSON.stringify(r))\n    : `HTTP ${status}: ${typeof r.body === 'string' ? r.body : JSON.stringify(r.body)}`;\n  return [{ json: { decision: 'error', stage: NODE, attempts: attempt, retry_exhausted: transient, http_status: status,\n    timed_out: thrown && /timeout|timed out|ETIMEDOUT|ECONNABORTED|socket hang up|ECONNRESET/i.test(JSON.stringify(r)),\n    message: `${detail}`.slice(0, 500) + (transient ? ` (${attempt} calls)` : '') } }];\n}\nreturn [{ json: { decision: 'response', stage: NODE, attempts: attempt, statusCode: status, body: r.body,\n  date: r.headers?.date ?? null } }];\n"
+      },
+      "id": "ae56a845-cea4-5083-b3f1-5e058efbf34a",
+      "name": "Assess: Log in (n8n-api)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3120,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "8518ae64-06e3-5a67-bb45-437c336a81a1",
+              "leftValue": "={{ $json.decision === 'retry' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "d0a1a843-da7e-5afb-a880-d485bae71514",
+      "name": "Retry: Log in (n8n-api)?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        3360,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "resume": "timeInterval",
+        "amount": "={{ $json.wait_s }}",
+        "unit": "seconds"
+      },
+      "id": "b2b0f93d-c295-5948-a7f8-10b58c282531",
+      "name": "Wait before retry: Log in (n8n-api)",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        3360,
+        -300
+      ],
+      "webhookId": "03390e55-fa2c-501b-8c0c-fcc75dd2fc29"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "5447cccb-03c1-5a95-897b-0d4c21efe1cb",
+              "leftValue": "={{ $json.decision === 'response' && $json.statusCode === 200 }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "7c282ffa-a702-5e58-a731-44d053a78f1a",
+      "name": "Logged in? (n8n-api)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        3600,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.WAZUH_API_URL }}/agents?select=id,name,ip,registerIP&limit=500",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Assess: Log in (n8n-api)').first().json.body.data.token }}"
+            }
+          ]
+        },
+        "options": {
+          "allowUnauthorizedCerts": true,
+          "timeout": "={{ $('Called by a workflow').first().json.config.wazuh_http.timeout_ms }}",
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "62e155db-bb46-5735-a320-695d1664a8e8",
+      "name": "List agents (n8n-api)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3840,
+        -100
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Retry policy for Wazuh API calls (C9; lib-config wazuh_http, the TheHive\n// pattern of N8N-6.2): a connection error, a timeout or HTTP 5xx -> wait and call again; anything else\n// is passed on. This node runs once per call, so $runIndex counts the calls.\n// Never parks: the last failure goes into the result.\nconst r = $input.first().json;\nconst policy = $('Called by a workflow').first().json.config.wazuh_http;\nconst NODE = 'List agents (n8n-api)';\nconst attempt = $runIndex + 1;\nconst status = typeof r.statusCode === 'number' ? r.statusCode : null;\nconst thrown = r.error !== undefined && status === null; // HTTP node error output\nconst NETWORK = /ECONNREFUSED|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|ECONNRESET|EHOSTUNREACH|ENETUNREACH|ECONNABORTED|timeout|timed out|socket hang up|connection cannot be established/i;\nconst transient = thrown ? NETWORK.test(JSON.stringify(r)) : status >= 500;\nconst calls = policy.retry_waits_s.length + 1;\nif (transient && attempt < calls) {\n  return [{ json: { decision: 'retry', stage: NODE, attempt, wait_s: policy.retry_waits_s[attempt - 1],\n    reason: thrown ? 'connection error or timeout' : `HTTP ${status}` } }];\n}\nif (thrown || transient) {\n  const e = r.error;\n  const detail = thrown\n    ? (typeof e === 'string' ? e : [e?.message, e?.description].filter(Boolean).join(': ') || JSON.stringify(r))\n    : `HTTP ${status}: ${typeof r.body === 'string' ? r.body : JSON.stringify(r.body)}`;\n  return [{ json: { decision: 'error', stage: NODE, attempts: attempt, retry_exhausted: transient, http_status: status,\n    timed_out: thrown && /timeout|timed out|ETIMEDOUT|ECONNABORTED|socket hang up|ECONNRESET/i.test(JSON.stringify(r)),\n    message: `${detail}`.slice(0, 500) + (transient ? ` (${attempt} calls)` : '') } }];\n}\nreturn [{ json: { decision: 'response', stage: NODE, attempts: attempt, statusCode: status, body: r.body,\n  date: r.headers?.date ?? null } }];\n"
+      },
+      "id": "da7e6541-750a-59a7-8e5f-583e4f4332b0",
+      "name": "Assess: List agents (n8n-api)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4080,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "50aa5c62-e567-5b21-98b5-58f1c2502dca",
+              "leftValue": "={{ $json.decision === 'retry' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "1fd2a0e8-efe3-5b39-aef2-6ba83f6c5c2e",
+      "name": "Retry: List agents (n8n-api)?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        4320,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "resume": "timeInterval",
+        "amount": "={{ $json.wait_s }}",
+        "unit": "seconds"
+      },
+      "id": "4dfc63a7-f957-54cb-b053-b5fe391af522",
+      "name": "Wait before retry: List agents (n8n-api)",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        4320,
+        -300
+      ],
+      "webhookId": "1aee2a37-f03c-510f-a6c6-e3fe301d92d4"
+    },
+    {
+      "parameters": {
+        "jsCode": "// lib-wazuh-active-response (C9 v0): the guardrails that need the Wazuh API,\n// after \"Plan\": the agent is listed by n8n-response (so it is in\n// response.agent_group) and active; the address isn't any agent's\n// (protect_agent_ips: every agent n8n-api lists, ip and registerIP); and for\n// a live send, the rate cap (live sends in the last hour, all alerts\n// together: this workflow's static data, written by \"Result\"). Reached by one\n// path: the lookups done, or the first one that failed. A failed lookup is\n// `not_sent` (nothing was sent; fail closed), a guardrail `refused`.\n// Addresses: IPv4 and IPv6 (an embedded IPv4 tail allowed), as BigInt; an\n// IPv4-mapped IPv6 address (::ffff:a.b.c.d) is checked as IPv4. Pure.\nfunction parseIp(s) {\n  if (typeof s !== 'string') return null;\n  const v = s.trim().toLowerCase();\n  const v4 = (t) => {\n    const m = /^(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})$/.exec(t);\n    if (!m) return null;\n    const o = m.slice(1);\n    if (o.some((x) => Number(x) > 255 || (x.length > 1 && x[0] === '0'))) return null;\n    return o.reduce((a, x) => (a << 8n) + BigInt(x), 0n);\n  };\n  const n4 = v4(v);\n  if (n4 !== null) return { v: 4, n: n4, text: v };\n  if (!v.includes(':') || !/^[0-9a-f:.]+$/.test(v)) return null;\n  const halves = v.split('::');\n  if (halves.length > 2) return null;\n  const words = (h) => (h === '' ? [] : h.split(':'));\n  const left = words(halves[0]);\n  const right = halves.length === 2 ? words(halves[1]) : [];\n  const last = halves.length === 2 ? right : left;\n  if (last.length > 0 && last[last.length - 1].includes('.')) {\n    const t = v4(last.pop());\n    if (t === null) return null;\n    last.push((t >> 16n).toString(16), (t & 0xffffn).toString(16));\n  }\n  if (![...left, ...right].every((w) => /^[0-9a-f]{1,4}$/.test(w))) return null;\n  const fill = 8 - left.length - right.length;\n  if (halves.length === 2 ? fill < 1 : fill !== 0) return null;\n  const all = [...left, ...Array(halves.length === 2 ? fill : 0).fill('0'), ...right];\n  const n = all.reduce((a, w) => (a << 16n) + BigInt(parseInt(w, 16)), 0n);\n  if (n >> 32n === 0xffffn) {\n    const m = n & 0xffffffffn;\n    return { v: 4, n: m, text: [24n, 16n, 8n, 0n].map((k) => String((m >> k) & 255n)).join('.'), mapped: true };\n  }\n  return { v: 6, n, text: v };\n}\n// A CIDR (or a single address) -> {v, n, len}, or null when it isn't valid.\nfunction parseCidr(c) {\n  if (typeof c !== 'string') return null;\n  const [a, l, extra] = c.trim().split('/');\n  if (extra !== undefined) return null;\n  const net = parseIp(a);\n  if (!net || net.mapped) return null;\n  const bits = net.v === 4 ? 32 : 128;\n  const len = l === undefined ? bits : (/^\\d{1,3}$/.test(l) ? Number(l) : NaN);\n  if (!Number.isInteger(len) || len > bits) return null;\n  return { v: net.v, n: net.n, len, bits };\n}\nfunction inCidr(ip, cidr) {\n  const c = typeof cidr === 'string' ? parseCidr(cidr) : cidr;\n  if (!c || !ip || ip.v !== c.v) return false;\n  const shift = BigInt(c.bits - c.len);\n  return (ip.n >> shift) === (c.n >> shift);\n}\nconst HOUR_MS = 3600 * 1000;\nconst ok = (a) => a !== null && a.decision === 'response' && a.statusCode === 200;\nfunction why(a) {\n  if (a === null) return 'not called';\n  const calls = a.attempts ? ` after ${a.attempts} call(s)` : '';\n  if (a.decision === 'error') return `${a.retry_exhausted ? 'wazuh_unreachable' : (a.http_status ? `http_${a.http_status}` : 'wazuh_error')}${calls}`;\n  return `HTTP ${a.statusCode}${a.statusCode === 401 ? ': credential refused' : ''}${calls}`;\n}\nfunction agentList(a) {\n  const d = a.body?.data;\n  if (!d || !Array.isArray(d.affected_items)) return { error: 'unexpected answer' };\n  if (Number.isInteger(d.total_affected_items) && d.total_affected_items > d.affected_items.length) {\n    return { error: `incomplete (${d.affected_items.length} of ${d.total_affected_items} agents)` };\n  }\n  return { items: d.affected_items };\n}\n\nfunction guard(p, cfg, calls, nowMs, sentMs) {\n  const notSent = (reason) => ({ action: 'return', status: 'not_sent', code: 'lookup_failed', reason });\n  const refused = (code, reason, agent = null) => ({ action: 'return', status: 'refused', code, reason, agent });\n  if (!ok(calls.login)) return notSent(`Wazuh API login as n8n-response failed (${why(calls.login)})`);\n  if (!ok(calls.list)) return notSent(`agent list as n8n-response failed (${why(calls.list)})`);\n  const listed = agentList(calls.list);\n  if (listed.error) return notSent(`agent list as n8n-response: ${listed.error}`);\n  const wanted = p.agent.id ?? p.agent.name;\n  const a = listed.items.find((x) => (p.agent.id ? x.id === p.agent.id : x.name === p.agent.name)) ?? null;\n  if (!a || !(Array.isArray(a.group) && a.group.includes(cfg.agent_group))) {\n    return refused('agent_not_in_group', `agent ${wanted} is not in group ${cfg.agent_group} (n8n-response doesn't list it there)`);\n  }\n  const agent = { id: a.id, name: a.name, status: a.status ?? null };\n  if (a.status !== 'active') return refused('agent_not_active', `agent ${a.name} (${a.id}) is ${a.status ?? 'in an unknown state'}: a command sent now would be lost`, agent);\n  if (p.protect_agent_ips) {\n    if (!ok(calls.loginAll)) return notSent(`Wazuh API login as n8n-api failed (${why(calls.loginAll)}): agent addresses not checked`);\n    if (!ok(calls.listAll)) return notSent(`agent list as n8n-api failed (${why(calls.listAll)}): agent addresses not checked`);\n    const all = agentList(calls.listAll);\n    if (all.error) return notSent(`agent list as n8n-api: ${all.error}: agent addresses not checked`);\n    const ip = parseIp(p.srcip);\n    // registerIP may be a range (agent registered with -I <cidr>): protected as a whole.\n    const owner = [...listed.items, ...all.items].find((x) => [x.ip, x.registerIP]\n      .some((v) => typeof v === 'string' && v !== 'any' && inCidr(ip, v)));\n    if (owner) return refused('agent_address', `${p.srcip} is an address of agent ${owner.name} (${owner.id}) (lib-config response.protect_agent_ips)`, agent);\n  }\n  const request = {\n    method: 'PUT',\n    path: `/active-response?agents_list=${encodeURIComponent(a.id)}`,\n    body: { command: p.api_command, arguments: [], alert: { data: { srcip: p.srcip } } },\n  };\n  if (p.act === 'propose') return { action: 'return', status: 'proposed', agent, request };\n  if (p.mode === 'dry_run') return { action: 'return', status: 'dry_run', agent, request };\n  const recent = sentMs.filter((t) => Number.isFinite(t) && nowMs - t < HOUR_MS && t <= nowMs);\n  if (recent.length >= cfg.rate_cap_per_hour) {\n    return refused('rate_cap', `rate cap reached: ${recent.length} response action(s) sent in the last hour, all alerts together (lib-config response.rate_cap_per_hour ${cfg.rate_cap_per_hour})`, agent);\n  }\n  return { action: 'send', agent, request };\n}\n\nconst input = $('Called by a workflow').first().json;\nconst last = (n) => ($(n).isExecuted ? $(n).first().json : null);\nconst sd = $getWorkflowStaticData('global');\nconst g = guard($('Plan').first().json, input.config.response, {\n  login: last('Assess: Log in (n8n-response)'), list: last('Assess: List agents (n8n-response)'),\n  loginAll: last('Assess: Log in (n8n-api)'), listAll: last('Assess: List agents (n8n-api)'),\n}, Date.now(), Array.isArray(sd.sent_ms) ? sd.sent_ms : []);\nreturn [{ json: g }];\n"
+      },
+      "id": "34de08aa-18b1-5d1d-8e74-efe2597e0f7a",
+      "name": "Guard",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4560,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "3f62eeb5-f83d-5b6e-b829-defa138fec1a",
+              "leftValue": "={{ $json.action === 'send' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "dae388c3-4db6-5d87-b5b9-2335622c5334",
+      "name": "Send?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        4800,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "={{ $env.WAZUH_API_URL }}{{ $('Guard').first().json.request.path }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Assess: Log in (n8n-response)').first().json.body.data.token }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($('Guard').first().json.request.body) }}",
+        "options": {
+          "allowUnauthorizedCerts": true,
+          "timeout": "={{ $('Called by a workflow').first().json.config.wazuh_http.timeout_ms }}",
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "12ba4e87-2797-5184-8a1c-6d166770f898",
+      "name": "Send active response",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        5040,
+        100
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Retry policy for Wazuh API calls (C9; lib-config wazuh_http, the TheHive\n// pattern of N8N-6.2): only an error where the request never reached the API (refused, no route, name not resolved): a timeout or 5xx may have been run, so it is never repeated -> wait and call again; anything else\n// is passed on. This node runs once per call, so $runIndex counts the calls.\n// Never parks: the last failure goes into the result.\nconst r = $input.first().json;\nconst policy = $('Called by a workflow').first().json.config.wazuh_http;\nconst NODE = 'Send active response';\nconst attempt = $runIndex + 1;\nconst status = typeof r.statusCode === 'number' ? r.statusCode : null;\nconst thrown = r.error !== undefined && status === null; // HTTP node error output\nconst NETWORK = /ECONNREFUSED|ENOTFOUND|EAI_AGAIN|EHOSTUNREACH|ENETUNREACH/i;\nconst transient = thrown ? NETWORK.test(JSON.stringify(r)) : false;\nconst calls = policy.retry_waits_s.length + 1;\nif (transient && attempt < calls) {\n  return [{ json: { decision: 'retry', stage: NODE, attempt, wait_s: policy.retry_waits_s[attempt - 1],\n    reason: thrown ? 'connection error or timeout' : `HTTP ${status}` } }];\n}\nif (thrown || transient) {\n  const e = r.error;\n  const detail = thrown\n    ? (typeof e === 'string' ? e : [e?.message, e?.description].filter(Boolean).join(': ') || JSON.stringify(r))\n    : `HTTP ${status}: ${typeof r.body === 'string' ? r.body : JSON.stringify(r.body)}`;\n  return [{ json: { decision: 'error', stage: NODE, attempts: attempt, retry_exhausted: transient, http_status: status,\n    timed_out: thrown && /timeout|timed out|ETIMEDOUT|ECONNABORTED|socket hang up|ECONNRESET/i.test(JSON.stringify(r)),\n    message: `${detail}`.slice(0, 500) + (transient ? ` (${attempt} calls)` : '') } }];\n}\nreturn [{ json: { decision: 'response', stage: NODE, attempts: attempt, statusCode: status, body: r.body,\n  date: r.headers?.date ?? null } }];\n"
+      },
+      "id": "b16c5c73-1386-5219-98aa-7f0b9726c396",
+      "name": "Assess: Send active response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5280,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "ea1a6679-a790-56af-90b8-1fe7d9c999b5",
+              "leftValue": "={{ $json.decision === 'retry' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "c08370f7-887f-5b38-8662-12e3a2ed0927",
+      "name": "Retry: Send active response?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        5520,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "resume": "timeInterval",
+        "amount": "={{ $json.wait_s }}",
+        "unit": "seconds"
+      },
+      "id": "aaee1e20-e721-5113-96c1-ad88c6767ad0",
+      "name": "Wait before retry: Send active response",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        5520,
+        -100
+      ],
+      "webhookId": "1ab43efd-9407-5eff-86c9-dc1e09f4c0c2"
+    },
+    {
+      "parameters": {
+        "jsCode": "// lib-wazuh-active-response (C9 v0): what Wazuh did with the request. Success\n// is not the HTTP status: Wazuh answers 200 with the agent in\n// data.affected_items when it sent the command, and errors such as 1652\n// (command not defined in the manager's ar.conf: no <active-response> block)\n// come back inside a 200 in data.failed_items (A105). 200 means \"sent to the\n// agent\", not \"run\". A timeout or 5xx is `unknown`: it may have been sent.\nconst FALLBACK = false;\nfunction interpret(p, g, a, cfg) {\n  const base = { agent: g.agent, request: g.request };\n  if (a.decision === 'error') {\n    if (a.timed_out) return { action: 'done', ...base, status: 'unknown', code: 'no_answer', reason: `no answer from the Wazuh API (${a.message}): the command may have been sent` };\n    return { action: 'done', ...base, status: 'not_sent', code: 'unreachable', reason: `Wazuh API unreachable (${a.message})` };\n  }\n  const body = a.body !== null && typeof a.body === 'object' ? a.body : {};\n  const d = body.data !== null && typeof body.data === 'object' ? body.data : {};\n  const affected = Array.isArray(d.affected_items) ? d.affected_items.map(String) : [];\n  const failed = (Array.isArray(d.failed_items) ? d.failed_items : []).map((f) => ({\n    code: f?.error?.code ?? null, message: f?.error?.message ?? null, ids: Array.isArray(f?.id) ? f.id : [] }));\n  const api = { http_status: a.statusCode, error: body.error ?? null, title: body.title ?? null,\n    message: body.message ?? body.detail ?? null, total_affected: d.total_affected_items ?? affected.length, affected, failed };\n  const date = a.date ? new Date(a.date) : null;\n  const answeredAt = (date && Number.isFinite(date.getTime()) ? date : new Date()).toISOString();\n  const codes = [...failed.map((f) => f.code), body.code].filter(Number.isInteger);\n  if (a.statusCode === 200 && affected.includes(g.agent.id)) {\n    return { action: 'done', ...base, status: 'sent', api, answered_at: answeredAt, answered_at_source: date ? 'Date header' : 'n8n clock' };\n  }\n  if (codes.includes(1652)) {\n    const nt = cfg.commands[p.command].no_timeout_command;\n    if (!FALLBACK && cfg.allow_no_timeout === true && typeof nt === 'string' && nt !== '') {\n      return { action: 'fallback', ...base, first_api: api,\n        request: { ...g.request, body: { ...g.request.body, command: nt } } };\n    }\n    return { action: 'done', ...base, status: 'not_sent', code: 'not_configured', api,\n      reason: `failed (not configured on the manager: Wazuh owner's <active-response> block for ${g.request.body.command}; Wazuh error 1652)` };\n  }\n  if (a.statusCode >= 500) return { action: 'done', ...base, status: 'unknown', code: 'server_error', api, reason: `Wazuh API HTTP ${a.statusCode}: the command may have been sent` };\n  if (a.statusCode === 403) return { action: 'done', ...base, status: 'not_sent', code: 'forbidden', api, reason: `refused by Wazuh (HTTP 403: n8n-response may not act on agent ${g.agent.id})` };\n  const first = failed[0];\n  return { action: 'done', ...base, status: 'not_sent', code: 'refused_by_wazuh', api,\n    reason: `not sent: Wazuh answered HTTP ${a.statusCode}${first ? `, error ${first.code}: ${first.message}` : (api.message ? `: ${api.message}` : '')}` };\n}\n\nconst input = $('Called by a workflow').first().json;\nconst g = $('Guard').first().json;\nconst out = interpret($('Plan').first().json, g, $input.first().json, input.config.response);\nreturn [{ json: out }];\n"
+      },
+      "id": "d0bbe1ba-c050-56e1-97ee-3f35b9705291",
+      "name": "Interpret answer",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5760,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c18e49a4-3233-57c3-aa73-25f074cafa57",
+              "leftValue": "={{ $json.action === 'fallback' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "e5f69c97-6b41-508a-90d5-3bafc595fc69",
+      "name": "Fallback?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        6000,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "={{ $env.WAZUH_API_URL }}{{ $('Interpret answer').first().json.request.path }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Assess: Log in (n8n-response)').first().json.body.data.token }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($('Interpret answer').first().json.request.body) }}",
+        "options": {
+          "allowUnauthorizedCerts": true,
+          "timeout": "={{ $('Called by a workflow').first().json.config.wazuh_http.timeout_ms }}",
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "7e5d9189-ab62-5e8e-9aff-564c46223586",
+      "name": "Send without timeout",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        6240,
+        100
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Retry policy for Wazuh API calls (C9; lib-config wazuh_http, the TheHive\n// pattern of N8N-6.2): only an error where the request never reached the API (refused, no route, name not resolved): a timeout or 5xx may have been run, so it is never repeated -> wait and call again; anything else\n// is passed on. This node runs once per call, so $runIndex counts the calls.\n// Never parks: the last failure goes into the result.\nconst r = $input.first().json;\nconst policy = $('Called by a workflow').first().json.config.wazuh_http;\nconst NODE = 'Send without timeout';\nconst attempt = $runIndex + 1;\nconst status = typeof r.statusCode === 'number' ? r.statusCode : null;\nconst thrown = r.error !== undefined && status === null; // HTTP node error output\nconst NETWORK = /ECONNREFUSED|ENOTFOUND|EAI_AGAIN|EHOSTUNREACH|ENETUNREACH/i;\nconst transient = thrown ? NETWORK.test(JSON.stringify(r)) : false;\nconst calls = policy.retry_waits_s.length + 1;\nif (transient && attempt < calls) {\n  return [{ json: { decision: 'retry', stage: NODE, attempt, wait_s: policy.retry_waits_s[attempt - 1],\n    reason: thrown ? 'connection error or timeout' : `HTTP ${status}` } }];\n}\nif (thrown || transient) {\n  const e = r.error;\n  const detail = thrown\n    ? (typeof e === 'string' ? e : [e?.message, e?.description].filter(Boolean).join(': ') || JSON.stringify(r))\n    : `HTTP ${status}: ${typeof r.body === 'string' ? r.body : JSON.stringify(r.body)}`;\n  return [{ json: { decision: 'error', stage: NODE, attempts: attempt, retry_exhausted: transient, http_status: status,\n    timed_out: thrown && /timeout|timed out|ETIMEDOUT|ECONNABORTED|socket hang up|ECONNRESET/i.test(JSON.stringify(r)),\n    message: `${detail}`.slice(0, 500) + (transient ? ` (${attempt} calls)` : '') } }];\n}\nreturn [{ json: { decision: 'response', stage: NODE, attempts: attempt, statusCode: status, body: r.body,\n  date: r.headers?.date ?? null } }];\n"
+      },
+      "id": "f4b990bb-2bee-59ca-b5a9-02e55c16d37c",
+      "name": "Assess: Send without timeout",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        6480,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "50a7c3c1-17b1-58cd-b9b9-6747a85c073b",
+              "leftValue": "={{ $json.decision === 'retry' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "9e455527-30b9-50c9-bb5d-84446aca2f4b",
+      "name": "Retry: Send without timeout?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        6720,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "resume": "timeInterval",
+        "amount": "={{ $json.wait_s }}",
+        "unit": "seconds"
+      },
+      "id": "a0f11a4f-8d45-551b-8e2e-a6789a169c30",
+      "name": "Wait before retry: Send without timeout",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        6720,
+        -100
+      ],
+      "webhookId": "d2cd3f45-b2d5-5d39-b4bb-0b0397ff7583"
+    },
+    {
+      "parameters": {
+        "jsCode": "// lib-wazuh-active-response (C9 v0): what Wazuh did with the request sent again without a timeout (response.allow_no_timeout). Success\n// is not the HTTP status: Wazuh answers 200 with the agent in\n// data.affected_items when it sent the command, and errors such as 1652\n// (command not defined in the manager's ar.conf: no <active-response> block)\n// come back inside a 200 in data.failed_items (A105). 200 means \"sent to the\n// agent\", not \"run\". A timeout or 5xx is `unknown`: it may have been sent.\nconst FALLBACK = true;\nfunction interpret(p, g, a, cfg) {\n  const base = { agent: g.agent, request: g.request };\n  if (a.decision === 'error') {\n    if (a.timed_out) return { action: 'done', ...base, status: 'unknown', code: 'no_answer', reason: `no answer from the Wazuh API (${a.message}): the command may have been sent` };\n    return { action: 'done', ...base, status: 'not_sent', code: 'unreachable', reason: `Wazuh API unreachable (${a.message})` };\n  }\n  const body = a.body !== null && typeof a.body === 'object' ? a.body : {};\n  const d = body.data !== null && typeof body.data === 'object' ? body.data : {};\n  const affected = Array.isArray(d.affected_items) ? d.affected_items.map(String) : [];\n  const failed = (Array.isArray(d.failed_items) ? d.failed_items : []).map((f) => ({\n    code: f?.error?.code ?? null, message: f?.error?.message ?? null, ids: Array.isArray(f?.id) ? f.id : [] }));\n  const api = { http_status: a.statusCode, error: body.error ?? null, title: body.title ?? null,\n    message: body.message ?? body.detail ?? null, total_affected: d.total_affected_items ?? affected.length, affected, failed };\n  const date = a.date ? new Date(a.date) : null;\n  const answeredAt = (date && Number.isFinite(date.getTime()) ? date : new Date()).toISOString();\n  const codes = [...failed.map((f) => f.code), body.code].filter(Number.isInteger);\n  if (a.statusCode === 200 && affected.includes(g.agent.id)) {\n    return { action: 'done', ...base, status: 'sent', api, answered_at: answeredAt, answered_at_source: date ? 'Date header' : 'n8n clock' };\n  }\n  if (codes.includes(1652)) {\n    const nt = cfg.commands[p.command].no_timeout_command;\n    if (!FALLBACK && cfg.allow_no_timeout === true && typeof nt === 'string' && nt !== '') {\n      return { action: 'fallback', ...base, first_api: api,\n        request: { ...g.request, body: { ...g.request.body, command: nt } } };\n    }\n    return { action: 'done', ...base, status: 'not_sent', code: 'not_configured', api,\n      reason: `failed (not configured on the manager: Wazuh owner's <active-response> block for ${g.request.body.command}; Wazuh error 1652)` };\n  }\n  if (a.statusCode >= 500) return { action: 'done', ...base, status: 'unknown', code: 'server_error', api, reason: `Wazuh API HTTP ${a.statusCode}: the command may have been sent` };\n  if (a.statusCode === 403) return { action: 'done', ...base, status: 'not_sent', code: 'forbidden', api, reason: `refused by Wazuh (HTTP 403: n8n-response may not act on agent ${g.agent.id})` };\n  const first = failed[0];\n  return { action: 'done', ...base, status: 'not_sent', code: 'refused_by_wazuh', api,\n    reason: `not sent: Wazuh answered HTTP ${a.statusCode}${first ? `, error ${first.code}: ${first.message}` : (api.message ? `: ${api.message}` : '')}` };\n}\n\nconst input = $('Called by a workflow').first().json;\nconst g = $('Guard').first().json;\nconst out = interpret($('Plan').first().json, $('Interpret answer').first().json, $input.first().json, input.config.response);\nreturn [{ json: { ...out, first_api: $('Interpret answer').first().json.first_api } }];\n"
+      },
+      "id": "b62794b0-4b08-5625-9e5a-9b2cf9773157",
+      "name": "Interpret fallback answer",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        6960,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// lib-wazuh-active-response (C9 v0): the result, reached by exactly one path:\n// refused by \"Plan\", returned by \"Guard\" (refused, not_sent, proposed,\n// dry_run), or the send interpreted. `ok` is true for proposed, dry_run and\n// sent. A live send is recorded in this workflow's static data for the rate\n// cap (entries older than an hour dropped).\nconst HOUR_MS = 3600 * 1000;\nfunction result(input, p, i, nowMs) {\n  const cfg = input.config?.response ?? {};\n  const status = i.action === 'refuse' ? 'refused' : i.status;\n  const cmd = cfg.commands?.[input.command] ?? null;\n  const sentCommand = i.request?.body?.command ?? null;\n  const srcip = p.srcip ?? input.srcip ?? null;\n  const agent = i.agent ?? null;\n  let revert = null;\n  if (status === 'sent' || status === 'unknown') {\n    const tool = p.ip_version === 6 ? 'ip6tables' : 'iptables';\n    revert = sentCommand === p.api_command\n      ? { automatic: true, after_s: p.timeout_s,\n        at: i.answered_at ? new Date(Date.parse(i.answered_at) + p.timeout_s * 1000).toISOString() : null }\n      : { automatic: false, after_s: null, at: null,\n        manual: `${tool} -D INPUT -s ${srcip} -j DROP; ${tool} -D FORWARD -s ${srcip} -j DROP` };\n  }\n  const on = agent ? `${agent.name} (agent ${agent.id})` : (input.agent?.name ?? input.agent?.id ?? 'unknown agent');\n  let line;\n  if (status === 'refused') line = `refused (${i.code}): ${i.reason}`;\n  else if (status === 'proposed') line = `proposed: ${input.command} ${srcip} on ${on} for ${p.timeout_s} s (${p.mode})`;\n  else if (status === 'dry_run') line = `dry_run: request built, not sent: ${i.request.method} ${i.request.path} ${JSON.stringify(i.request.body)}`;\n  else if (status === 'sent') line = `sent to ${agent.name} (Wazuh accepted, total_affected ${i.api.total_affected}) at ${i.answered_at}`;\n  else if (status === 'unknown') line = `unknown: ${i.reason}`;\n  else line = `not sent: ${i.reason}`;\n  return {\n    ok: ['proposed', 'dry_run', 'sent'].includes(status),\n    status, code: i.code ?? null, reason: i.reason ?? null, line,\n    action: input.action ?? null, mode: cfg.mode ?? null, command: input.command ?? null,\n    api_command: p.api_command ?? cmd?.api_command ?? null, sent_command: ['sent', 'unknown'].includes(status) ? sentCommand : null,\n    timeout_s: p.timeout_s ?? cmd?.timeout_s ?? null, srcip, agent,\n    request: i.request ?? null, api: i.api ?? null, first_api: i.first_api ?? null,\n    answered_at: i.answered_at ?? null, answered_at_source: i.answered_at_source ?? null, revert,\n  };\n}\n\nconst input = $('Called by a workflow').first().json;\nconst out = result(input, $('Plan').first().json, $input.first().json, Date.now());\nif (out.status === 'sent' || out.status === 'unknown') {\n  const sd = $getWorkflowStaticData('global');\n  const now = Date.now();\n  sd.sent_ms = [...(Array.isArray(sd.sent_ms) ? sd.sent_ms : []).filter((t) => Number.isFinite(t) && now - t < HOUR_MS), now];\n}\nreturn [{ json: out }];\n"
+      },
+      "id": "1b94a11c-941e-5d05-83ed-129f45a28597",
+      "name": "Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        7200,
+        400
+      ]
+    }
+  ],
+  "connections": {
+    "Called by a workflow": {
+      "main": [
+        [
+          {
+            "node": "Plan",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Plan": {
+      "main": [
+        [
+          {
+            "node": "Look up?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log in (n8n-response)": {
+      "main": [
+        [
+          {
+            "node": "Assess: Log in (n8n-response)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Assess: Log in (n8n-response)": {
+      "main": [
+        [
+          {
+            "node": "Retry: Log in (n8n-response)?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Retry: Log in (n8n-response)?": {
+      "main": [
+        [
+          {
+            "node": "Wait before retry: Log in (n8n-response)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Logged in? (n8n-response)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait before retry: Log in (n8n-response)": {
+      "main": [
+        [
+          {
+            "node": "Log in (n8n-response)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "List agents (n8n-response)": {
+      "main": [
+        [
+          {
+            "node": "Assess: List agents (n8n-response)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Assess: List agents (n8n-response)": {
+      "main": [
+        [
+          {
+            "node": "Retry: List agents (n8n-response)?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Retry: List agents (n8n-response)?": {
+      "main": [
+        [
+          {
+            "node": "Wait before retry: List agents (n8n-response)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Listed? (n8n-response)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait before retry: List agents (n8n-response)": {
+      "main": [
+        [
+          {
+            "node": "List agents (n8n-response)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log in (n8n-api)": {
+      "main": [
+        [
+          {
+            "node": "Assess: Log in (n8n-api)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Assess: Log in (n8n-api)": {
+      "main": [
+        [
+          {
+            "node": "Retry: Log in (n8n-api)?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Retry: Log in (n8n-api)?": {
+      "main": [
+        [
+          {
+            "node": "Wait before retry: Log in (n8n-api)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Logged in? (n8n-api)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait before retry: Log in (n8n-api)": {
+      "main": [
+        [
+          {
+            "node": "Log in (n8n-api)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "List agents (n8n-api)": {
+      "main": [
+        [
+          {
+            "node": "Assess: List agents (n8n-api)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Assess: List agents (n8n-api)": {
+      "main": [
+        [
+          {
+            "node": "Retry: List agents (n8n-api)?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Retry: List agents (n8n-api)?": {
+      "main": [
+        [
+          {
+            "node": "Wait before retry: List agents (n8n-api)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Guard",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait before retry: List agents (n8n-api)": {
+      "main": [
+        [
+          {
+            "node": "List agents (n8n-api)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Look up?": {
+      "main": [
+        [
+          {
+            "node": "Log in (n8n-response)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Logged in? (n8n-response)": {
+      "main": [
+        [
+          {
+            "node": "List agents (n8n-response)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Guard",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Listed? (n8n-response)": {
+      "main": [
+        [
+          {
+            "node": "Agent addresses needed?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Guard",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Agent addresses needed?": {
+      "main": [
+        [
+          {
+            "node": "Log in (n8n-api)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Guard",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Logged in? (n8n-api)": {
+      "main": [
+        [
+          {
+            "node": "List agents (n8n-api)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Guard",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Guard": {
+      "main": [
+        [
+          {
+            "node": "Send?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send active response": {
+      "main": [
+        [
+          {
+            "node": "Assess: Send active response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Assess: Send active response": {
+      "main": [
+        [
+          {
+            "node": "Retry: Send active response?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Retry: Send active response?": {
+      "main": [
+        [
+          {
+            "node": "Wait before retry: Send active response",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Interpret answer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait before retry: Send active response": {
+      "main": [
+        [
+          {
+            "node": "Send active response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send without timeout": {
+      "main": [
+        [
+          {
+            "node": "Assess: Send without timeout",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Assess: Send without timeout": {
+      "main": [
+        [
+          {
+            "node": "Retry: Send without timeout?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Retry: Send without timeout?": {
+      "main": [
+        [
+          {
+            "node": "Wait before retry: Send without timeout",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Interpret fallback answer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait before retry: Send without timeout": {
+      "main": [
+        [
+          {
+            "node": "Send without timeout",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send?": {
+      "main": [
+        [
+          {
+            "node": "Send active response",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Interpret answer": {
+      "main": [
+        [
+          {
+            "node": "Fallback?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fallback?": {
+      "main": [
+        [
+          {
+            "node": "Send without timeout",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Interpret fallback answer": {
+      "main": [
+        [
+          {
+            "node": "Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataSuccessExecution": "none",
+    "saveDataErrorExecution": "all",
+    "saveManualExecutions": true
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "nodeGroups": [],
+  "tags": [],
+  "pinData": {}
+}
