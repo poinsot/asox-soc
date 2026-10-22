@@ -1,0 +1,1088 @@
+{
+  "id": "asoxPbSshResp001",
+  "name": "pb-ssh-response",
+  "active": true,
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## pb-ssh-response (C9 v0, 2026-10-22: physical-lab demo)\n**Trigger:** called by recv-thehive-event through Execute Workflow (waited for), for a TheHive alert update whose tags newly include lib-config `response.approval.tag` (`approve:firewall-drop`): `details.tagChanges` added it, or (an `addTags` call, no tagChanges) `details.tags` has it.\n**Inputs:** `{config: <lib-config>, recv_execution_id, event: {thehive_alert_id, actor (the event's top-level _createdBy), event_time_ms (its _createdAt), request_id, how}}`.\n**Actions taken:** re-reads the alert and its comments (TheHive retry pattern, N8N-6.2) and checks the approval: by a user other than n8n@asox.local; the tag still on the alert; the kill switch; a proposal on the alert (pb-ssh-bruteforce's writeback line `- [asox-n8n response-proposal] <agent id> <srcip> firewall-drop 300`); no response sent for it yet (`[asox-n8n response] ...: sent` or `: unknown`); within `approval.window_s` (1 h) of the proposal. Then **lib-wazuh-active-response** (action execute: every guardrail again, the rate cap; dry_run builds the request only). Live and sent: tag `asox:response=firewall-drop` and custom field `containment-action` = `ip-blocked` on the alert, asox-metrics (lib-metrics-upsert, mode update) `t_contained` = Wazuh's answer time and `outcome` success; live and not sent: `outcome` failed; dry_run: no metrics. One comment: `[asox-n8n response] firewall-drop <srcip> on <agent> (<mode>): <sent | not sent | not sent (dry_run) | unknown>` with who approved and when, the request, Wazuh's answer, the revert time; or, for a failed check, `[asox-n8n response-refused] <code>` with the reason (once per code and alert), and nothing runs.\n**Systems changed:** in live mode the agent named in the proposal (firewall-drop of the address, reverted by the manager after 300 s), TheHive (comment, tag, containment-action), Wazuh indexer (asox-metrics); in dry_run only the TheHive comment.\n**Approval:** required: tag approve:firewall-drop by an analyst (interim for D-N5, demo).\n**Owner:** n8n.\nResult: `outcome` (sent / not_sent / unknown / dry_run / refused / ignore / failed), `code`, `reason`, `comment`, `thehive_update`, `metrics`. Never parks (failures are reported in the comment and the result). Error workflow: recv-n8n-error. Saves every execution.",
+        "height": 720,
+        "width": 620
+      },
+      "id": "b2369794-a14f-5043-a405-515072f9e36b",
+      "name": "About this workflow",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -440,
+        -760
+      ]
+    },
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "id": "3ee8c921-9303-53ef-bab0-18e8a50b444b",
+      "name": "Called by a workflow",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// pb-ssh-response (C9 v0): everything this execution needs. Called by\n// recv-thehive-event for an alert update whose tags newly include lib-config\n// response.approval.tag (the interim approval, until D-N5's approval task).\nconst input = $input.first().json;\nif (!input.config || !input.config.response || !input.config.writeback) throw new Error(`${$workflow.name} needs the lib-config output as \\`config\\``);\nconst e = input.event !== null && typeof input.event === 'object' ? input.event : {};\nif (typeof e.thehive_alert_id !== 'string' || e.thehive_alert_id === '') throw new Error(`${$workflow.name} needs event.thehive_alert_id`);\nreturn [{ json: {\n  config: input.config,\n  event: {\n    thehive_alert_id: e.thehive_alert_id,\n    actor: typeof e.actor === 'string' ? e.actor : null,\n    // The audit record's top-level _createdAt (C4): the approval's own time.\n    event_time_ms: Number.isFinite(e.event_time_ms) ? e.event_time_ms : null,\n    request_id: e.request_id ?? null,\n    how: e.how ?? null,\n  },\n  context: { playbook: $workflow.name, n8n_execution_id: $execution.id, recv_execution_id: input.recv_execution_id ?? null },\n} }];\n"
+      },
+      "id": "4b52beb2-8a66-5fa0-8a12-136db2d68496",
+      "name": "Context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.THEHIVE_URL }}/api/v1/query",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "theHiveProjectApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ query: [ { _name: 'getAlert', idOrName: $('Context').first().json.event.thehive_alert_id } ] }) }}",
+        "options": {
+          "timeout": "={{ $('Context').first().json.config.thehive_http.timeout_ms }}",
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "c6459560-7ee5-5130-8774-bc1ca2d1dcba",
+      "name": "Read TheHive alert",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        480,
+        0
+      ],
+      "credentials": {
+        "theHiveProjectApi": {
+          "id": "asoxTheHiveApi01",
+          "name": "TheHive API (n8n)"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Retry policy for TheHive calls (N8N-6.2; lib-config thehive_http): a connection error, a timeout or HTTP 5xx\n// -> wait and call again; anything else is passed on. Outside any loop: this\n// node runs once per call, so $runIndex counts the calls. Never parks: the\n// last failure goes into the result.\nconst r = $input.first().json;\nconst policy = $('Context').first().json.config.thehive_http;\nconst NODE = 'Read TheHive alert';\nconst attempt = $runIndex + 1;\nconst status = typeof r.statusCode === 'number' ? r.statusCode : null;\nconst thrown = r.error !== undefined && status === null; // HTTP node error output\nconst NETWORK = /ECONNREFUSED|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|ECONNRESET|EHOSTUNREACH|ENETUNREACH|ECONNABORTED|timeout|timed out|socket hang up|connection cannot be established/i;\nconst transient = thrown ? NETWORK.test(JSON.stringify(r)) : status >= 500;\nconst calls = policy.retry_waits_s.length + 1;\nif (transient && attempt < calls) {\n  return [{ json: { decision: 'retry', stage: NODE, attempt, wait_s: policy.retry_waits_s[attempt - 1],\n    reason: thrown ? 'connection error or timeout' : `HTTP ${status}` } }];\n}\nif (thrown || transient) {\n  const e = r.error;\n  const detail = thrown\n    ? (typeof e === 'string' ? e : [e?.message, e?.description].filter(Boolean).join(': ') || JSON.stringify(r))\n    : `HTTP ${status}: ${typeof r.body === 'string' ? r.body : JSON.stringify(r.body)}`;\n  return [{ json: { decision: 'error', stage: NODE, attempts: attempt, retry_exhausted: transient, http_status: status,\n    message: `${detail}`.slice(0, 500) + (transient ? ` (${attempt} calls)` : '') } }];\n}\nreturn [{ json: { decision: 'response', stage: NODE, attempts: attempt, statusCode: status, body: r.body } }];\n"
+      },
+      "id": "2e1ed190-4e39-5b97-8aec-6da18e9166c1",
+      "name": "Assess: Read TheHive alert",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "7475f03f-770a-5b15-97c9-ba8e7c983051",
+              "leftValue": "={{ $json.decision === 'retry' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "23e93b0a-da58-5c6b-bc11-68bd6c668f00",
+      "name": "Retry: Read TheHive alert?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        960,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "resume": "timeInterval",
+        "amount": "={{ $json.wait_s }}",
+        "unit": "seconds"
+      },
+      "id": "9c82c6bc-2165-580e-b94f-1b5171d37d6a",
+      "name": "Wait before retry: Read TheHive alert",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        960,
+        -200
+      ],
+      "webhookId": "a827a241-0dd0-58f9-855d-baf6f415a326"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.THEHIVE_URL }}/api/v1/query",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "theHiveProjectApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ query: [ { _name: 'getAlert', idOrName: $('Context').first().json.event.thehive_alert_id }, { _name: 'comments' }, { _name: 'page', from: 0, to: 500 } ] }) }}",
+        "options": {
+          "timeout": "={{ $('Context').first().json.config.thehive_http.timeout_ms }}",
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "8ca3fc92-4b12-54ab-bd17-833696a57850",
+      "name": "List TheHive comments",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1200,
+        0
+      ],
+      "credentials": {
+        "theHiveProjectApi": {
+          "id": "asoxTheHiveApi01",
+          "name": "TheHive API (n8n)"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Retry policy for TheHive calls (N8N-6.2; lib-config thehive_http): a connection error, a timeout or HTTP 5xx\n// -> wait and call again; anything else is passed on. Outside any loop: this\n// node runs once per call, so $runIndex counts the calls. Never parks: the\n// last failure goes into the result.\nconst r = $input.first().json;\nconst policy = $('Context').first().json.config.thehive_http;\nconst NODE = 'List TheHive comments';\nconst attempt = $runIndex + 1;\nconst status = typeof r.statusCode === 'number' ? r.statusCode : null;\nconst thrown = r.error !== undefined && status === null; // HTTP node error output\nconst NETWORK = /ECONNREFUSED|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|ECONNRESET|EHOSTUNREACH|ENETUNREACH|ECONNABORTED|timeout|timed out|socket hang up|connection cannot be established/i;\nconst transient = thrown ? NETWORK.test(JSON.stringify(r)) : status >= 500;\nconst calls = policy.retry_waits_s.length + 1;\nif (transient && attempt < calls) {\n  return [{ json: { decision: 'retry', stage: NODE, attempt, wait_s: policy.retry_waits_s[attempt - 1],\n    reason: thrown ? 'connection error or timeout' : `HTTP ${status}` } }];\n}\nif (thrown || transient) {\n  const e = r.error;\n  const detail = thrown\n    ? (typeof e === 'string' ? e : [e?.message, e?.description].filter(Boolean).join(': ') || JSON.stringify(r))\n    : `HTTP ${status}: ${typeof r.body === 'string' ? r.body : JSON.stringify(r.body)}`;\n  return [{ json: { decision: 'error', stage: NODE, attempts: attempt, retry_exhausted: transient, http_status: status,\n    message: `${detail}`.slice(0, 500) + (transient ? ` (${attempt} calls)` : '') } }];\n}\nreturn [{ json: { decision: 'response', stage: NODE, attempts: attempt, statusCode: status, body: r.body } }];\n"
+      },
+      "id": "c1085449-83cc-5a7d-85e8-ddef1d479d28",
+      "name": "Assess: List TheHive comments",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1440,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "37ff3b12-0fdc-54f8-a9bd-7725b52d816c",
+              "leftValue": "={{ $json.decision === 'retry' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "1c499b19-fa51-52a9-a50d-eaae9fd6d71b",
+      "name": "Retry: List TheHive comments?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1680,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "resume": "timeInterval",
+        "amount": "={{ $json.wait_s }}",
+        "unit": "seconds"
+      },
+      "id": "cee6910b-63aa-5a03-8aa9-d2cabeab6728",
+      "name": "Wait before retry: List TheHive comments",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1680,
+        -200
+      ],
+      "webhookId": "03aab537-861d-59da-8582-11405717a8a0"
+    },
+    {
+      "parameters": {
+        "jsCode": "// pb-ssh-response (C9 v0): may this approval run? Pure. In this order:\n//  - ignored, no comment: an approval by n8n@asox.local itself (only an\n//    analyst approves; recv-thehive-event drops those already), or the tag\n//    no longer on the alert (re-read);\n//  - failed, no comment: the alert or its comments couldn't be read;\n//  - refused, one comment: response actions disabled (kill switch); no\n//    proposal on the alert (a writeback line `- <proposal marker> <agent id>\n//    <srcip> <command> <timeout>` by n8n@asox.local); a response already sent\n//    for it (a `<response marker> ...: sent` or `: unknown` comment; `not\n//    sent` ones don't count, so an approval can be given again after a\n//    failure); the approval more than approval.window_s after the proposal\n//    (the writeback comment's time). The rate cap and the other guardrails\n//    are lib-wazuh-active-response's, checked again when it runs.\nfunction decide(ctx, a, c) {\n  const resp = ctx.config.response;\n  const n8nUser = ctx.config.thehive.n8n_user;\n  const ev = ctx.event;\n  const tag = resp.approval.tag;\n  const cls = (x) => (x.decision === 'error' ? (x.retry_exhausted ? 'thehive_unreachable' : (x.http_status ? `thehive_${x.http_status}` : 'thehive_error'))\n    : (x.statusCode === 200 ? 'bad_answer' : `thehive_${x.statusCode}`));\n  if (ev.actor === n8nUser || ev.actor === null) return { decision: 'ignore', reason: `approval by ${ev.actor ?? 'an unknown user'}: only an analyst approves, never ${n8nUser}` };\n  if (a.decision !== 'response' || a.statusCode !== 200 || !Array.isArray(a.body) || a.body.length !== 1) {\n    return { decision: 'failed', reason: `alert ${ev.thehive_alert_id} not read (${cls(a)})` };\n  }\n  const alert = a.body[0];\n  const tags = Array.isArray(alert.tags) ? alert.tags : [];\n  const summary = { thehive_alert_id: alert._id, wazuh_alert_id: alert.sourceRef ?? null, source: alert.source ?? null, tags };\n  if (!tags.includes(tag)) return { decision: 'ignore', reason: `tag ${tag} is no longer on the alert`, alert: summary };\n  if (c.decision !== 'response' || c.statusCode !== 200 || !Array.isArray(c.body)) {\n    return { decision: 'failed', reason: `comments of alert ${alert._id} not read (${cls(c)})`, alert: summary };\n  }\n  const mine = c.body\n    .filter((cm) => (cm.createdBy ?? cm._createdBy) === n8nUser && typeof cm.message === 'string')\n    .map((cm) => ({ id: cm._id, at_ms: cm.createdAt ?? cm._createdAt ?? null, lines: cm.message.split('\\n') }))\n    .sort((x, y) => (x.at_ms ?? 0) - (y.at_ms ?? 0));\n  const firstLines = mine.map((m) => m.lines[0]);\n  const approvedAt = ev.event_time_ms ?? Date.now();\n  const base = { alert: summary, approved_by: ev.actor, approved_at_ms: approvedAt, first_lines: firstLines };\n  const refuse = (code, reason, extra = {}) => ({ decision: 'refuse', code, reason, ...base, ...extra });\n  if (resp.enabled !== true) return refuse('disabled', 'response actions are disabled (lib-config response.enabled, the kill switch)');\n  const esc = (s) => s.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&');\n  const wbFirst = new RegExp(`^${esc(ctx.config.writeback.marker)} wazuh-alert-id=`);\n  const line = new RegExp(`^- ${esc(resp.markers.proposal)} (\\\\S+) (\\\\S+) (\\\\S+) (\\\\d+)$`);\n  let proposal = null;\n  for (const m of mine) {\n    if (!wbFirst.test(m.lines[0])) continue;\n    for (const l of m.lines) {\n      const x = line.exec(l);\n      if (x) proposal = { agent_id: x[1], srcip: x[2], command: x[3], timeout_s: Number(x[4]), at_ms: m.at_ms, comment_id: m.id };\n    }\n  }\n  if (!proposal) return refuse('no-proposal', `this alert has no response proposal from n8n (pb-ssh-bruteforce proposes one in its writeback, for lib-config response.routes ${resp.routes.join(', ')})`);\n  const done = mine.find((m) => m.lines[0].startsWith(`${resp.markers.response} `) && /\\): (sent|unknown)\\b/.test(m.lines[0]));\n  if (done) {\n    return refuse('already-executed', `a response was already sent for this alert (n8n comment of ${new Date(done.at_ms).toISOString()}: \"${done.lines[0]}\")`, { proposal });\n  }\n  const age = approvedAt - proposal.at_ms;\n  if (!(Number.isFinite(age) && age >= 0 && age <= resp.approval.window_s * 1000)) {\n    return refuse('expired', `the approval at ${new Date(approvedAt).toISOString()} is outside the ${resp.approval.window_s} s window after the proposal (${new Date(proposal.at_ms).toISOString()})`, { proposal });\n  }\n  return { decision: 'execute', ...base, proposal };\n}\n\nreturn [{ json: decide($('Context').first().json, $('Assess: Read TheHive alert').first().json, $input.first().json) }];\n"
+      },
+      "id": "0c4fe0c5-b3d3-5452-847f-9af4e655f7e8",
+      "name": "Decide",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1920,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "12219d2b-0a99-5956-b1e4-66e7c108c8e7",
+              "leftValue": "={{ $json.decision === 'execute' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "c7cf932d-4d35-5727-8dd0-0f92bc36eaef",
+      "name": "Execute?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2160,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// The approved proposal, executed by lib-wazuh-active-response, which checks\n// every guardrail again (kill switch, catalog, protected addresses, the agent\n// in the group and active, agent addresses, the rate cap) and, in dry_run,\n// builds the request without sending it.\nconst c = $('Context').first().json;\nconst d = $input.first().json;\nreturn [{ json: {\n  action: 'execute', command: d.proposal.command, srcip: d.proposal.srcip, agent: { id: d.proposal.agent_id },\n  config: c.config, context: { ...c.context, thehive_alert_id: d.alert.thehive_alert_id },\n} }];\n"
+      },
+      "id": "6c8e25f6-9e3a-5a16-acc5-0d253bf4b87c",
+      "name": "Response input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2400,
+        -200
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "asoxLibWazuhAR01",
+          "cachedResultName": "lib-wazuh-active-response"
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "ef523768-9343-564f-a530-7798759a7797",
+      "name": "Response (lib-wazuh-active-response)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        2640,
+        -200
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// What follows the action. Live and sent: tag the alert\n// response.done_tag_prefix + command and set the custom field\n// response.containment_field (the catalog's containment_action; the object\n// form of customFields, which keeps the alert's other fields: an array\n// replaces them all, checked on 5.7.6), then asox-metrics (mode update):\n// t_contained = Wazuh's answer time (its Date header), outcome success. Live\n// and not sent or unknown: outcome failed only. dry_run, or refused by a\n// guardrail: nothing (the comment says why).\nconst c = $('Context').first().json;\nconst d = $('Decide').first().json;\nconst r0 = $input.first().json;\n// On Error = continue: an unexpected failure inside the lib arrives as {error};\n// it may have sent the command, so it counts as unknown.\nconst r = typeof r0.status === 'string' ? r0\n  : { status: 'unknown', code: 'unexpected', reason: `unexpected error in lib-wazuh-active-response: ${r0.error ?? 'no result'}`,\n    mode: c.config.response.mode, line: `unknown: unexpected error in lib-wazuh-active-response (${r0.error ?? 'no result'})`, agent: null, revert: null };\nconst resp = c.config.response;\nconst live = r.mode === 'live';\nconst cmd = resp.commands[d.proposal.command] ?? {};\nconst update = live && r.status === 'sent'\n  ? { addTags: [`${resp.done_tag_prefix}${d.proposal.command}`], customFields: { [resp.containment_field]: cmd.containment_action } }\n  : null;\nlet metrics = null;\nif (live && ['sent', 'not_sent', 'unknown'].includes(r.status)) {\n  metrics = { mode: 'update', alert_id: d.alert.wazuh_alert_id, source: d.alert.source,\n    fields: r.status === 'sent' ? { t_contained: r.answered_at, outcome: 'success' } : { outcome: 'failed' } };\n}\nreturn [{ json: { result: r, update, metrics } }];\n"
+      },
+      "id": "de9abb25-ccf4-5c7c-ae61-9db361acf341",
+      "name": "After the action",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2880,
+        -200
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "bc559554-0e99-5df6-b5dc-d13162c723e9",
+              "leftValue": "={{ $json.update !== null }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "4317b6ff-3153-5b71-8a4f-c75cc4d3a4bd",
+      "name": "Update alert?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        3120,
+        -200
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $env.THEHIVE_URL }}/api/v1/alert/{{ encodeURIComponent($('Context').first().json.event.thehive_alert_id) }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "theHiveProjectApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($('After the action').first().json.update) }}",
+        "options": {
+          "timeout": "={{ $('Context').first().json.config.thehive_http.timeout_ms }}",
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "19d6d594-1247-582d-a444-48d6eeb79dd4",
+      "name": "Update TheHive alert",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3360,
+        -300
+      ],
+      "credentials": {
+        "theHiveProjectApi": {
+          "id": "asoxTheHiveApi01",
+          "name": "TheHive API (n8n)"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Retry policy for TheHive calls (N8N-6.2; lib-config thehive_http): a connection error, a timeout or HTTP 5xx\n// -> wait and call again; anything else is passed on. Outside any loop: this\n// node runs once per call, so $runIndex counts the calls. Never parks: the\n// last failure goes into the result.\nconst r = $input.first().json;\nconst policy = $('Context').first().json.config.thehive_http;\nconst NODE = 'Update TheHive alert';\nconst attempt = $runIndex + 1;\nconst status = typeof r.statusCode === 'number' ? r.statusCode : null;\nconst thrown = r.error !== undefined && status === null; // HTTP node error output\nconst NETWORK = /ECONNREFUSED|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|ECONNRESET|EHOSTUNREACH|ENETUNREACH|ECONNABORTED|timeout|timed out|socket hang up|connection cannot be established/i;\nconst transient = thrown ? NETWORK.test(JSON.stringify(r)) : status >= 500;\nconst calls = policy.retry_waits_s.length + 1;\nif (transient && attempt < calls) {\n  return [{ json: { decision: 'retry', stage: NODE, attempt, wait_s: policy.retry_waits_s[attempt - 1],\n    reason: thrown ? 'connection error or timeout' : `HTTP ${status}` } }];\n}\nif (thrown || transient) {\n  const e = r.error;\n  const detail = thrown\n    ? (typeof e === 'string' ? e : [e?.message, e?.description].filter(Boolean).join(': ') || JSON.stringify(r))\n    : `HTTP ${status}: ${typeof r.body === 'string' ? r.body : JSON.stringify(r.body)}`;\n  return [{ json: { decision: 'error', stage: NODE, attempts: attempt, retry_exhausted: transient, http_status: status,\n    message: `${detail}`.slice(0, 500) + (transient ? ` (${attempt} calls)` : '') } }];\n}\nreturn [{ json: { decision: 'response', stage: NODE, attempts: attempt, statusCode: status, body: r.body } }];\n"
+      },
+      "id": "39f9cec4-7c77-5238-b0cd-1804bff0ce98",
+      "name": "Assess: Update TheHive alert",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3600,
+        -300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "43f2862c-415e-51de-b675-f6d781727c94",
+              "leftValue": "={{ $json.decision === 'retry' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "7f4082b4-76c7-5948-8abd-4af4b1cb071d",
+      "name": "Retry: Update TheHive alert?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        3840,
+        -300
+      ]
+    },
+    {
+      "parameters": {
+        "resume": "timeInterval",
+        "amount": "={{ $json.wait_s }}",
+        "unit": "seconds"
+      },
+      "id": "8500cf7d-4497-5b57-a5fd-4627b9bad54b",
+      "name": "Wait before retry: Update TheHive alert",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        3840,
+        -500
+      ],
+      "webhookId": "246a0c06-d928-5cde-8b6a-7894ee13959b"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "87af836a-db05-5072-bf1c-4c21a161571e",
+              "leftValue": "={{ $('After the action').first().json.metrics !== null }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "3589dbc1-7dd2-5136-b00f-77f66c42edcb",
+      "name": "Metrics?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        4080,
+        -200
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// C11: lib-metrics-upsert, mode update (a missing document is skipped, never\n// created; asox-test alerts have none).\nreturn [{ json: { ...$('After the action').first().json.metrics, config: $('Context').first().json.config } }];\n"
+      },
+      "id": "d4c1afb6-48d7-528a-b9ff-e95cd317dfab",
+      "name": "Metrics input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4320,
+        -300
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "asoxLibMetricsUp",
+          "cachedResultName": "lib-metrics-upsert"
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "19990184-5290-55dc-b43f-fd536df2e988",
+      "name": "Metrics (lib-metrics-upsert)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        4560,
+        -300
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// The one comment this approval gets (by n8n@asox.local, on the alert):\n//  - executed (any lib status but refused): first line\n//    `<response marker> <command> <srcip> on <agent> (<mode>): <sent | not sent | not sent (dry_run) | unknown>`,\n//    then who approved and when, the request, Wazuh's answer, the revert,\n//    the TheHive and asox-metrics updates. `sent` and `unknown` block a new\n//    approval of this alert (Decide);\n//  - refused (Decide or the lib's guardrails): first line\n//    `<refused marker> <code>`, why, nothing changed; not written again when\n//    n8n already wrote that first line on this alert (a repeated tag);\n//  - ignored or failed: no comment.\nconst c = $('Context').first().json;\nconst d = $('Decide').first().json;\nconst resp = c.config.response;\nconst iso = (ms) => (Number.isFinite(ms) ? new Date(ms).toISOString() : 'unknown time');\nconst head = [`n8n playbook **${c.context.playbook}**, execution ${c.context.n8n_execution_id}`\n  + `${c.context.recv_execution_id ? ` (approval event: recv-thehive-event execution ${c.context.recv_execution_id})` : ''}.`, ''];\nconst by = `${d.approved_by} at ${iso(d.approved_at_ms)} with the tag ${resp.approval.tag}`\n  + `${d.proposal ? ` (proposal of ${iso(d.proposal.at_ms)}; window ${resp.approval.window_s} s)` : ''}`;\nconst approval = `Approved by ${by}.`;\nfunction refusal(code, reason) {\n  const first = `${resp.markers.refused} ${code}`;\n  if ((d.first_lines ?? []).includes(first)) return { post: false, why: `refusal ${code} already explained on this alert` };\n  return { post: true, kind: 'refused', first, message: [first, '', ...head,\n    `Approval by ${by}: not executed: ${reason}.`, '', 'Nothing was changed.'].join('\\n') };\n}\nlet plan;\nif (d.decision === 'ignore' || d.decision === 'failed') {\n  plan = { post: false, why: `${d.decision}: ${d.reason}` };\n} else if (d.decision === 'refuse') {\n  plan = refusal(d.code, d.reason);\n} else {\n  const after = $('After the action').first().json;\n  const r = after.result;\n  if (r.status === 'refused') {\n    plan = refusal(r.code, r.reason);\n  } else {\n    const agentName = r.agent?.name ?? `agent ${d.proposal.agent_id}`;\n    const word = { sent: 'sent', unknown: 'unknown', dry_run: 'not sent (dry_run)', not_sent: 'not sent' }[r.status] ?? r.status;\n    const first = `${resp.markers.response} ${d.proposal.command} ${d.proposal.srcip} on ${agentName} (${r.mode}): ${word}`;\n    const lines = [first, '', ...head, `- ${approval}`,\n      `- Action: ${d.proposal.command} ${d.proposal.srcip} on ${agentName}${r.agent ? ` (agent ${r.agent.id})` : ''} ${r.revert?.automatic === false ? 'with NO timeout' : `for ${r.timeout_s ?? d.proposal.timeout_s} s`}, Wazuh command ${r.sent_command ?? r.api_command}.`];\n    if (r.request) lines.push(`- Request: ${r.request.method} ${r.request.path} ${JSON.stringify(r.request.body)}`);\n    if (r.first_api) lines.push(`- First request answered Wazuh error 1652 (${r.api_command} not defined on the manager); lib-config response.allow_no_timeout is true, so it was sent again as ${r.sent_command}.`);\n    if (r.status === 'sent') {\n      lines.push(`- Result: sent to ${r.agent.name} (Wazuh accepted, total_affected ${r.api.total_affected}) at ${r.answered_at}. Wazuh's answer means \"sent to the agent\", not \"blocked\": a command sent while the agent reloads (group change, restart) can be lost; the agent's active-responses.log shows the run.`);\n    } else if (r.status === 'dry_run') {\n      lines.push(`- Result: dry_run: the request was built and not sent (lib-config response.mode 'dry_run'); nothing was changed on ${agentName}.`);\n    } else {\n      lines.push(`- Result: ${r.line}.`);\n    }\n    if (r.revert?.automatic === true) lines.push(`- Revert: automatic after ${r.revert.after_s} s${r.revert.at ? `, at about ${r.revert.at}` : ''} (the manager's <active-response> timeout).`);\n    else if (r.revert?.automatic === false) lines.push(`- Revert: NO automatic revert: unblock by hand on the agent with \\`${r.revert.manual}\\`.`);\n    if (r.status === 'sent' || r.status === 'unknown') lines.push(`- Rate cap: ${resp.rate_cap_per_hour} response action(s) per hour, all alerts together.`);\n    if (after.update) {\n      const u = $('Assess: Update TheHive alert').isExecuted ? $('Assess: Update TheHive alert').first().json : null;\n      const okU = u && u.decision === 'response' && u.statusCode >= 200 && u.statusCode < 300;\n      const what = `tag ${after.update.addTags.join(', ')} and ${resp.containment_field} ${Object.values(after.update.customFields)[0]}`;\n      lines.push(okU ? `- TheHive: ${what} set on this alert.`\n        : `- TheHive: ${what} not set: update failed (${u ? (u.decision === 'error' ? `${u.retry_exhausted ? 'thehive_unreachable' : 'thehive_error'} after ${u.attempts} call(s)` : `HTTP ${u.statusCode}`) : 'not attempted'}).`);\n    } else {\n      lines.push(`- TheHive: no tag, ${resp.containment_field} unchanged (${{ dry_run: 'dry_run', unknown: 'not confirmed' }[r.status] ?? 'nothing sent'}).`);\n    }\n    if (after.metrics) {\n      const m = $('Metrics (lib-metrics-upsert)').isExecuted ? $('Metrics (lib-metrics-upsert)').first().json : null;\n      const f = after.metrics.fields;\n      lines.push(`- asox-metrics: ${f.t_contained ? `t_contained ${f.t_contained}, ` : ''}outcome ${f.outcome}: ${m && typeof m.line === 'string' ? m.line : 'metrics: failed (unexpected)'}`);\n    } else {\n      lines.push('- asox-metrics: not written (dry_run).');\n    }\n    const changed = r.status === 'sent' ? `${agentName} (firewall rule through Wazuh active response), TheHive (this comment, tag, ${resp.containment_field}), Wazuh indexer (asox-metrics)`\n      : (r.status === 'unknown' ? `${agentName} possibly (no confirmed answer), TheHive (this comment), Wazuh indexer (asox-metrics)`\n        : `TheHive (this comment)${after.metrics ? ', Wazuh indexer (asox-metrics)' : ''}`);\n    lines.push(`- Systems changed: ${changed}.`);\n    plan = { post: true, kind: 'response', first, message: lines.join('\\n') };\n  }\n}\nreturn [{ json: plan }];\n"
+      },
+      "id": "f8164c87-38f4-53f8-9f58-6b3e4ecea318",
+      "name": "Comment plan",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4800,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c41ab0e3-3bc7-56d6-a683-6af5d493dc2a",
+              "leftValue": "={{ $json.post === true }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "66f30b3f-6d47-5899-93e0-6389ddc8dd17",
+      "name": "Post comment?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        5040,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.THEHIVE_URL }}/api/v1/alert/{{ encodeURIComponent($('Context').first().json.event.thehive_alert_id) }}/comment",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "theHiveProjectApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ message: $('Comment plan').first().json.message }) }}",
+        "options": {
+          "timeout": "={{ $('Context').first().json.config.thehive_http.timeout_ms }}",
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "64fc466b-3f22-5756-b79b-519f46745594",
+      "name": "Post TheHive comment",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        5280,
+        -100
+      ],
+      "credentials": {
+        "theHiveProjectApi": {
+          "id": "asoxTheHiveApi01",
+          "name": "TheHive API (n8n)"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Retry policy for TheHive calls (N8N-6.2; lib-config thehive_http): only an error where the request never reached TheHive (a timeout may have written the comment, so it is never repeated)\n// -> wait and call again; anything else is passed on. Outside any loop: this\n// node runs once per call, so $runIndex counts the calls. Never parks: the\n// last failure goes into the result.\nconst r = $input.first().json;\nconst policy = $('Context').first().json.config.thehive_http;\nconst NODE = 'Post TheHive comment';\nconst attempt = $runIndex + 1;\nconst status = typeof r.statusCode === 'number' ? r.statusCode : null;\nconst thrown = r.error !== undefined && status === null; // HTTP node error output\nconst NETWORK = /ECONNREFUSED|ENOTFOUND|EAI_AGAIN|EHOSTUNREACH|ENETUNREACH/i;\nconst transient = thrown ? NETWORK.test(JSON.stringify(r)) : false;\nconst calls = policy.retry_waits_s.length + 1;\nif (transient && attempt < calls) {\n  return [{ json: { decision: 'retry', stage: NODE, attempt, wait_s: policy.retry_waits_s[attempt - 1],\n    reason: thrown ? 'connection error or timeout' : `HTTP ${status}` } }];\n}\nif (thrown || transient) {\n  const e = r.error;\n  const detail = thrown\n    ? (typeof e === 'string' ? e : [e?.message, e?.description].filter(Boolean).join(': ') || JSON.stringify(r))\n    : `HTTP ${status}: ${typeof r.body === 'string' ? r.body : JSON.stringify(r.body)}`;\n  return [{ json: { decision: 'error', stage: NODE, attempts: attempt, retry_exhausted: transient, http_status: status,\n    message: `${detail}`.slice(0, 500) + (transient ? ` (${attempt} calls)` : '') } }];\n}\nreturn [{ json: { decision: 'response', stage: NODE, attempts: attempt, statusCode: status, body: r.body } }];\n"
+      },
+      "id": "c94a952c-fe5f-57d3-9aee-1254376dbcaa",
+      "name": "Assess: Post TheHive comment",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5520,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "adbcfbde-7460-5eb4-9133-34d707d063c1",
+              "leftValue": "={{ $json.decision === 'retry' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "c9c65742-f4b2-5576-984b-7af61736e270",
+      "name": "Retry: Post TheHive comment?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        5760,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "resume": "timeInterval",
+        "amount": "={{ $json.wait_s }}",
+        "unit": "seconds"
+      },
+      "id": "6ad58142-8431-51e6-8ba7-ec947afa1eec",
+      "name": "Wait before retry: Post TheHive comment",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        5760,
+        -300
+      ],
+      "webhookId": "3df46214-0a4a-51ec-9417-5b1426b443fe"
+    },
+    {
+      "parameters": {
+        "jsCode": "const c = $('Context').first().json;\nconst d = $('Decide').first().json;\nconst p = $('Comment plan').first().json;\nconst after = $('After the action').isExecuted ? $('After the action').first().json : null;\nlet comment = p.post ? 'not written' : `none (${p.why})`;\nif (p.post) {\n  const a = $('Assess: Post TheHive comment').isExecuted ? $('Assess: Post TheHive comment').first().json : null;\n  comment = a && a.decision === 'response' && a.statusCode === 201 ? `written (${p.kind}: ${p.first})`\n    : `failed (${a ? (a.decision === 'error' ? a.message : `HTTP ${a.statusCode}`) : 'not attempted'})`;\n}\nreturn [{ json: {\n  outcome: after ? after.result.status : d.decision === 'refuse' ? 'refused' : d.decision,\n  code: after ? (after.result.code ?? null) : (d.code ?? null),\n  reason: after ? (after.result.reason ?? after.result.line) : (d.reason ?? null),\n  line: after ? after.result.line : null,\n  thehive_alert_id: c.event.thehive_alert_id,\n  wazuh_alert_id: d.alert?.wazuh_alert_id ?? null,\n  approved_by: c.event.actor,\n  proposal: d.proposal ?? null,\n  mode: c.config.response.mode,\n  comment,\n  thehive_update: after?.update ? ($('Assess: Update TheHive alert').isExecuted && $('Assess: Update TheHive alert').first().json.statusCode === 204 ? 'ok' : 'failed') : null,\n  metrics: after?.metrics ? ($('Metrics (lib-metrics-upsert)').isExecuted ? $('Metrics (lib-metrics-upsert)').first().json.line ?? 'metrics: failed (unexpected)' : null) : null,\n  playbook: $workflow.name,\n} }];\n"
+      },
+      "id": "7a02e10d-be50-54ae-83e6-1ed6b7c31ceb",
+      "name": "Outcome",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        6000,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Called by a workflow": {
+      "main": [
+        [
+          {
+            "node": "Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read TheHive alert": {
+      "main": [
+        [
+          {
+            "node": "Assess: Read TheHive alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Assess: Read TheHive alert": {
+      "main": [
+        [
+          {
+            "node": "Retry: Read TheHive alert?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Retry: Read TheHive alert?": {
+      "main": [
+        [
+          {
+            "node": "Wait before retry: Read TheHive alert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "List TheHive comments",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait before retry: Read TheHive alert": {
+      "main": [
+        [
+          {
+            "node": "Read TheHive alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "List TheHive comments": {
+      "main": [
+        [
+          {
+            "node": "Assess: List TheHive comments",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Assess: List TheHive comments": {
+      "main": [
+        [
+          {
+            "node": "Retry: List TheHive comments?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Retry: List TheHive comments?": {
+      "main": [
+        [
+          {
+            "node": "Wait before retry: List TheHive comments",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Decide",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait before retry: List TheHive comments": {
+      "main": [
+        [
+          {
+            "node": "List TheHive comments",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Context": {
+      "main": [
+        [
+          {
+            "node": "Read TheHive alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Decide": {
+      "main": [
+        [
+          {
+            "node": "Execute?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute?": {
+      "main": [
+        [
+          {
+            "node": "Response input",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Comment plan",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Response input": {
+      "main": [
+        [
+          {
+            "node": "Response (lib-wazuh-active-response)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Response (lib-wazuh-active-response)": {
+      "main": [
+        [
+          {
+            "node": "After the action",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "After the action": {
+      "main": [
+        [
+          {
+            "node": "Update alert?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update TheHive alert": {
+      "main": [
+        [
+          {
+            "node": "Assess: Update TheHive alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Assess: Update TheHive alert": {
+      "main": [
+        [
+          {
+            "node": "Retry: Update TheHive alert?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Retry: Update TheHive alert?": {
+      "main": [
+        [
+          {
+            "node": "Wait before retry: Update TheHive alert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Metrics?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait before retry: Update TheHive alert": {
+      "main": [
+        [
+          {
+            "node": "Update TheHive alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update alert?": {
+      "main": [
+        [
+          {
+            "node": "Update TheHive alert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Metrics?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Metrics?": {
+      "main": [
+        [
+          {
+            "node": "Metrics input",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Comment plan",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Metrics input": {
+      "main": [
+        [
+          {
+            "node": "Metrics (lib-metrics-upsert)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Metrics (lib-metrics-upsert)": {
+      "main": [
+        [
+          {
+            "node": "Comment plan",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Comment plan": {
+      "main": [
+        [
+          {
+            "node": "Post comment?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post TheHive comment": {
+      "main": [
+        [
+          {
+            "node": "Assess: Post TheHive comment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Assess: Post TheHive comment": {
+      "main": [
+        [
+          {
+            "node": "Retry: Post TheHive comment?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Retry: Post TheHive comment?": {
+      "main": [
+        [
+          {
+            "node": "Wait before retry: Post TheHive comment",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Outcome",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait before retry: Post TheHive comment": {
+      "main": [
+        [
+          {
+            "node": "Post TheHive comment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post comment?": {
+      "main": [
+        [
+          {
+            "node": "Post TheHive comment",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Outcome",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataSuccessExecution": "all",
+    "saveDataErrorExecution": "all",
+    "saveManualExecutions": true,
+    "errorWorkflow": "asoxRecvN8nError"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "nodeGroups": [],
+  "tags": [],
+  "pinData": {}
+}
