@@ -4,13 +4,15 @@
 #
 # Usage: scripts/bootstrap.sh <node>
 #   core : Wazuh API user n8n-api with a read-only role (C2);
+#          agent group asox-response and Wazuh API user n8n-response,
+#          active response on that group's agents only (C9);
 #          the asox-metrics index template and the empty index (C11);
 #          indexer user grafana-ro, read-only on wazuh-alerts-* and
 #          asox-metrics (C8, C11); indexer user n8n-indexer, documents of
 #          asox-metrics and read on wazuh-alerts-* (C11, C13);
 #          n8n recreated if its .env changed (docker compose up --wait),
-#          n8n owner, n8n credentials (incl. TheHive, Cortex, MISP and
-#          the indexer, C3/C6/C10/C11),
+#          n8n owner, n8n credentials (incl. TheHive, Cortex, MISP, the
+#          indexer and Wazuh's response user, C3/C6/C9/C10/C11),
 #          and the workflows from nodes/core/n8n/workflows/ that n8n
 #          doesn't have yet
 #   cases: Cortex indexes, superadmin, SOC organization, org admin and the
@@ -56,6 +58,15 @@ N8N_POLICIES=(
   rootcheck_read_rootcheck ciscat_read_ciscat
   cluster_read_resourceless
 )
+
+# Response role for n8n (C9, D44): active response and agent read, only on
+# the agents of WAZUH_RESPONSE_AGENT_GROUP. A custom policy (no built-in one
+# is scoped to a group), linked to its own role; n8n-api is never touched.
+RESP_ROLE=n8n-response
+RESP_POLICY=n8n-response
+RESP_ACTIONS=(active-response:command agent:read)
+# Harmless probe for the refusal checks (as C2's): no such script exists.
+AR_PROBE='{"command": "!asox-contract-probe", "arguments": []}'
 
 # Indexer roles: Grafana reads wazuh-alerts-* (C8) and asox-metrics (C11,
 # R-11); n8n writes asox-metrics (C11) and reads wazuh-alerts-* (C13, R-16).
@@ -146,6 +157,113 @@ bootstrap_wazuh_api() {
       pass "Wazuh API: user $user (role $N8N_ROLE) can log in and list agents"
       return
     fi
+  done
+  fail "Wazuh API: user $user cannot log in or list agents (after $attempt attempts)"
+}
+
+# C9 (D44): agent group, policy, role and user n8n-response. Each object is
+# created when missing and set back to what is here when it drifted; the
+# n8n-api user and role (C2) are never read or written here.
+bootstrap_wazuh_response() {
+  local user pw group resp existing policy
+  user=$(core_env WAZUH_RESPONSE_USER)
+  pw=$(core_env WAZUH_RESPONSE_PASSWORD)
+  group=$(core_env WAZUH_RESPONSE_AGENT_GROUP)
+  [[ -n $user && -n $pw && -n $group ]] || { fail "Wazuh API: WAZUH_RESPONSE_USER / _PASSWORD / _AGENT_GROUP empty in nodes/core/.env (run scripts/render-env.sh)"; return; }
+  wazuh_admin_login || { fail "Wazuh API: admin login failed (C9)"; return; }
+
+  # Agent group: agents join it by enrollment or through the API (Wazuh owner).
+  existing=$(wazuh_api GET "/groups?limit=500&select=name")
+  if ! jq -e --arg g "$group" 'any(.data.affected_items[]; .name == $g)' >/dev/null <<<"$existing"; then
+    resp=$(wazuh_api POST /groups "$(jq -nc --arg g "$group" '{group_id: $g}')")
+    wazuh_ok "agent group $group" "$resp" || return
+  fi
+  pass "Wazuh API: agent group $group exists"
+
+  # Policy: exactly these actions on this group's agents.
+  local policy_id want
+  want=$(jq -nc --arg r "agent:group:$group" '$ARGS.positional as $a
+    | {actions: $a, resources: [$r], effect: "allow"}' --args "${RESP_ACTIONS[@]}")
+  existing=$(wazuh_api GET "/security/policies?limit=500")
+  policy_id=$(jq -r --arg n "$RESP_POLICY" '.data.affected_items[] | select(.name == $n) | .id' <<<"$existing")
+  if [[ -z $policy_id ]]; then
+    resp=$(wazuh_api POST /security/policies "$(jq -nc --arg n "$RESP_POLICY" --argjson p "$want" '{name: $n, policy: $p}')")
+    wazuh_ok "policy $RESP_POLICY" "$resp" || return
+    policy_id=$(jq -r '.data.affected_items[0].id' <<<"$resp")
+  else
+    policy=$(jq -c --arg n "$RESP_POLICY" '.data.affected_items[] | select(.name == $n) | .policy' <<<"$existing")
+    if [[ $(jq -cS '.actions |= sort | .resources |= sort' <<<"$policy") != $(jq -cS '.actions |= sort | .resources |= sort' <<<"$want") ]]; then
+      resp=$(wazuh_api PUT "/security/policies/$policy_id" "$(jq -nc --argjson p "$want" '{policy: $p}')")
+      wazuh_ok "policy $RESP_POLICY update" "$resp" || return
+    fi
+  fi
+  pass "Wazuh API: policy $RESP_POLICY (${RESP_ACTIONS[*]} on agent:group:$group)"
+
+  # Role, linked to this policy only.
+  local role_id linked extra
+  existing=$(wazuh_api GET "/security/roles?limit=500")
+  role_id=$(jq -r --arg n "$RESP_ROLE" '.data.affected_items[] | select(.name == $n) | .id' <<<"$existing")
+  if [[ -z $role_id ]]; then
+    resp=$(wazuh_api POST /security/roles "$(jq -nc --arg n "$RESP_ROLE" '{name: $n}')")
+    wazuh_ok "role $RESP_ROLE" "$resp" || return
+    role_id=$(jq -r '.data.affected_items[0].id' <<<"$resp")
+    linked=""
+  else
+    linked=$(jq -r --arg n "$RESP_ROLE" '.data.affected_items[] | select(.name == $n) | .policies[]' <<<"$existing")
+  fi
+  if ! grep -qx "$policy_id" <<<"$linked"; then
+    resp=$(wazuh_api POST "/security/roles/$role_id/policies?policy_ids=$policy_id")
+    wazuh_ok "role $RESP_ROLE policy" "$resp" || return
+  fi
+  extra=$(grep -vx "$policy_id" <<<"$linked" | sed '/^$/d' | paste -sd, - || true)
+  if [[ -n $extra ]]; then
+    resp=$(wazuh_api DELETE "/security/roles/$role_id/policies?policy_ids=$extra")
+    wazuh_ok "role $RESP_ROLE extra policies" "$resp" || return
+  fi
+  pass "Wazuh API: role $RESP_ROLE (policy $RESP_POLICY only)"
+
+  # User, with the password from .env, assigned only to this role.
+  local user_id roles
+  existing=$(wazuh_api GET "/security/users?limit=500")
+  user_id=$(jq -r --arg u "$user" '.data.affected_items[] | select(.username == $u) | .id' <<<"$existing")
+  if [[ -z $user_id ]]; then
+    resp=$(wazuh_api POST /security/users "$(jq -nc --arg u "$user" --arg p "$pw" '{username: $u, password: $p}')")
+    wazuh_ok "user $user" "$resp" || return
+    user_id=$(jq -r '.data.affected_items[0].id' <<<"$resp")
+  elif [[ $(wazuh_token "$user" "$pw") != ey* ]]; then
+    resp=$(wazuh_api PUT "/security/users/$user_id" "$(jq -nc --arg p "$pw" '{password: $p}')")
+    wazuh_ok "user $user password" "$resp" || return
+  fi
+  roles=$(jq -r --arg u "$user" '.data.affected_items[] | select(.username == $u) | .roles[]?' <<<"$existing")
+  if ! grep -qx "$role_id" <<<"$roles"; then
+    resp=$(wazuh_api POST "/security/users/$user_id/roles?role_ids=$role_id")
+    wazuh_ok "user $user role" "$resp" || return
+  fi
+  extra=$(grep -vx "$role_id" <<<"$roles" | sed '/^$/d' | paste -sd, - || true)
+  if [[ -n $extra ]]; then
+    resp=$(wazuh_api DELETE "/security/users/$user_id/roles?role_ids=$extra")
+    wazuh_ok "user $user extra roles" "$resp" || return
+  fi
+
+  # Checks as the user (no side effects): it lists only the group's agents,
+  # and active response on agent 000 (the manager, in no group) is refused.
+  # Tokens issued in the same second as an RBAC change are revoked (A18).
+  local token attempt listed outside ar
+  for attempt in 1 2 3 4 5; do
+    sleep 2
+    token=$(wazuh_token "$user" "$pw")
+    [[ $token == ey* ]] || continue
+    resp=$(WAZUH_TOKEN=$token wazuh_api GET "/agents?limit=500&select=id,group")
+    [[ $(jq -r '.error' <<<"$resp" 2>/dev/null) == 0 ]] || continue
+    listed=$(jq -r '[.data.affected_items[].id] | join(",")' <<<"$resp")
+    outside=$(jq -r --arg g "$group" '[.data.affected_items[] | select((.group // []) | index($g) | not) | .id] | join(",")' <<<"$resp")
+    ar=$(http_code "$(WAZUH_TOKEN=$token wazuh_api_status PUT "/active-response?agents_list=000" "$AR_PROBE")")
+    if [[ -z $outside && $ar == 403 ]]; then
+      pass "Wazuh API: user $user (role $RESP_ROLE) lists only group $group's agents (${listed:-none yet}); active response on agent 000 refused (HTTP 403)"
+    else
+      fail "Wazuh API: user $user sees agents outside group $group (${outside:-none}) or active response on agent 000 got HTTP $ar (expected 403)"
+    fi
+    return
   done
   fail "Wazuh API: user $user cannot log in or list agents (after $attempt attempts)"
 }
@@ -381,6 +499,7 @@ bootstrap_n8n() {
 bootstrap_core() {
   echo "== bootstrap core"
   bootstrap_wazuh_api
+  bootstrap_wazuh_response
   bootstrap_indexer
   bootstrap_n8n
 }
