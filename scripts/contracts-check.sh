@@ -6,7 +6,8 @@
 #
 # Usage: scripts/contracts-check.sh [--only C3,C4,C14,E2E]
 #   checks: C1-C8, C10, C11, C14, E2E (default: all, in that order)
-#   opt-in, only with --only: C1-RETRY (stops and starts n8n)
+#   opt-in, only with --only: C1-RETRY (stops and starts n8n),
+#   C9 (a firewall-drop of 192.0.2.1 on the lab agent)
 # One PASS/FAIL line per contract (and for E2E); exit code 1 if any contract fails.
 # C3/C4 create a test alert in TheHive (source contract-check) and delete it;
 # C1 deletes the TheHive alert n8n makes from its test alert (source asox-test).
@@ -30,6 +31,9 @@
 # starts n8n and expects the alert delivered once on a later try (custom-n8n.py's
 # retries), one recv-wazuh-alert execution and one TheHive alert; it deletes
 # the TheHive alert like C1 and always starts n8n again.
+# C9 (opt-in; D44) runs n8n's chk-wazuh-response: n8n-response's limits and
+# one firewall-drop of 192.0.2.1 on the lab agent, then reads the agent's
+# active-responses.log; SKIP while the workflow isn't deployed (404).
 set -euo pipefail
 # shellcheck source=scripts/lib/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
@@ -52,11 +56,11 @@ while (( $# > 0 )); do
   shift
 done
 ALL_CONTRACTS=(C1 C2 C3 C4 C5 C6 C7 C8 C10 C11 C14 E2E)
-OPT_IN=(C1-RETRY)   # only with --only: they restart containers
+OPT_IN=(C1-RETRY C9)   # only with --only: they restart containers or act on an agent
 if [[ -n $ONLY ]]; then
   IFS=',' read -r -a CONTRACTS <<<"${ONLY^^}"
   for c in "${CONTRACTS[@]}"; do
-    [[ " ${ALL_CONTRACTS[*]} ${OPT_IN[*]} " == *" $c "* ]] || die "unknown check: $c (C1-C8, C10, C11, C14, E2E, C1-RETRY)"
+    [[ " ${ALL_CONTRACTS[*]} ${OPT_IN[*]} " == *" $c "* ]] || die "unknown check: $c (C1-C8, C10, C11, C14, E2E, C1-RETRY, C9)"
   done
 else
   CONTRACTS=("${ALL_CONTRACTS[@]}")
@@ -317,6 +321,80 @@ check_C2() {
     return
   fi
   pass "$c: credential logs in and lists $(jq -r '.agents' <<<"$resp") agents; active response rejected (HTTP 403)"
+}
+
+# C9 (opt-in, only with --only: it acts on an agent; D44). n8n's check
+# workflow chk-wazuh-response (same token header as C2) gets
+# {agent, srcip, timeout} and, as n8n-response (credential "Wazuh API
+# (n8n-response)"), answers:
+#   authenticated  true when the login worked
+#   agent_id       the ID of agent <agent>, as n8n-response lists it
+#   outside_group  agents n8n-response lists that aren't in the response group
+#   write_status   HTTP status of a non-active-response write (403 expected)
+#   ar_outside_status  HTTP status of active response on agent 000, the
+#                  manager, in no group (403 expected)
+#   ar_status, ar_affected  HTTP status and affected agents of firewall-drop
+#                  of <srcip> on <agent> (200 and [agent_id] expected)
+# The API's 200 only means "sent to the agent", so the check then reads the
+# lab agent's active-responses.log for the command (read-only). Whether
+# iptables ran is reported, not required: the lab image has neither iptables
+# nor NET_ADMIN until the Wazuh owner's W7.2. SKIP on 404 (workflow not
+# deployed) or when the lab agent isn't running here.
+C9_WORKFLOW=chk-wazuh-response
+C9_SRCIP=192.0.2.1   # documentation range (RFC 5737)
+C9_TIMEOUT=60
+C9_AR_LOG=/var/ossec/logs/active-responses.log
+c9_ar_lines() {
+  compose lab exec -T lab-agent grep -c "firewall-drop: .*\"command\":\"add\".*\"$C9_SRCIP\"" "$C9_AR_LOG" 2>/dev/null || true
+}
+check_C9() {
+  local c="C9 n8n -> Wazuh active response" agent r code resp before after deadline tail note
+  if ! compose lab ps --status running --services 2>/dev/null | grep -qx lab-agent; then
+    skip "$c: not checked: the lab agent isn't running on this machine"
+    return
+  fi
+  agent=$(env_get "$(node_dir lab)/.env" LAB_AGENT_NAME)
+  before=$(c9_ar_lines); before=${before:-0}
+  r=$(curl -s -w '\n%{http_code}' --max-time 60 -X POST "$N8N_URL/webhook/$C9_WORKFLOW" \
+    -H "X-ASOX-Token: $(core_env N8N_WEBHOOK_TOKEN)" -H 'Content-Type: application/json' \
+    -d "$(jq -nc --arg a "$agent" --arg ip "$C9_SRCIP" --argjson t "$C9_TIMEOUT" '{agent: $a, srcip: $ip, timeout: $t}')" \
+    || printf '\n000')
+  code=$(http_code "$r") resp=$(http_body "$r")
+  if [[ $code == 404 ]]; then
+    skip "$c: not checked: $C9_WORKFLOW not deployed (n8n branch, N8N-8.x)"
+    return
+  fi
+  if ! jq -e '.authenticated == true' >/dev/null 2>&1 <<<"$resp"; then
+    fail "$c: check workflow $C9_WORKFLOW failed (HTTP $code; active? credential \"Wazuh API (n8n-response)\"?): ${resp:0:200}"
+    return
+  fi
+  if [[ $(jq -r '.outside_group' <<<"$resp") != 0 ]]; then
+    fail "$c: n8n-response lists $(jq -r '.outside_group' <<<"$resp") agent(s) outside its group (run scripts/bootstrap.sh core)"
+    return
+  fi
+  if [[ $(jq -r '.write_status' <<<"$resp") != 403 || $(jq -r '.ar_outside_status' <<<"$resp") != 403 ]]; then
+    fail "$c: n8n-response not limited: non-AR write HTTP $(jq -r '.write_status' <<<"$resp"), active response on agent 000 HTTP $(jq -r '.ar_outside_status' <<<"$resp") (403 expected for both)"
+    return
+  fi
+  if [[ $(jq -r '.ar_status' <<<"$resp") != 200 ]] \
+     || ! jq -e '.agent_id as $i | $i != null and ((.ar_affected // []) | index($i)) != null' >/dev/null 2>&1 <<<"$resp"; then
+    fail "$c: firewall-drop of $C9_SRCIP on $agent not accepted (HTTP $(jq -r '.ar_status' <<<"$resp"), affected $(jq -c '.ar_affected' <<<"$resp"); is $agent in group $(core_env WAZUH_RESPONSE_AGENT_GROUP)?)"
+    return
+  fi
+  deadline=$(( SECONDS + 30 ))
+  while :; do
+    after=$(c9_ar_lines); after=${after:-0}
+    (( after > before || SECONDS >= deadline )) && break
+    sleep 2
+  done
+  if (( after <= before )); then
+    fail "$c: the API accepted firewall-drop, but $agent logged no run of it within 30s ($C9_AR_LOG; agent reloading after a group change?)"
+    return
+  fi
+  tail=$(compose lab exec -T lab-agent tail -n 5 "$C9_AR_LOG" 2>/dev/null || true)
+  if grep -q "iptables' is not accessible" <<<"$tail"; then note="iptables missing on the agent (W7.2)"
+  else note="see $C9_AR_LOG on the agent for iptables' result"; fi
+  pass "$c: n8n-response lists only its group, a non-AR write and active response on agent 000 are refused (HTTP 403); firewall-drop of $C9_SRCIP accepted and run on $agent (agent $(jq -r '.agent_id' <<<"$resp")); $note"
 }
 
 # ------------------------------------------------------ TheHive test alert ---
@@ -853,7 +931,7 @@ check_C8() {
   fi
 }
 
-if [[ ! -f $CORE_ENV && " ${CONTRACTS[*]} " =~ \ (C([123468]|1[014])|E2E|C1-RETRY)\  ]]; then
+if [[ ! -f $CORE_ENV && " ${CONTRACTS[*]} " =~ \ (C([1234689]|1[014])|E2E|C1-RETRY)\  ]]; then
   die "nodes/core/.env not found; run this on the core machine after scripts/soc.sh init"
 fi
 echo "== Integration contracts (${CONTRACTS[*]})"
