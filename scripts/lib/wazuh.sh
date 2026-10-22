@@ -17,6 +17,18 @@ wazuh_api() {
   fi
 }
 
+# The same, but prints the body, then the HTTP status on a last line (read
+# them with http_body / http_code): for checks that expect a refusal.
+wazuh_api_status() {
+  local method=$1 path=$2 data=${3:-}
+  local -a args=(-sk -w '\n%{http_code}' -X "$method" -H "Authorization: Bearer $WAZUH_TOKEN" "https://localhost:55000$path")
+  if [[ -n $data ]]; then
+    printf '%s' "$data" | compose core exec -T wazuh-manager curl "${args[@]}" -H 'Content-Type: application/json' --data-binary @-
+  else
+    compose core exec -T wazuh-manager curl "${args[@]}"
+  fi || printf '\n000'
+}
+
 wazuh_token() {
   local user=$1 password=$2
   compose core exec -T wazuh-manager curl -sk -u "$user:$password" -X POST \

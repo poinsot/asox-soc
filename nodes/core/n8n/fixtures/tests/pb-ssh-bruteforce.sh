@@ -17,7 +17,9 @@
 #   c  b's 40112 again with the same id: duplicate at intake (one queue row),
 #      nothing new written, still one escalation comment
 #   d  40112, then 5763 (the parallel-slot order): the 5763 escalates itself
-#   e  5763 from an address with no history: no related alert, no escalation
+#   e  5763 from an address with no history: no related alert, no escalation;
+#      a response proposal (C9 v0) when lab-agent is in group asox-response,
+#      else the recommendation with the reason; no response comment
 #   f  100200: still pb-generic, caseTemplate suspicious-login
 #   g  the parallel-slot race (N8N-4.2 follow-up): a 5763 whose TheHive alert
 #      is raised to 4 with n8n's key (C4 drops the event, as it drops a
@@ -297,7 +299,16 @@ if run_case e; then
     check "e: no related alert" wb_has "$wb7" "Related (same source within 1 h): 0 alert(s) from $ip"
     check "e: no escalation: severity 3, no $ESCALATED tag" jqt "$a7" '.severity == 3 and ((.tags // []) | index($e) == null)' --arg e "$ESCALATED"
     check "e: tagged $CAMPAIGN$ip" has_tag "$a7" "$CAMPAIGN$ip"
-    check "e: response recommended, nothing changed" wb_has "$wb7" "Recommended: block $ip (response actions, C9, Phase 2); nothing was changed."
+    # C9 v0: a proposal when the fixture's agent (lab-agent) is in group
+    # asox-response here, else the recommendation with the reason; never an
+    # action (that needs an analyst's approval tag).
+    if wb_has "$wb7" "Proposed: firewall-drop $ip on lab-agent for 300 s ("; then
+      check "e: response proposed (C9 v0), with its marker, nothing changed" wb_has "$wb7" \
+        "Approve by adding the tag approve:firewall-drop to this alert within 1 h." "[asox-n8n response-proposal] " " $ip firewall-drop 300"
+    else
+      check "e: response recommended with the reason, nothing changed" wb_has "$wb7" "Recommended: block $ip (response actions, C9); nothing was changed (no proposal: "
+    fi
+    check "e: no response comment (no approval)" test "$(alert_list "$th7" comments | jq --arg p '[asox-n8n response] ' '[.[] | select((.message // "") | startswith($p))] | length')" = 0
   fi
 fi
 
