@@ -42,20 +42,22 @@ Takes about an hour. Uses the test alerts, so nothing real is touched; `--cleanu
 
 ## 2. TheHive's part of the team demo (TD.5), in `full` mode
 
-Runs on the machine that hosts `full` (the build instance), after Daniel's `demo.sh` / `DEMO.md` (WD.5) starts the attack. About 5 minutes. Suggested scenario: `ioc-ip` (rule 108000 → `ioc-match`, Critical), because it shows the whole chain including MISP; backup scenario: `ssh-success-after-fail` (40112 → `suspicious-login`, Critical).
+Runs on the instance that hosts `full` for the demo, after Daniel's `demo.sh` / `DEMO.md` (WD.5) starts the attack. About 5 minutes.
+
+**Scenario: SSH brute force, then a login** (`ssh-success-after-fail`: 5763 → `ssh-bruteforce`, then 40112 → `suspicious-login`, Critical). It runs n8n's `pb-ssh-bruteforce`, the only playbook that can propose a response (C9 v0, demo interim). Backup: `ioc-ip` (108000 → `ioc-match`), which shows MISP but has no response step.
 
 | Step | Show | Say |
 |---|---|---|
-| 1 | Alerts list: the new alert at the top, severity Critical, template `ioc-match` | n8n turned the Wazuh alert into a TheHive alert in seconds, deduplicated by `sourceRef` |
-| 2 | Open the alert: description table, tags (`rule:`, `agent:`, `attack.`), custom fields | Everything the analyst needs without opening Wazuh |
-| 3 | Observables: the IP with `asox:verdict=suspicious` and `analyzer:MISP_2_1`; a `warninglist` tag if any | Enrichment at intake (C6); a MISP hit is suspicious, the analyst decides if it's an IOC |
-| 4 | n8n's writeback comment `[asox-n8n writeback] …` | What the playbook did, with its execution ID |
-| 5 | Promote to case (or show it auto-promoted, R2): the template's tasks appear | Case templates = the procedure built into the case |
-| 6 | Run a Cortex analyzer by hand on the IP (C5) | Analysts can re-run enrichment any time |
-| 7 | Close tasks with logs, write the summary, close as True positive | Resolution status feeds Grafana's metrics (C11) |
-| 8 | Hand over to Grafana: MTTA / MTTR panels | Measured from the same alert |
+| 1 | Alerts list, sorted by severity: the SSH alerts at the top, the 40112 one Critical, all tagged `ssh-campaign:<ip>` | n8n turned each Wazuh alert into a TheHive alert in seconds, deduplicated, and linked the ones from the same attacker |
+| 2 | Open the 40112 alert: description table, tags (`rule:`, `agent:`, `attack.`, `ssh:login-after-bruteforce` on the brute-force alerts), custom fields | Everything the analyst needs without opening Wazuh; the brute force was raised to Critical because a login followed |
+| 3 | Observables: the attacker IP with `asox:verdict=…` (and `warninglist` if any) | Enrichment at intake (C6); the analyst decides if it's an IOC |
+| 4 | n8n's writeback comment `[asox-n8n writeback] …` with **"Proposed: firewall-drop `<ip>` on `<agent>` for 300 s"** | The playbook proposes blocking the attacker; nothing runs without the analyst |
+| 5 | Check the IP (it's the `src`, not a SOC host), then add the tag **`approve:firewall-drop`** | Human approval, recorded in TheHive (TRIAGE.md, "Interim for the physical-lab demo") |
+| 6 | n8n's comment `[asox-n8n response] firewall-drop … (live): sent`, the tag `asox:response=firewall-drop`, `containment-action` = `ip-blocked` | Wazuh blocks the IP on the attacked host for 5 minutes and removes the block by itself |
+| 7 | Create case from the 40112 alert (template "Successful login after failures"), merge the brute-force alerts into it (R4), close a task with a log | One attacker, one case; the template is the procedure |
+| 8 | Close the case: summary, True Positive; hand over to Grafana (MTTA / MTTR) | The resolution and times feed the metrics (C11) |
 
-Before the demo: `thehive-import.sh` on that instance (templates current), `thehive-test-alert.sh --cleanup` (no leftover test alerts), and one dry run.
+Before the demo: `thehive-import.sh` on that instance (templates current), `thehive-test-alert.sh --cleanup` (no leftover test alerts), the analyst login ready (never shown on screen), and one dry run of steps 1–6 with n8n and Wazuh. Ask whether n8n runs in `live` or `dry_run`: in `dry_run` step 6 says `not sent (dry_run)` and nothing is blocked.
 
 ## 3. Evidence for the delivery (TD.4)
 
