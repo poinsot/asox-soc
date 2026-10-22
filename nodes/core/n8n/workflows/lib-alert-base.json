@@ -1,0 +1,744 @@
+{
+  "id": "asoxLibAlertBase",
+  "name": "lib-alert-base",
+  "active": true,
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## lib-alert-base (N8N-2.8 first lib schema; shared chain of the playbooks)\n**Trigger:** called by the playbooks (pb-generic, pb-ssh-bruteforce, pb-malware-hash) through Execute Workflow, waiting for the result.\n**Inputs:** `{alert: <raw Wazuh alert>, config: <lib-config>, route: <lib-route-alert route, or null>, context: {playbook, n8n_execution_id, recv_execution_id}}`: the calling playbook's context (its name goes to the TheHive custom field `playbook` and the asox-metrics document, its execution id to the custom field and the writeback; this lib's own execution id is not used).\n**Actions taken:** the chain every playbook starts with, unchanged from pb-generic: lib-normalize-wazuh-alert -> lib-extract-observables -> lib-misp-warninglist (C10; On Error = continue, never parked) -> lib-thehive-upsert-alert (one TheHive alert per Wazuh alert, dedup by sourceRef) -> **created**: lib-enrich-observable (C6, On Error = continue; the alert's severity as sent to TheHive for VirusTotal's severe path, D-N7, and the enrichment's start time for the 600 s budget, D-N8) -> **duplicate**: lib-thehive-alert-state; without its writeback (an interrupted run, N8N-1.4) the observables without an `analyzer:` tag are enriched now (repair). Malformed input and TheHive failures are parked by lib-error from the same libs as before (same classes, same alert id), and the result says `parked`. **No writeback here:** the playbook builds its own from `writeback.sections` (route, TheHive alert, warninglists, enrichment) plus its own lines, then calls lib-thehive-writeback with `writeback.metrics` (C11).\n**Systems changed:** TheHive (alert, observable tags and IOC flag); Cortex and MISP run read-only lookups.\n**Approval:** not needed: SOC bookkeeping only (TheHive alert and observable tags), no system changes.\n**Owner:** n8n.\n**Output:** `{ok, outcome: created | duplicate | repaired | parked | skipped, wazuh_alert_id, thehive_alert_id, canonical, observables (as sent: extraction + warninglist tags), skipped_observables, extraction, warninglist, upsert (outcome, ids, severity, tags, created_at, duplicate, after_retry), alert_state, repair: {already_enriched} | null, enrichment (lib-enrich-observable's result, `{error}` on an unexpected failure, null when not run), enrichment_summary (counts | 'not run (duplicate)' | 'failed'), writeback: {sections: [text], metrics: {mode, alert_id, source, fields, attack_run_id}}}`; parked: `{ok: false, outcome, wazuh_alert_id, error, message, result}`; skipped: `{ok: false, outcome, status: 'skipped: TheHive not configured', wazuh_alert_id}`. Schema in the n8n README, \"lib-alert-base\".\nSaved: failed executions only (lib- convention; the playbook's execution holds the result); no error workflow.",
+        "height": 520,
+        "width": 560
+      },
+      "id": "519e7363-9783-5336-b654-c2dc613766e7",
+      "name": "About this workflow",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -40,
+        -620
+      ]
+    },
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "id": "8636e44b-d62c-5a44-b4b3-aaf45fa35b81",
+      "name": "Called by a workflow",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// lib-alert-base: the calling playbook's alert, lib-config, route and context.\n// The context (playbook name, its execution id) goes to TheHive and the\n// writeback as before: sub-workflows have their own execution ids.\nconst input = $input.first().json;\nif (!input.config || !input.config.writeback) throw new Error('lib-alert-base needs the lib-config output as `config`');\nif (!input.context || typeof input.context.playbook !== 'string') throw new Error('lib-alert-base needs the calling playbook\\'s `context` ({playbook, n8n_execution_id, recv_execution_id})');\nreturn [{ json: {\n  alert: input.alert,\n  config: input.config,\n  context: input.context,\n  // From lib-route-alert (N8N-1.3); null when called without a route.\n  route: input.route ?? null,\n} }];\n"
+      },
+      "id": "a83fbe15-6146-5849-9d7e-386114ac0666",
+      "name": "Context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        260,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const c = $('Context').first().json;\nreturn [{ json: { alert: c.alert, context: c.context } }];\n"
+      },
+      "id": "49be6c9f-ed2f-5a5a-822d-b8c4240e26a1",
+      "name": "Normalize input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        520,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "asoxLibNormWazAl",
+          "cachedResultName": "lib-normalize-wazuh-alert"
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "a85674ea-a863-51be-ba0b-b9d7abc71dc7",
+      "name": "Normalize (lib-normalize-wazuh-alert)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        780,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "a7e59c65-b6df-5a55-911a-82857df38ad2",
+              "leftValue": "={{ $json.ok === true }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "46fa01bb-3e43-57f1-be38-9d17652e5236",
+      "name": "Normalized?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1040,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const c = $('Context').first().json;\nreturn [{ json: { canonical: $input.first().json.canonical, config: c.config } }];\n"
+      },
+      "id": "10a9283c-ad74-5b50-ac80-c20a818ab881",
+      "name": "Extract input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1300,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "asoxLibExtract01",
+          "cachedResultName": "lib-extract-observables"
+        },
+        "options": {}
+      },
+      "id": "7e7149d5-1a24-50e8-940c-a8d099f33a6d",
+      "name": "Extract observables (lib-extract-observables)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1560,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// C10 (N8N-2.11): one MISP warninglist call for the alert's observables, before\n// the TheHive alert is created, so the tags travel in its body.\nconst c = $('Context').first().json;\nreturn [{ json: { observables: $input.first().json.observables, config: c.config, context: c.context } }];\n"
+      },
+      "id": "bf0691e5-f621-551c-b72e-2b8bd7989937",
+      "name": "Warninglist input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1820,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "asoxLibMispWl001",
+          "cachedResultName": "lib-misp-warninglist"
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "d2105d43-7314-55b3-b2a0-22ea39f9b4e5",
+      "name": "Warninglists (lib-misp-warninglist)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        2080,
+        -100
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const c = $('Context').first().json;\nconst ex = $('Extract observables (lib-extract-observables)').first().json;\n// Observables as tagged by lib-misp-warninglist (C10); the extraction's own when\n// the lib failed unexpectedly (On Error = continue: its item is then {error}).\nconst wl = $('Warninglists (lib-misp-warninglist)').first().json;\nconst observables = Array.isArray(wl.observables) ? wl.observables : ex.observables;\nreturn [{ json: {\n  canonical: $('Normalize (lib-normalize-wazuh-alert)').first().json.canonical,\n  extraction: { ...ex, observables },\n  config: c.config, context: c.context, route: c.route,\n} }];\n"
+      },
+      "id": "9a934d67-60c3-566c-bfcc-02ebddb2b796",
+      "name": "Upsert input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2340,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "asoxLibThUpsertA",
+          "cachedResultName": "lib-thehive-upsert-alert"
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "a45f6db3-a1f3-56ad-a8c7-bb4cf7c891ab",
+      "name": "Upsert (lib-thehive-upsert-alert)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        2600,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "44a16680-54f3-5aba-b30f-eba7f39493ad",
+              "leftValue": "={{ $json.skipped !== true }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a54dc8d2-0888-53af-a273-b5333f9f28ef",
+      "name": "TheHive configured?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2860,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "e2589e91-70a1-529b-b512-2cd86957fd6d",
+              "leftValue": "={{ $json.ok === true }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "c657da4c-c15a-5161-9e48-d0973130e562",
+      "name": "In TheHive?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        3120,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "6d3b05af-d786-5174-8ecd-3afd32e927a6",
+              "leftValue": "={{ $json.duplicate !== true }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "17aa7db6-a491-5beb-ad91-104f9ab79d7f",
+      "name": "Created?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        3380,
+        -200
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Only a newly created alert is enriched (a duplicate was enriched when it was\n// created). TLP / PAP are the alert's (lib-config), checked against each\n// analyzer's max by lib-enrich-observable. severity: as sent to TheHive (D-N7,\n// VirusTotal's severe path); enrichment_started_ms: the budget's start (D-N8).\nconst c = $('Context').first().json;\nconst u = $input.first().json;\nconst ex = $('Extract observables (lib-extract-observables)').first().json;\n// Observables as tagged by lib-misp-warninglist (C10); the extraction's own when\n// the lib failed unexpectedly (On Error = continue: its item is then {error}).\nconst wl = $('Warninglists (lib-misp-warninglist)').first().json;\nconst observables = Array.isArray(wl.observables) ? wl.observables : ex.observables;\nreturn [{ json: {\n  thehive_alert_id: u.thehive_alert_id, wazuh_alert_id: u.wazuh_alert_id,\n  observables, tlp: c.config.tlp, pap: c.config.pap,\n  severity: u.severity, enrichment_started_ms: Date.now(),\n  config: c.config, context: c.context,\n} }];"
+      },
+      "id": "d75eb05b-1585-5513-a8c7-e239a6702cb8",
+      "name": "Enrich input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3640,
+        -340
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "asoxLibEnrichObs",
+          "cachedResultName": "lib-enrich-observable"
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "fba4ffda-4d8c-5bbb-a50a-b75a7d22c211",
+      "name": "Enrich (lib-enrich-observable)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        3900,
+        -340
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// The TheHive alert already existed (duplicate sourceRef). Does it have its\n// writeback? If not, an earlier run stopped before writing it (n8n crashed or\n// restarted, N8N-1.4): this run completes it.\nconst c = $('Context').first().json;\nconst u = $input.first().json;\nreturn [{ json: { thehive_alert_id: u.thehive_alert_id, wazuh_alert_id: u.wazuh_alert_id, config: c.config } }];\n"
+      },
+      "id": "9e2f7cae-148d-57fe-ae1c-6849ce60bed5",
+      "name": "Alert state input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3640,
+        -40
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "asoxLibThAlState",
+          "cachedResultName": "lib-thehive-alert-state"
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "345db2bf-1544-55df-9ee5-60b1bb20334c",
+      "name": "Alert state (lib-thehive-alert-state)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        3880,
+        -40
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "bb1b2329-b4e8-5f9b-9d36-1fbe65de5dd7",
+              "leftValue": "={{ $json.ok === true && $json.writeback_exists === false }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "c6ce951f-8e46-55be-8ed3-2b968569a7a7",
+      "name": "Interrupted run?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        4120,
+        -40
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Completing an interrupted run (N8N-1.4): observables already enriched before\n// the interruption (a tag with the analyzer prefix on the TheHive observable)\n// are not sent again; the others go through the same policy as a new alert,\n// with the alert's severity as TheHive has it (D-N7) and a budget counted from\n// this call (D-N8: the interrupted run's start isn't stored).\nconst c = $('Context').first().json;\nconst u = $('Upsert (lib-thehive-upsert-alert)').first().json;\nconst st = $input.first().json;\nconst ex = $('Extract observables (lib-extract-observables)').first().json;\n// Observables as tagged by lib-misp-warninglist (C10); the extraction's own when\n// the lib failed unexpectedly (On Error = continue: its item is then {error}).\nconst wl = $('Warninglists (lib-misp-warninglist)').first().json;\nconst observables = Array.isArray(wl.observables) ? wl.observables : ex.observables;\nconst prefix = c.config.enrichment.tags.analyzer_prefix;\nconst key = (o) => `${o.dataType}:${o.data}`;\nconst done = new Set(st.observables.filter((o) => o.tags.some((t) => t.startsWith(prefix))).map(key));\nreturn [{ json: {\n  thehive_alert_id: u.thehive_alert_id, wazuh_alert_id: u.wazuh_alert_id,\n  observables: observables.filter((o) => !done.has(key(o))),\n  already_enriched: observables.filter((o) => done.has(key(o))).map((o) => `${o.dataType} ${o.data}`),\n  tlp: c.config.tlp, pap: c.config.pap, severity: u.severity, enrichment_started_ms: Date.now(),\n  config: c.config, context: c.context,\n} }];"
+      },
+      "id": "4412f276-976f-5626-b6a5-8e31f04ae39e",
+      "name": "Repair enrich input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4360,
+        -140
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Normalize or upsert handed the alert to lib-error, which parked it.\nconst r = $input.first().json;\nconst alert = $('Context').first().json.alert;\nreturn [{ json: {\n  ok: false,\n  outcome: 'parked',\n  wazuh_alert_id: r.wazuh_alert_id ?? (typeof alert?.id === 'string' ? alert.id : null),\n  error: r.error_class ?? r.stage ?? null,\n  message: r.message ?? null,\n  result: r,\n} }];\n"
+      },
+      "id": "f6e413df-5254-562f-a4c0-4cd5c84e335e",
+      "name": "Parked result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3380,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// lib-config: THEHIVE_ENABLED=false (no cases node on this machine). Recorded,\n// not parked: there is nothing to retry.\nconst u = $input.first().json;\nreturn [{ json: {\n  ok: false,\n  outcome: 'skipped',\n  status: 'skipped: TheHive not configured',\n  wazuh_alert_id: u.wazuh_alert_id,\n} }];\n"
+      },
+      "id": "ccd47c4b-c03f-5d76-9a1b-bd5a0e631b74",
+      "name": "Skipped result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3120,
+        -400
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// The chain's result for the calling playbook. `actions`: the writeback's\n// sections every playbook shares (route, TheHive alert, warninglists,\n// enrichment), as pb-generic wrote them; the playbook adds its own lines\n// and the \"Systems changed\" line, then calls lib-thehive-writeback.\n// repair: the alert existed without a writeback and this run completed it (N8N-1.4).\nconst repair = $('Repair enrich input').isExecuted;\n// Enrichment section (N8N-2.4): counts, then one line per observable.\nfunction enrichmentLines(u) {\n  if (u.duplicate && !repair) return ['Enrichment: not run (duplicate: enriched when the alert was created).'];\n  if (!$('Enrich (lib-enrich-observable)').isExecuted) return ['Enrichment: not run.'];\n  const e = $('Enrich (lib-enrich-observable)').first().json;\n  // On Error = continue: an unexpected failure inside the lib arrives as {error}.\n  if (e.ok !== true) return [`Enrichment: failed (unexpected error in lib-enrich-observable: ${e.error ?? 'no result'}); alert and writeback unaffected.`];\n  const k = e.counts;\n  // Analyzer runs not started, by reason (not enabled in Cortex, url not\n  // absolute, severe path only, enrichment budget, ...).\n  const byReason = Object.entries(k.skipped_runs ?? {});\n  const nSkipped = byReason.reduce((a, [, n]) => a + n, 0);\n  const skipSummary = nSkipped > 0 ? `${nSkipped} analyzer run(s) skipped (${byReason.map(([r, n]) => `${r}: ${n}`).join(', ')})` : '';\n  const lines = [!e.cortex_called && k.enriched === 0 && k.failed === 0\n    ? `Enrichment (Cortex, C6): nothing eligible (${k.skipped} observable(s) skipped${skipSummary ? `; ${skipSummary}` : ''}), no Cortex job.`\n    : `Enrichment (Cortex, C6): ${k.enriched} enriched, ${k.skipped} skipped, ${k.failed} failed of ${k.observables} observable(s); ${k.jobs} analyzer run(s)${k.jobs_from_cache ? ` (${k.jobs_from_cache} answered from Cortex's cache)` : ''}${skipSummary ? `; ${skipSummary}` : ''}.`];\n  // D-N8: one line when the budget stopped new jobs.\n  if (e.budget?.hit) lines.push(`Enrichment budget reached (D-N8): ${e.budget.budget_s} s; ${e.budget.used_s} s used, ${e.budget.skipped} analyzer run(s) not started.`);\n  const fails = (fs) => fs.map((f) => `${f.analyzer}: ${f.class}${f.attempts ? ` after ${f.attempts} call(s)` : ''}${f.job_id ? `, job ${f.job_id}` : ''}`).join('; ');\n  const skips = (ss) => (ss ?? []).map((s) => `${s.analyzer}: skipped (${s.reason})`).join('; ');\n  for (const o of e.observables) {\n    const name = `${o.dataType} ${o.data}`;\n    if (o.status === 'enriched') {\n      const runs = o.results.map((r) => `${r.analyzer}: ${r.verdict}, ${r.taxonomies.join('; ') || 'no taxonomy'}, job ${r.job_id}${r.from_cache ? ' (cached)' : ''}`).join(' | ');\n      const te = o.tag_error;\n      lines.push(`Enriched: ${name}: verdict ${o.verdict} (${runs}); ` + (o.tagged\n        ? `tagged ${o.add_tags.join(', ')}${o.ioc ? ', marked IOC' : ''}.`\n        : `verdict NOT written to TheHive (${te.class}${te.attempts ? ` after ${te.attempts} call(s)` : ''}).`));\n      if (o.failed.length > 0) lines.push(`  Also failed for ${name}: ${fails(o.failed)}.`);\n      if (o.skipped?.length > 0) lines.push(`  Skipped for ${name}: ${skips(o.skipped)}.`);\n    } else if (o.status === 'failed') {\n      lines.push(`Enrichment failed: ${name}: ${fails(o.failed)}.`);\n      if (o.skipped?.length > 0) lines.push(`  Skipped for ${name}: ${skips(o.skipped)}.`);\n    } else {\n      lines.push(`Not enriched: ${name}: ${[...o.reasons, skips(o.skipped)].filter(Boolean).join('; ')}.`);\n    }\n  }\n  for (const wmsg of e.warnings ?? []) lines.push(`Enrichment warning: ${wmsg}.`);\n  return lines;\n}\n// Warninglist section (C10, N8N-2.11): a summary, then one line per match. On\n// a duplicate the check ran (it comes before the upsert) but wrote no tags.\nfunction warninglistLines(u) {\n  const w = $('Warninglists (lib-misp-warninglist)').first().json;\n  // On Error = continue: an unexpected failure inside the lib arrives as {error}.\n  if (typeof w.ok !== 'boolean') return [`Warninglist check (MISP, C10): not done (unexpected error in lib-misp-warninglist: ${w.error ?? 'no result'}); alert unaffected.`];\n  if (!w.ok) return [`Warninglist check (MISP, C10): not done (${w.class}); alert unaffected.`];\n  if (!w.checked) return [w.skip_reason === 'disabled'\n    ? 'Warninglist check (MISP, C10): not run (disabled in lib-config).'\n    : 'Warninglists (MISP, C10): nothing to check (no eligible value), no MISP call.'];\n  const k = w.counts;\n  const lines = [`Warninglists (MISP, C10): ${k.matched} of ${k.checked} checked value(s) on a warninglist`\n    + (k.matched > 0 ? '; a match means common, not safe: severity and status unchanged.' : '.')\n    + (u.duplicate && k.matched > 0 ? ' Checked, tags not written (alert already existed).' : '')];\n  const SHOWN = 10;\n  for (const m of w.matches) {\n    const names = m.lists.slice(0, SHOWN).join('; ') + (m.lists.length > SHOWN ? `; +${m.lists.length - SHOWN} more` : '');\n    lines.push(`On warninglist: ${m.dataType} ${m.data}: ${names}` + (u.duplicate ? '.' : `; tagged ${m.add_tags.join(', ')}.`));\n  }\n  return lines;\n}\nconst c = $('Context').first().json;\nconst u = $('Upsert (lib-thehive-upsert-alert)').first().json;\nconst actions = [];\nconst r = c.route;\nif (r) {\n  actions.push(`Route: ${r.route_id} (${r.matched_by}): playbook ${r.playbook}, case template ${r.case_template}.`);\n  if (r.fallback) actions.push(`Playbook fallback: the route names ${r.fallback.wanted}, not built yet; ${r.playbook} ran.`);\n  for (const pm of r.proposed_match) actions.push(`Proposed route matched, not active yet (X-04, W1.3): ${pm.id} (${pm.matched_by}).`);\n} else {\n  actions.push('Route: none (playbook called without lib-route-alert): default case template.');\n}\nif (u.duplicate) {\n  actions.push(`TheHive alert already existed for Wazuh alert ${u.wazuh_alert_id} (duplicate sourceRef): nothing created.`);\n  if (u.after_retry) actions.push('The create call was retried (timeout or TheHive error): the alert may have been created by the first call.');\n  if (repair) {\n    actions.push('Completed an interrupted run: the alert existed without a writeback (n8n stopped before writing it, N8N-1.4); enrichment ran now for the observables not enriched before.');\n    const already = $('Repair enrich input').first().json.already_enriched;\n    if (already.length > 0) actions.push(`Already enriched before the interruption (not sent again): ${already.join(', ')}.`);\n  } else if ($('Alert state (lib-thehive-alert-state)').isExecuted && $('Alert state (lib-thehive-alert-state)').first().json.ok !== true) {\n    const st = $('Alert state (lib-thehive-alert-state)').first().json;\n    actions.push(`Writeback check before a repair failed (${st.stage ?? st.error ?? 'unexpected error'}): no repair attempted.`);\n  }\n} else {\n  actions.push(`TheHive alert created: source ${u.source}, severity ${u.severity}, case template requested ${u.case_template}, observables: ${u.observables.join(', ') || 'none'}.`);\n  for (const s of u.skipped_observables) actions.push(`Observable not sent: ${s.dataType} ${s.data} (${s.reason}).`);\n  for (const wmsg of u.warnings) actions.push(`Warning: ${wmsg}.`);\n}\nactions.push(...warninglistLines(u));\nactions.push(...enrichmentLines(u));\n// C11 (N8N-2.9): the asox-metrics document, written by lib-thehive-writeback\n// before its comment. Created (or repaired: the earlier run stopped before\n// its writeback, so before the document): every creation field; t_event = the\n// Wazuh alert's timestamp, t_alert = TheHive's _createdAt (never n8n's clock),\n// both written only when missing. Duplicate: n8n_execution_id only.\nconst canonical = $('Normalize (lib-normalize-wazuh-alert)').first().json.canonical;\nconst mc = c.config.metrics;\nconst run = (canonical.full_log ?? '').match(new RegExp(mc.attack_start.run_pattern));\nconst executionId = String(c.context.n8n_execution_id);\nconst metrics = u.duplicate && !repair\n  ? { mode: 'update', alert_id: u.wazuh_alert_id, source: u.source, fields: { n8n_execution_id: executionId } }\n  : { mode: 'create', alert_id: u.wazuh_alert_id, source: u.source, attack_run_id: run ? run[1] : null,\n    fields: {\n      thehive_alert_id: u.thehive_alert_id, rule_id: canonical.rule.id, rule_level: canonical.rule.level,\n      severity: u.severity, playbook: c.context.playbook, n8n_execution_id: executionId,\n      outcome: 'none', auto_promoted: false, t_event: canonical.date_ms, t_alert: u.created_at,\n    } };\nconst ex = $('Extract observables (lib-extract-observables)').first().json;\n// Observables as tagged by lib-misp-warninglist (C10); the extraction's own when\n// the lib failed unexpectedly (On Error = continue: its item is then {error}).\nconst wl = $('Warninglists (lib-misp-warninglist)').first().json;\nconst observables = Array.isArray(wl.observables) ? wl.observables : ex.observables;\nconst enriched = $('Enrich (lib-enrich-observable)').isExecuted ? $('Enrich (lib-enrich-observable)').first().json : null;\nreturn [{ json: {\n  ok: true,\n  // repaired: duplicate whose earlier run stopped before its writeback (N8N-1.4).\n  outcome: u.duplicate ? (repair ? 'repaired' : 'duplicate') : 'created',\n  wazuh_alert_id: u.wazuh_alert_id,\n  thehive_alert_id: u.thehive_alert_id,\n  canonical,\n  observables,\n  skipped_observables: ex.skipped ?? [],\n  extraction: ex,\n  warninglist: wl,\n  upsert: u,\n  alert_state: $('Alert state (lib-thehive-alert-state)').isExecuted ? $('Alert state (lib-thehive-alert-state)').first().json : null,\n  repair: repair ? { already_enriched: $('Repair enrich input').first().json.already_enriched } : null,\n  enrichment: enriched,\n  // N8N-2.4: counts, `not run (duplicate)` or `failed` (unexpected; never parks).\n  enrichment_summary: u.duplicate && !repair ? 'not run (duplicate)' : (enriched?.ok === true ? enriched.counts : 'failed'),\n  writeback: { sections: actions, metrics },\n} }];\n"
+      },
+      "id": "98ade203-4c70-5dca-a7dd-c3f3563a0125",
+      "name": "Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4620,
+        -200
+      ]
+    }
+  ],
+  "connections": {
+    "Called by a workflow": {
+      "main": [
+        [
+          {
+            "node": "Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Context": {
+      "main": [
+        [
+          {
+            "node": "Normalize input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize input": {
+      "main": [
+        [
+          {
+            "node": "Normalize (lib-normalize-wazuh-alert)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize (lib-normalize-wazuh-alert)": {
+      "main": [
+        [
+          {
+            "node": "Normalized?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalized?": {
+      "main": [
+        [
+          {
+            "node": "Extract input",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Parked result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upsert input": {
+      "main": [
+        [
+          {
+            "node": "Upsert (lib-thehive-upsert-alert)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "In TheHive?": {
+      "main": [
+        [
+          {
+            "node": "Created?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Parked result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upsert (lib-thehive-upsert-alert)": {
+      "main": [
+        [
+          {
+            "node": "TheHive configured?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "TheHive configured?": {
+      "main": [
+        [
+          {
+            "node": "In TheHive?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Skipped result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract input": {
+      "main": [
+        [
+          {
+            "node": "Extract observables (lib-extract-observables)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract observables (lib-extract-observables)": {
+      "main": [
+        [
+          {
+            "node": "Warninglist input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Created?": {
+      "main": [
+        [
+          {
+            "node": "Enrich input",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Alert state input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enrich input": {
+      "main": [
+        [
+          {
+            "node": "Enrich (lib-enrich-observable)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enrich (lib-enrich-observable)": {
+      "main": [
+        [
+          {
+            "node": "Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Alert state input": {
+      "main": [
+        [
+          {
+            "node": "Alert state (lib-thehive-alert-state)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Alert state (lib-thehive-alert-state)": {
+      "main": [
+        [
+          {
+            "node": "Interrupted run?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Interrupted run?": {
+      "main": [
+        [
+          {
+            "node": "Repair enrich input",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Repair enrich input": {
+      "main": [
+        [
+          {
+            "node": "Enrich (lib-enrich-observable)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Warninglist input": {
+      "main": [
+        [
+          {
+            "node": "Warninglists (lib-misp-warninglist)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Warninglists (lib-misp-warninglist)": {
+      "main": [
+        [
+          {
+            "node": "Upsert input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataSuccessExecution": "none",
+    "saveDataErrorExecution": "all",
+    "saveManualExecutions": true
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "nodeGroups": [],
+  "tags": [],
+  "pinData": {}
+}

@@ -1,0 +1,305 @@
+{
+  "id": "asoxLibSshCorrel",
+  "name": "lib-ssh-correlate",
+  "active": true,
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## lib-ssh-correlate (N8N-4.2)\n**Trigger:** called by pb-ssh-bruteforce through Execute Workflow (waited for), after the enrichment, for created and repaired alerts.\n**Inputs:** `{canonical, thehive_alert_id, severity, tags, source, route, observables, config}` (the canonical alert, this alert's TheHive id, severity and tags as sent, its observables as tagged by the extraction, lib-config).\n**Actions taken:** reads only. Skips (`skipped` with the reason) when the alert has no `data.srcip`, or the address is not one of its ip observables, or it is tagged `agent` or `range:internal` (lib-config `ssh_correlation.skip_tags`). Otherwise one bounded TheHive query (`POST /api/v1/query?name=ssh-correlate`, credential TheHive API (n8n), lib-config `thehive_http` timeout and retries, N8N-6.2): alerts with an `ip` observable equal to `data.srcip`, TheHive `date` (= the Wazuh timestamp) within `window_s` (3600) of this alert's event time in both directions, carrying one of `prefilter_tags`, not this alert, at most `query_limit` (50). TheHive 5.7 has no caseTemplate query attribute, so the case templates (`ssh-bruteforce`, `suspicious-login`) and the window are checked again on the answer. Returns `status` done / skipped / failed (`class`: thehive_unreachable, thehive_4xx, bad_answer; never parks), the related alerts (`related`, `listed`: the `max_listed` nearest in time), and the plan: this alert's tags (`ssh-campaign:<srcip>`; on a brute-force alert that has a related 40112, also `ssh:login-after-bruteforce` and severity raised to `escalate_severity`), and on a 40112 the related `ssh-bruteforce` alerts to escalate (tag, severity raised if lower, never lowered: D12).\n**Systems changed:** none (reads only).\n**Approval:** not needed: reads only.\n**Owner:** n8n.\nSaved: failed executions only (lib- convention); no error workflow.",
+        "height": 560,
+        "width": 520
+      },
+      "id": "18a579f7-314d-5708-bf5b-3a3edc7d52f2",
+      "name": "About this workflow",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -400,
+        -460
+      ]
+    },
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "id": "4d35cd93-884f-5dcc-907c-03dc95ea3fb8",
+      "name": "Called by a workflow",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// lib-ssh-correlate (N8N-4.2), pure: can this alert's source address be\n// correlated, and the one bounded TheHive query that finds its related alerts:\n// alerts with an `ip` observable equal to data.srcip, dated (TheHive `date` =\n// the Wazuh timestamp) within ssh_correlation.window_s of this alert's event\n// time in both directions (edges included), carrying one of prefilter_tags,\n// excluding the alert itself; at most query_limit. TheHive 5.7 has no\n// caseTemplate query attribute, so the exact template check is done on the\n// answer (\"Result\"); the tag pre-filter only keeps the page for SSH alerts.\n// Event time is the Wazuh timestamp, never n8n's clock.\nfunction prepare(input) {\n  const cfg = input?.config?.ssh_correlation;\n  if (!cfg) return { action: 'invalid', message: 'lib-ssh-correlate needs the lib-config output (with ssh_correlation) as `config`' };\n  const c = input.canonical;\n  if (!c || typeof c !== 'object') return { action: 'invalid', message: 'lib-ssh-correlate needs the canonical alert as `canonical`' };\n  const selfId = typeof input.thehive_alert_id === 'string' && input.thehive_alert_id !== '' ? input.thehive_alert_id : null;\n  if (!selfId) return { action: 'invalid', message: 'lib-ssh-correlate needs the TheHive alert id as `thehive_alert_id`' };\n  const skip = (reason, srcip = null) => ({ action: 'skip', reason, srcip });\n  const srcip = typeof c.network?.srcip === 'string' ? c.network.srcip.trim() : '';\n  if (srcip === '') return skip('no data.srcip');\n  // The tags come from lib-extract-observables (agent, range:internal, ...):\n  // one source of truth for what an address is.\n  const obs = (Array.isArray(input.observables) ? input.observables : [])\n    .find((o) => o && o.dataType === 'ip' && o.data === srcip);\n  if (!obs) return skip(`data.srcip ${srcip} is not an ip observable of this alert`, srcip);\n  const bad = cfg.skip_tags.filter((t) => Array.isArray(obs.tags) && obs.tags.includes(t));\n  if (bad.length > 0) return skip(`address ${srcip} tagged ${bad.join(', ')}`, srcip);\n  if (!Number.isFinite(c.date_ms)) return skip('no event time (timestamp)', srcip);\n  const w = cfg.window_s * 1000;\n  const fromMs = c.date_ms - w;\n  const toMs = c.date_ms + w;\n  const query = [\n    { _name: 'listObservable' },\n    { _name: 'filter', _and: [{ _field: 'dataType', _value: 'ip' }, { _field: 'data', _value: srcip }] },\n    { _name: 'alert' },\n    { _name: 'filter', _and: [\n      { _gte: { _field: 'date', _value: fromMs } },\n      { _lte: { _field: 'date', _value: toMs } },\n      { _in: { _field: 'tags', _values: cfg.prefilter_tags } },\n      { _not: { _field: '_id', _value: selfId } },\n    ] },\n    { _name: 'sort', _fields: [{ date: 'asc' }] },\n    { _name: 'page', from: 0, to: cfg.query_limit },\n  ];\n  return { action: 'query', srcip, self_id: selfId, event_ms: c.date_ms, from_ms: fromMs, to_ms: toMs, body: { query } };\n}\n\nreturn [{ json: prepare($input.first().json) }];\n"
+      },
+      "id": "2df01737-e1b4-5ff9-bb15-1b78afa935f5",
+      "name": "Prepare query",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "8f0fda6f-c2d2-5053-bd1f-f8944c0dccf4",
+              "leftValue": "={{ $json.action === 'query' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "ec103f45-2cbc-5b3d-93ed-4a7831cd2a34",
+      "name": "Query?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        480,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.THEHIVE_URL }}/api/v1/query?name=ssh-correlate",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "theHiveProjectApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($('Prepare query').first().json.body) }}",
+        "options": {
+          "timeout": "={{ $('Called by a workflow').first().json.config.thehive_http.timeout_ms }}",
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "798d5c7d-a62c-5531-ae04-6e6b7967aa3b",
+      "name": "Find related TheHive alerts",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        720,
+        -100
+      ],
+      "credentials": {
+        "theHiveProjectApi": {
+          "id": "asoxTheHiveApi01",
+          "name": "TheHive API (n8n)"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Retry policy for TheHive calls (N8N-6.2; lib-config thehive_http): a\n// connection error, a timeout or HTTP 5xx -> wait and call again; anything\n// else (2xx, and 4xx, which a retry never fixes) -> passed on. A transient\n// failure on the last call is returned as `failed (thehive_unreachable)`: never parked.\nconst r = $input.first().json;\nconst policy = $('Called by a workflow').first().json.config.thehive_http;\nconst NODE = 'Find related TheHive alerts';\nconst attempt = $runIndex + 1; // this node runs once per call\nconst status = typeof r.statusCode === 'number' ? r.statusCode : null;\nconst thrown = r.error !== undefined && status === null; // HTTP node error output\nconst NETWORK = /ECONNREFUSED|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|ECONNRESET|EHOSTUNREACH|ENETUNREACH|ECONNABORTED|timeout|timed out|socket hang up|connection cannot be established/i;\nconst transient = thrown ? NETWORK.test(JSON.stringify(r)) : status >= 500;\nconst calls = policy.retry_waits_s.length + 1;\nif (transient && attempt < calls) {\n  return [{ json: { decision: 'retry', stage: NODE, attempt, wait_s: policy.retry_waits_s[attempt - 1],\n    reason: thrown ? 'connection error or timeout' : `HTTP ${status}` } }];\n}\nif (thrown || transient) {\n  const e = r.error;\n  const detail = thrown\n    ? (typeof e === 'string' ? e : [e?.message, e?.description].filter(Boolean).join(': ') || JSON.stringify(r))\n    : `HTTP ${status}: ${typeof r.body === 'string' ? r.body : JSON.stringify(r.body)}`;\n  return [{ json: { decision: 'error', stage: NODE, node: NODE, attempts: attempt, retry_exhausted: transient,\n    http_status: status, error_code: e?.code ?? e?.cause?.code ?? null,\n    message: `${detail}`.slice(0, 1000) + (transient ? ` (${attempt} calls)` : '') } }];\n}\nreturn [{ json: { ...r, decision: 'response', attempts: attempt } }];\n"
+      },
+      "id": "86e2a424-af55-59de-bfdb-c367f0b8d749",
+      "name": "Assess: Find related TheHive alerts",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        960,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "0cf4f1c9-dbdc-5f43-bfdd-6ed5fc3f520a",
+              "leftValue": "={{ $json.decision === 'retry' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "e7648f3e-e0ec-529c-b5ac-e0a72387f275",
+      "name": "Retry: Find related TheHive alerts?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1200,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "resume": "timeInterval",
+        "amount": "={{ $json.wait_s }}",
+        "unit": "seconds"
+      },
+      "id": "e57ebe98-2ab5-5659-9a89-9273b1e13cc7",
+      "name": "Wait before retry: Find related TheHive alerts",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1200,
+        -300
+      ],
+      "webhookId": "3497dbe2-606a-5e8c-a110-2a6542ff06b2"
+    },
+    {
+      "parameters": {
+        "jsCode": "// lib-ssh-correlate (N8N-4.2): the query's answer -> related alerts and the\n// escalation plan. Pure. Reached by exactly one path: skipped or invalid\n// (no query), the answer, or the query failing for good. Never throws for a\n// TheHive failure: `failed (<class>)`, and the plan keeps only this alert's\n// campaign tag, so the playbook goes on and never parks for it.\n//  - related: answer filtered again (defensive) on the case templates, the\n//    window (|date - event time| <= window_s, both edges included) and self;\n//    duplicates by _id removed; in date order. `listed`: the max_listed\n//    nearest in time, in date order.\n//  - a brute-force alert (any rule not in escalation_rule_ids) gets its own\n//    campaign tag, plus the escalation of itself when a related alert carries\n//    one of the escalation rules (40112): the earliest such alert is named.\n//  - an escalation alert (40112) gets its campaign tag and escalates every\n//    related alert of the brute-force template: tag, severity raised to\n//    escalate_severity if lower (never lowered, D12), comment, metrics.\nfunction ruleOf(tags) {\n  const t = (Array.isArray(tags) ? tags : []).find((x) => typeof x === 'string' && x.startsWith('rule:'));\n  return t ? t.slice(5) : null;\n}\n\nfunction classify(r) {\n  if (r.decision === 'error') return r.retry_exhausted ? 'thehive_unreachable' : (r.http_status ? 'thehive_4xx' : 'thehive_error');\n  if (r.statusCode !== 200) return r.statusCode >= 400 && r.statusCode < 500 ? 'thehive_4xx' : `http_${r.statusCode}`;\n  if (!Array.isArray(r.body)) return 'bad_answer';\n  return null;\n}\n\nfunction correlate(input, prep, answer) {\n  const cfg = input.config.ssh_correlation;\n  const c = input.canonical;\n  const selfId = prep.self_id;\n  const ruleId = c?.rule?.id ?? null;\n  const role = cfg.escalation_rule_ids.includes(ruleId) ? 'login' : 'bruteforce';\n  const base = { srcip: prep.srcip ?? null, window_s: cfg.window_s, event_ms: prep.event_ms ?? null, role, rule_id: ruleId };\n  if (prep.action === 'invalid') return { ok: false, status: 'failed', class: 'invalid_input', message: prep.message, ...base, plan: null };\n  if (prep.action === 'skip') return { ok: true, status: 'skipped', reason: prep.reason, ...base, plan: null };\n  const campaignTag = `${cfg.tags.campaign_prefix}${prep.srcip}`;\n  const selfTags = (Array.isArray(input.tags) ? input.tags : []).filter((t) => typeof t === 'string');\n  const selfSeverity = Number.isInteger(input.severity) ? input.severity : null;\n  const selfPlan = (escalation) => ({\n    thehive_alert_id: selfId,\n    wazuh_alert_id: c.wazuh_alert_id,\n    source: input.source ?? null,\n    rule_id: ruleId,\n    add_tags: [campaignTag, ...(escalation ? [cfg.tags.escalated] : [])].filter((t) => !selfTags.includes(t)),\n    severity_from: selfSeverity,\n    severity_to: escalation && selfSeverity !== null && selfSeverity < cfg.escalate_severity ? cfg.escalate_severity : null,\n    escalation,\n  });\n  const cls = classify(answer);\n  if (cls) {\n    return { ok: true, status: 'failed', class: cls, attempts: answer.attempts ?? null,\n      message: answer.message ?? (answer.statusCode !== undefined ? `HTTP ${answer.statusCode}: ${JSON.stringify(answer.body)}`.slice(0, 500) : null),\n      ...base, plan: { self: selfPlan(null), targets: [] } };\n  }\n  const w = cfg.window_s * 1000;\n  const seen = new Set();\n  const related = [];\n  for (const a of answer.body) {\n    if (!a || typeof a._id !== 'string' || a._id === selfId || seen.has(a._id)) continue;\n    if (!cfg.templates.includes(a.caseTemplate)) continue;\n    if (!Number.isFinite(a.date) || Math.abs(a.date - prep.event_ms) > w) continue;\n    seen.add(a._id);\n    const rid = ruleOf(a.tags);\n    related.push({\n      thehive_alert_id: a._id, wazuh_alert_id: a.sourceRef ?? null, rule_id: rid, case_template: a.caseTemplate,\n      date_ms: a.date, date_iso: new Date(a.date).toISOString(), severity: a.severity ?? null, source: a.source ?? null,\n      tags: Array.isArray(a.tags) ? a.tags : [],\n      kind: cfg.escalation_rule_ids.includes(rid) ? 'login' : (a.caseTemplate === cfg.bruteforce_template ? 'bruteforce' : 'other'),\n    });\n  }\n  related.sort((x, y) => x.date_ms - y.date_ms || (x.thehive_alert_id < y.thehive_alert_id ? -1 : 1));\n  const listed = [...related]\n    .sort((x, y) => Math.abs(x.date_ms - prep.event_ms) - Math.abs(y.date_ms - prep.event_ms) || x.date_ms - y.date_ms)\n    .slice(0, cfg.max_listed)\n    .sort((x, y) => x.date_ms - y.date_ms);\n  const compact = ({ tags, ...r }) => r;\n  let self;\n  let targets = [];\n  if (role === 'bruteforce') {\n    const by = related.find((r) => r.kind === 'login') ?? null;\n    self = selfPlan(by ? { by_wazuh_alert_id: by.wazuh_alert_id, by_thehive_alert_id: by.thehive_alert_id,\n      by_rule_id: by.rule_id, by_date_ms: by.date_ms } : null);\n  } else {\n    self = selfPlan(null);\n    targets = related.filter((r) => r.kind === 'bruteforce').map((r) => ({\n      thehive_alert_id: r.thehive_alert_id, wazuh_alert_id: r.wazuh_alert_id, source: r.source, rule_id: r.rule_id,\n      date_ms: r.date_ms,\n      add_tags: r.tags.includes(cfg.tags.escalated) ? [] : [cfg.tags.escalated],\n      severity_from: r.severity,\n      severity_to: Number.isInteger(r.severity) && r.severity < cfg.escalate_severity ? cfg.escalate_severity : null,\n      severity_final: Number.isInteger(r.severity) ? Math.max(r.severity, cfg.escalate_severity) : cfg.escalate_severity,\n    }));\n  }\n  return { ok: true, status: 'done', attempts: answer.attempts ?? null, ...base,\n    related_total: related.length, truncated: answer.body.length >= cfg.query_limit,\n    related: related.map(compact), listed: listed.map(compact),\n    plan: { self, targets } };\n}\n\nconst input = $('Called by a workflow').first().json;\nconst prep = $('Prepare query').first().json;\nreturn [{ json: correlate(input, prep, $input.first().json) }];\n"
+      },
+      "id": "7d0be729-5c94-5dc2-9ade-8cfa6e8e008d",
+      "name": "Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1440,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Called by a workflow": {
+      "main": [
+        [
+          {
+            "node": "Prepare query",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare query": {
+      "main": [
+        [
+          {
+            "node": "Query?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Query?": {
+      "main": [
+        [
+          {
+            "node": "Find related TheHive alerts",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find related TheHive alerts": {
+      "main": [
+        [
+          {
+            "node": "Assess: Find related TheHive alerts",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Assess: Find related TheHive alerts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Assess: Find related TheHive alerts": {
+      "main": [
+        [
+          {
+            "node": "Retry: Find related TheHive alerts?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Retry: Find related TheHive alerts?": {
+      "main": [
+        [
+          {
+            "node": "Wait before retry: Find related TheHive alerts",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait before retry: Find related TheHive alerts": {
+      "main": [
+        [
+          {
+            "node": "Find related TheHive alerts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataSuccessExecution": "none",
+    "saveDataErrorExecution": "all",
+    "saveManualExecutions": true
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "nodeGroups": [],
+  "tags": [],
+  "pinData": {}
+}
