@@ -14,6 +14,10 @@ services:
     restart: unless-stopped
     mem_limit: ${LAB_AGENT_MEM}
     memswap_limit: ${LAB_AGENT_MEM}  # no swap: an undersized limit fails visibly (D40)
+    # Active response firewall-drop (C9, W7.2) changes iptables in this
+    # network namespace, which Suricata shares.
+    cap_add:
+      - NET_ADMIN
     environment:
       WAZUH_MANAGER_ADDR: ${WAZUH_MANAGER_ADDR}
       WAZUH_AGENT_NAME: ${LAB_AGENT_NAME}

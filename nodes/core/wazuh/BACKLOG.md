@@ -123,9 +123,10 @@ The first real detections, tuned and mapped, merged at checkpoint 1 (milestone t
   - Files: `nodes/core/wazuh/README.md`, `nodes/core/n8n/docs/WAZUH-FIELDS.md (review only)`
   - With: Inigo (n8n), Park (templates), Jesus (panels), Diego (C13 analyzer)
   - Refs: X-01, X-26
-- [ ] **W2.6** Checkpoint 1 pull request (by 2026-10-20) · P1, C1, C2, C8
+- [x] **W2.6** Checkpoint 1 pull request (by 2026-10-20) · P1, C1, C2, C8
   - Done when: `git pull --no-rebase --no-edit origin main`, `healthcheck.sh` green, `contracts-check.sh --only C1,C2,C8` passes, `ci-checks.sh all` passes, pull request `wazuh` → `main` opened and merged by the integrator. The first slice of `v1.1-detections` (alert → enriched TheHive alert) depends on it, together with TheHive's T2.7.
   - **2026-10-19:** `main` merged into `wazuh`; `healthcheck.sh` all PASS; `contracts-check.sh --only C1,C2,C8` passes; `ci-checks.sh all` passes; rule tests 63/63, `e2e.sh` 33/34 (`EVIDENCE.md`). Left: Daniel opens the PR, Inigo merges.
+  - **Done:** merged with PRs #31 (2026-10-20) and #38 (2026-10-22).
   - With: Inigo (review and merge)
 - [x] **W2.7** Answer X-09: should SCA alerts reach n8n? · P1, C1
   - Done when: Decided with Inigo by 2026-10-20 and written in the README. Each agent start sends ~130 level-7 SCA alerts (rules 19007, 19004), and n8n excludes group `sca` only temporarily. Inigo's options (memo item 6): raise their level threshold, exclude the `sca` group from `custom-n8n`, or let n8n aggregate them (N8N-1.4). Recommendation: fix it at the source with overwrite rules in your tuning file that lower 19007/19004 below `WAZUH_ALERT_MIN_LEVEL` (e.g. level 5). They stay in the indexer for Grafana's compliance panels, never flood n8n or TheHive, and Inigo can then remove the temporary exclusion from `lib-config`. Also answer TheHive's question whether SCA needs a compliance template (ALERT-TO-THEHIVE.md, question 4).
@@ -168,6 +169,7 @@ A Suricata sensor watches the lab traffic and its alerts arrive in Wazuh through
 
 Syslog from network devices is decoded and classified, ready for the real devices of Phase 2.
 
+  - **2026-10-22:** `docs/handoff-ids-fields-w37-2026-10-22.md` (rules and levels, fields confirmed on new alerts, who the attacker is, grouping per source, lab vs physical sensor). Done when the three acknowledge.
 - [ ] **W4.1** Collect sample logs *(in progress)* · P1
   - Done when: Sanitized samples in `tests/samples/`: OPNsense `filterlog`, OPNsense web GUI and SSH logins, configuration changes, and the router's logs. Router vendor and model confirmed with the team.
   - Files: `nodes/core/wazuh/tests/samples/`
@@ -272,10 +274,12 @@ Not part of the 1 December delivery. C9 as decided in D44 (useful once Phase 2 b
   - Done when: Separate Wazuh API user and role `n8n-response` (`active-response:command` plus `agent:read`, limited to actionable agent groups, never the SOC's own hosts), created by Inigo in `scripts/lib/wazuh.sh` (R-17); `n8n-api` stays read-only, so C2 still passes. Catalog v1 = built-in `firewall-drop`, `host-deny`, `disable-account`, each with a timeout; Wazuh's `<white_list>` matches n8n's allowlist of protected hosts.
   - With: Inigo (n8n owner and integrator)
   - Refs: X-20, X-21, R-17, D44, D12
+  - **2026-10-22 (C9 v0 for the live demo, Inigo):** manager `<active-response>` blocks `firewall-drop60` / `firewall-drop300` (rules_id 100999, no rule), `<white_list>` 192.168.1.1, group `groups/asox-response`; `analysisd -t` clean, `ar.conf` entries confirmed; `contracts-check.sh --only C9` passes.
 - [ ] **W7.2** Active response in the lab · P3, C9
   - Done when: `<active-response>` blocks prepared; the lab image can run `firewall-drop` (iptables, `NET_ADMIN`); C9's check `chk-wazuh-response` passes: `firewall-drop` of `192.0.2.1` on the lab agent with a 60 s timeout succeeds, and a non-AR call as `n8n-response` gets 403.
   - Files: `nodes/core/wazuh/config/ossec.conf`, `nodes/lab/Dockerfile`, `nodes/lab/docker-compose.yml`
   - Refs: X-22
+  - **2026-10-22:** lab agent has `iptables` and `NET_ADMIN`, enrolls into `linux-servers,asox-response`; firewall-drop60 via the API as n8n-response blocked 192.0.2.77 and the agent removed it after ~60 s; agent 000 refused (403).
 - [ ] **W7.3** Suricata on a dedicated sensor · P3
   - Done when: Guide and test for Suricata plus a Wazuh agent (`network-sensors`) on its own machine, fed by a mirror (SPAN) port of the router, as planned for Phase 2.
   - Files: `nodes/core/wazuh/ENROLLMENT.md`

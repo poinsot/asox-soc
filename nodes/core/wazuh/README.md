@@ -87,10 +87,10 @@ Every custom rule carries three kinds of groups:
 | Successful login | `authentication_success`; failures then success: built-in 40112 (`attacks`, T1078 + T1110, level 12); root login 100200 | `suspicious-login` (rule IDs 40112 and 100200) |
 | sudo | `sudo` (built-in 5404 has no `authentication_*` group; its MITRE is T1548.003) | `privilege-escalation` |
 | New, deleted or changed user or group | `adduser` (Wazuh uses it for all of them: 5901 new group, 5902 new user, 5903, 5904) | `account-change` |
-| File integrity | `syscheck` | `wazuh-generic` |
+| File integrity | `syscheck` | `file-integrity` (n8n `pb-malware-hash`, X-44); 100300 sudoers → `privilege-escalation` |
 | Malware, rootkits | `rootcheck`, `malware`, `virustotal` | `malware-detection` |
 | Network IDS | `ids` (plus the source `suricata`) | `ids-network-alert` |
-| Web attacks (access logs) | `web`, `accesslog`, `attack`, plus what it is (`sql_injection`, …): built-ins 311xx | `wazuh-generic` (no web template yet) |
+| Web attacks (access logs) | `web`, `accesslog`, `attack`, plus what it is (`sql_injection`, …): built-ins 311xx | `web-attack` (X-44) |
 | Firewall blocks, scans | `opnsense` + `pfsense` (or `router`), plus `firewall_block`, `recon` (scans carry T1046) | `network-scan` |
 
 New group names are added only for things Wazuh has no name for: `attack_start` (the lab marker, W1.6) and `misp_ioc` (C14, template `ioc-match`). Every custom rule also has a `<mitre>` block (W2.3), so the technique arrives as `rule.mitre.id`.
@@ -127,8 +127,8 @@ Every custom rule, the alert it produces and how to fire it. Built-in rules the 
 | 101010 | `1010-suricata.xml` | 10 | `suricata`, `ids`, `recon` | T1046 | `ET SCAN` signature (severity 1 or 2) | `ids-scan` | `ids-network-alert` (first match, before `network-scan`) |
 | 109010 | `1090-tuning.xml` | 0 | `suricata`, `ids`, `tuning` | — | Suricata engine events (`SURICATA STREAM`, invalid checksums) silenced | — | — |
 | 100300 | `1003-linux-system.xml` | 10 | `syscheck` | T1548.003 | sudoers file added or changed (FIM) | `persistence` | `privilege-escalation` |
-| 100301 | `1003-linux-system.xml` | 10 | `syscheck` | T1098.004 | SSH `authorized_keys` added or changed (FIM) | `persistence` | `wazuh-generic` |
-| 100302 | `1003-linux-system.xml` | 10 | `syscheck` | T1053.003 | System cron job added or changed (FIM) | `persistence`, `fim-tamper` | `wazuh-generic` |
+| 100301 | `1003-linux-system.xml` | 10 | `syscheck` | T1098.004 | SSH `authorized_keys` added or changed (FIM) | `persistence` | `file-integrity` (`pb-malware-hash`) |
+| 100302 | `1003-linux-system.xml` | 10 | `syscheck` | T1053.003 | System cron job added or changed (FIM) | `persistence`, `fim-tamper` | `file-integrity` (`pb-malware-hash`) |
 | 100303 | `1003-linux-system.xml` | 10 | `syscheck` | T1543.002 | New systemd service (FIM) | — | `wazuh-generic` |
 | 102000 | `1020-router.xml` | 10 | `router`, `cisco_ios`, `authentication_failures` | T1110 | Login brute force on a Cisco router or switch: 5 failures from one source in 2 min | `router-bruteforce` | `login-bruteforce` (T1110 without `sshd`) |
 | 102001 | `1020-router.xml` | 10 | `router`, `cisco_ios`, `authentication_failures` | T1110 | The Cisco device blocked logins after repeated failures (`login block-for`) | `router-bruteforce` | `login-bruteforce` |
@@ -142,9 +142,9 @@ Every custom rule, the alert it produces and how to fire it. Built-in rules the 
 | 108010 / 108011 | `1080-misp-ioc.xml` | 12 | `misp_ioc`, `ids`, `suricata` | — | Suricata alert from / to a MISP IOC | — | `ioc-match` |
 | 108020 / 108021 | `1080-misp-ioc.xml` | 12 | `misp_ioc`, `syscheck`, `malware` | — | New or changed file whose SHA-256 / MD5 is a MISP IOC | — | `ioc-match` |
 | 40501 (built-in) | Wazuh `0280-attack_rules.xml` | 15 | `elevation_of_privilege` | T1068, T1136, T1203 | A user or group added after 4+ alerts of group `attacks` (e.g. 40112) from the same source within 5 min. Seen 2026-10-11 when `new-user` ran right after `ssh-success-after-fail` runs | `ssh-success-after-fail` ×4, then `new-user` | `account-change` (through T1136) |
-| 553 (built-in) | Wazuh `0015-ossec_rules.xml` | 7 | `syscheck`, `syscheck_entry_deleted` | T1070.004, T1485 | File deleted (FIM). The alert has `syscheck.event` `deleted` and the file's last known `*_after` fields, no `*_before` | `fim-tamper` | `wazuh-generic` |
-| 31103 (built-in) | Wazuh `0245-web_rules.xml` | 7 | `web`, `accesslog`, `attack`, `sql_injection` | T1190 | SQL injection pattern in the URL of a web access log line (decoder `web-accesslog`: `data.srcip`, `data.url`, `data.protocol`, `data.id`) | `web-attack` | `wazuh-generic` (no web template yet) |
-| 31152 (built-in) | Wazuh `0245-web_rules.xml` | 10 | `web`, `accesslog`, `attack`, `sql_injection` | T1055 (Wazuh's mapping) | 8 SQL injection attempts from one address in 120 s | `web-attack` | `wazuh-generic` (no web template yet) |
+| 553 (built-in) | Wazuh `0015-ossec_rules.xml` | 7 | `syscheck`, `syscheck_entry_deleted` | T1070.004, T1485 | File deleted (FIM). The alert has `syscheck.event` `deleted` and the file's last known `*_after` fields, no `*_before` | `fim-tamper` | `file-integrity` (`pb-malware-hash`) |
+| 31103 (built-in) | Wazuh `0245-web_rules.xml` | 7 | `web`, `accesslog`, `attack`, `sql_injection` | T1190 | SQL injection pattern in the URL of a web access log line (decoder `web-accesslog`: `data.srcip`, `data.url`, `data.protocol`, `data.id`) | `web-attack` | `web-attack` |
+| 31152 (built-in) | Wazuh `0245-web_rules.xml` | 10 | `web`, `accesslog`, `attack`, `sql_injection` | T1055 (Wazuh's mapping) | 8 SQL injection attempts from one address in 120 s | `web-attack` | `web-attack` |
 | 4724 | `1090-tuning.xml` | 5 | `cisco_ios`, `authentication_failed` | — | Built-in "Cisco IOS: failed login", lowered from 9 so one mistyped password doesn't reach n8n (102000 counts them) | `router-bruteforce` | — (not forwarded) |
 | 19004, 19007 | `1090-tuning.xml` | 5 | `sca` | (SCA's own) | Built-in SCA, lowered (W2.7) | re-enrolling an agent | — (not forwarded) |
 

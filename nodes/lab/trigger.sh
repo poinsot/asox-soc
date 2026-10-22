@@ -13,7 +13,8 @@
 #
 #   scenario                expected alerts (built-in rules, Wazuh 4.14.8)
 #   ssh-bruteforce          5763 level 10: 10 failed SSH passwords for root from 198.51.100.23
-#   ssh-success-after-fail  5763 level 10, then 40112 level 12: the same, then a login from 198.51.100.24
+#   ssh-success-after-fail  5763 level 10, then 40112 level 12: 10 failed SSH passwords for labuser,
+#                           then a login, all from 198.51.100.24
 #   sudo-fail               5404 level 10: 3 wrong sudo passwords by labuser
 #   new-user                5901, 5902 level 8, then 100211 level 10: a new group and user
 #                           "svc-backup", then added to group sudo (usermod)
