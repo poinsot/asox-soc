@@ -107,7 +107,7 @@ All **optional**. Decoder field names are agreed (custom decoders use `srcip`, `
 
 | Field | Seen in | Type (seen) | Used for |
 |---|---|---|---|
-| `syscheck.path` | fim, fim-change | string (`/etc/sudoers.d/90-svc-backup-86a41b1d`) | observable `filename` (tags `path`, `fim:<event>`); the TheHive title of every `syscheck` alert, cut to 200 characters (X-44; the ASOX rules 100300–100302 put it in `rule.description` too, so their title shows it twice) |
+| `syscheck.path` | fim, fim-change | string (`/etc/sudoers.d/90-svc-backup-86a41b1d`) | observable `filename` (tags `path`, `fim:<event>`); the TheHive title of every `syscheck` alert, cut to 200 characters (X-44); the ASOX rules 100300–100302 already end `rule.description` with it, so their title doesn't add it again (since the X-44 follow-up, 2026-10-21) |
 | `syscheck.md5_after`, `syscheck.sha1_after`, `syscheck.sha256_after` | fim, fim-change | string, lowercase hex | observable `hash` from `sha256_after` only (tag `sha256`, ALERT-FORMAT §5; md5 and sha1 make no observable); C13 `hash` maps all three; `pb-malware-hash` |
 | `syscheck.event` | fim (`added`), fim-change (`modified`, `deleted`) | string | added / modified / deleted: the `fim:<event>` tag on the hash and `filename` (else the groups `syscheck_entry_*`), and the deleted-hash note (X-44) |
 | `syscheck.changed_attributes` | fim-change, **`modified` only** | **list of strings** (`["size","mtime","md5","sha1","sha256"]`) | not read |

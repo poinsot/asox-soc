@@ -5,7 +5,7 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## pb-ssh-bruteforce (N8N-4.2)\n**Trigger:** called by lib-alert-queue-drain through Execute Workflow (waited for; by recv-wazuh-alert, not waited for, only when the queue is unavailable), when lib-route-alert routes the alert here: rows `ssh-bruteforce` (5712, 5763) and `suspicious-login-40112` (40112) of lib-config `routing`.\n**Inputs:** `{alert: <raw Wazuh alert>, config: <lib-config>, recv_execution_id, route: <lib-route-alert route>}`, as pb-generic.\n**Actions taken:** pb-generic's chain, same libs, same order, same repair path on `duplicate` (custom field and metrics `playbook` = pb-ssh-bruteforce; severity and enrichment start reach lib-enrich-observable as in pb-generic, D-N7, D-N8): lib-normalize-wazuh-alert -> lib-extract-observables -> lib-misp-warninglist -> lib-thehive-upsert-alert -> created (or repaired) only: lib-enrich-observable -> **lib-ssh-correlate** (read-only, one bounded TheHive query: alerts from the same `data.srcip` within lib-config `ssh_correlation.window_s` (3600 s) of the event time, templates ssh-bruteforce / suspicious-login; On Error = continue, a failure is `failed (<class>)`, never parked) -> one TheHive alert at a time (Loop Over Items; TheHive retry pattern N8N-6.2, the attempt number carried by the item; after a call fails all its retries the rest are not attempted; never parks): this alert gets the tag `ssh-campaign:<srcip>`; a brute-force alert with a related 40112 in the window escalates itself; a 40112 escalates every related `ssh-bruteforce` alert. Escalation = tag `ssh:login-after-bruteforce`, severity raised to `escalate_severity` (4) if lower (never lowered, D12), one comment starting `[asox-n8n escalation] wazuh-alert-id=<40112 id>` (written only if n8n's account has none with that first line), and the related alert's asox-metrics `severity` through lib-metrics-upsert (mode update; this alert's own goes into its writeback's document) -> lib-thehive-writeback (pb-generic's sections, then \"Related (same source within 1 h)\": the total and up to `max_listed` (10) alerts with rule and time, the tag, the escalations with old -> new severity, and `Recommended: block <srcip> (response actions, C9, Phase 2); nothing was changed.`). -> when the writeback created (or repaired) this alert's asox-metrics document: re-read its severity from TheHive (retry pattern) and, if a 40112 in the other queue slot raised it meanwhile, lib-metrics-upsert mode update with `severity` only (never parks). Never suppresses, closes, merges or lowers anything; creates no case (D-N4 is N8N-5.1).\n**Systems changed:** TheHive (this alert: alert, comments, observable tags and IOC flag, its tags and an escalation's severity raise; related ssh-bruteforce alerts: tag, severity raise, escalation comment) and the Wazuh indexer (asox-metrics documents, C11); Cortex and MISP run read-only lookups.\n**Approval:** not needed: SOC bookkeeping only (TheHive tags, comments, severity raise; asox-metrics), no system changes.\n**Owner:** n8n.\nResult: pb-generic's (`outcome`, `metrics`, `enrichment`, ...) plus `correlation` (status, srcip, related, escalated) and `metrics_resync` (`metrics: severity re-synced <old> -> <new>`, `unchanged`, a failure, or null). Error workflow: recv-n8n-error. The response itself (blocking the address) waits for C9 (Phase 2).",
+        "content": "## pb-ssh-bruteforce (N8N-4.2)\n**Trigger:** called by lib-alert-queue-drain through Execute Workflow (waited for; by recv-wazuh-alert, not waited for, only when the queue is unavailable), when lib-route-alert routes the alert here: rows `ssh-bruteforce` (5712, 5763) and `suspicious-login-40112` (40112) of lib-config `routing`.\n**Inputs:** `{alert: <raw Wazuh alert>, config: <lib-config>, recv_execution_id, route: <lib-route-alert route>}`, as pb-generic.\n**Actions taken:** **lib-alert-base** (pb-generic's chain, shared: lib-normalize-wazuh-alert -> lib-extract-observables -> lib-misp-warninglist -> lib-thehive-upsert-alert -> created: lib-enrich-observable; duplicate: the repair check; custom field and metrics `playbook` = pb-ssh-bruteforce; severity and enrichment start reach lib-enrich-observable as in pb-generic, D-N7, D-N8) -> created (or repaired) only: **lib-ssh-correlate** (read-only, one bounded TheHive query: alerts from the same `data.srcip` within lib-config `ssh_correlation.window_s` (3600 s) of the event time, templates ssh-bruteforce / suspicious-login; On Error = continue, a failure is `failed (<class>)`, never parked) -> one TheHive alert at a time (Loop Over Items; TheHive retry pattern N8N-6.2, the attempt number carried by the item; after a call fails all its retries the rest are not attempted; never parks): this alert gets the tag `ssh-campaign:<srcip>`; a brute-force alert with a related 40112 in the window escalates itself; a 40112 escalates every related `ssh-bruteforce` alert. Escalation = tag `ssh:login-after-bruteforce`, severity raised to `escalate_severity` (4) if lower (never lowered, D12), one comment starting `[asox-n8n escalation] wazuh-alert-id=<40112 id>` (written only if n8n's account has none with that first line), and the related alert's asox-metrics `severity` through lib-metrics-upsert (mode update; this alert's own goes into its writeback's document) -> lib-thehive-writeback (lib-alert-base's sections, then \"Related (same source within 1 h)\": the total and up to `max_listed` (10) alerts with rule and time, the tag, the escalations with old -> new severity, and `Recommended: block <srcip> (response actions, C9, Phase 2); nothing was changed.`). -> when the writeback created (or repaired) this alert's asox-metrics document: re-read its severity from TheHive (retry pattern) and, if a 40112 in the other queue slot raised it meanwhile, lib-metrics-upsert mode update with `severity` only (never parks). Never suppresses, closes, merges or lowers anything; creates no case (D-N4 is N8N-5.1).\n**Systems changed:** TheHive (this alert: alert, comments, observable tags and IOC flag, its tags and an escalation's severity raise; related ssh-bruteforce alerts: tag, severity raise, escalation comment) and the Wazuh indexer (asox-metrics documents, C11); Cortex and MISP run read-only lookups.\n**Approval:** not needed: SOC bookkeeping only (TheHive tags, comments, severity raise; asox-metrics), no system changes.\n**Owner:** n8n.\nResult: pb-generic's (`outcome`, `metrics`, `enrichment`, ...) plus `correlation` (status, srcip, related, escalated) and `metrics_resync` (`metrics: severity re-synced <old> -> <new>`, `unchanged`, a failure, or null). Error workflow: recv-n8n-error. The response itself (blocking the address) waits for C9 (Phase 2).",
         "height": 640,
         "width": 520
       },
@@ -46,12 +46,20 @@
     },
     {
       "parameters": {
-        "jsCode": "const c = $('Context').first().json;\nreturn [{ json: { alert: c.alert, context: c.context } }];\n"
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "asoxLibAlertBase",
+          "cachedResultName": "lib-alert-base"
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
       },
-      "id": "ddc7b847-0a8e-5021-bc56-7bd0938ac3ff",
-      "name": "Normalize input",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
+      "id": "69d2bb2e-b0cd-5334-83e9-bc2853798fc0",
+      "name": "Alert base (lib-alert-base)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
       "position": [
         520,
         0
@@ -59,130 +67,7 @@
     },
     {
       "parameters": {
-        "workflowId": {
-          "__rl": true,
-          "mode": "id",
-          "value": "asoxLibNormWazAl",
-          "cachedResultName": "lib-normalize-wazuh-alert"
-        },
-        "options": {
-          "waitForSubWorkflow": true
-        }
-      },
-      "id": "1eb0baac-518b-5010-a090-f81d2952dc74",
-      "name": "Normalize (lib-normalize-wazuh-alert)",
-      "type": "n8n-nodes-base.executeWorkflow",
-      "typeVersion": 1.2,
-      "position": [
-        780,
-        0
-      ]
-    },
-    {
-      "parameters": {
-        "conditions": {
-          "options": {
-            "caseSensitive": true,
-            "leftValue": "",
-            "typeValidation": "strict",
-            "version": 2
-          },
-          "conditions": [
-            {
-              "id": "9c226ee7-1357-5338-b518-920e4591c540",
-              "leftValue": "={{ $json.ok === true }}",
-              "rightValue": "",
-              "operator": {
-                "type": "boolean",
-                "operation": "true",
-                "singleValue": true
-              }
-            }
-          ],
-          "combinator": "and"
-        },
-        "options": {}
-      },
-      "id": "6a40146b-b424-50fe-a726-1a257ee688c1",
-      "name": "Normalized?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2.2,
-      "position": [
-        1040,
-        0
-      ]
-    },
-    {
-      "parameters": {
-        "jsCode": "const c = $('Context').first().json;\nconst ex = $('Extract observables (lib-extract-observables)').first().json;\n// Observables as tagged by lib-misp-warninglist (C10); the extraction's own when\n// the lib failed unexpectedly (On Error = continue: its item is then {error}).\nconst wl = $('Warninglists (lib-misp-warninglist)').first().json;\nconst observables = Array.isArray(wl.observables) ? wl.observables : ex.observables;\nreturn [{ json: {\n  canonical: $('Normalize (lib-normalize-wazuh-alert)').first().json.canonical,\n  extraction: { ...ex, observables },\n  config: c.config, context: c.context, route: c.route,\n} }];\n"
-      },
-      "id": "d429fa1f-43a2-59a5-91b9-15abf52fd822",
-      "name": "Upsert input",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        2340,
-        -100
-      ]
-    },
-    {
-      "parameters": {
-        "workflowId": {
-          "__rl": true,
-          "mode": "id",
-          "value": "asoxLibThUpsertA",
-          "cachedResultName": "lib-thehive-upsert-alert"
-        },
-        "options": {
-          "waitForSubWorkflow": true
-        }
-      },
-      "id": "18c06756-9926-54e7-a675-2e3ea2641c4d",
-      "name": "Upsert (lib-thehive-upsert-alert)",
-      "type": "n8n-nodes-base.executeWorkflow",
-      "typeVersion": 1.2,
-      "position": [
-        2600,
-        -100
-      ]
-    },
-    {
-      "parameters": {
-        "conditions": {
-          "options": {
-            "caseSensitive": true,
-            "leftValue": "",
-            "typeValidation": "strict",
-            "version": 2
-          },
-          "conditions": [
-            {
-              "id": "e43ad290-d77e-55f0-a537-cfac76e53f25",
-              "leftValue": "={{ $json.ok === true }}",
-              "rightValue": "",
-              "operator": {
-                "type": "boolean",
-                "operation": "true",
-                "singleValue": true
-              }
-            }
-          ],
-          "combinator": "and"
-        },
-        "options": {}
-      },
-      "id": "810ac407-52a0-5449-b3be-7d96baa788d6",
-      "name": "In TheHive?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2.2,
-      "position": [
-        3120,
-        -100
-      ]
-    },
-    {
-      "parameters": {
-        "jsCode": "// Actions taken, as written to TheHive (lib-thehive-writeback).\n// repair: the alert existed without a writeback and this run completed it (N8N-1.4).\nconst repair = $('Repair enrich input').isExecuted;\n// Enrichment section (N8N-2.4): counts, then one line per observable.\nfunction enrichmentLines(u) {\n  if (u.duplicate && !repair) return ['Enrichment: not run (duplicate: enriched when the alert was created).'];\n  if (!$('Enrich (lib-enrich-observable)').isExecuted) return ['Enrichment: not run.'];\n  const e = $('Enrich (lib-enrich-observable)').first().json;\n  // On Error = continue: an unexpected failure inside the lib arrives as {error}.\n  if (e.ok !== true) return [`Enrichment: failed (unexpected error in lib-enrich-observable: ${e.error ?? 'no result'}); alert and writeback unaffected.`];\n  const k = e.counts;\n  // Analyzer runs not started, by reason (not enabled in Cortex, url not\n  // absolute, severe path only, enrichment budget, ...).\n  const byReason = Object.entries(k.skipped_runs ?? {});\n  const nSkipped = byReason.reduce((a, [, n]) => a + n, 0);\n  const skipSummary = nSkipped > 0 ? `${nSkipped} analyzer run(s) skipped (${byReason.map(([r, n]) => `${r}: ${n}`).join(', ')})` : '';\n  const lines = [!e.cortex_called && k.enriched === 0 && k.failed === 0\n    ? `Enrichment (Cortex, C6): nothing eligible (${k.skipped} observable(s) skipped${skipSummary ? `; ${skipSummary}` : ''}), no Cortex job.`\n    : `Enrichment (Cortex, C6): ${k.enriched} enriched, ${k.skipped} skipped, ${k.failed} failed of ${k.observables} observable(s); ${k.jobs} analyzer run(s)${k.jobs_from_cache ? ` (${k.jobs_from_cache} answered from Cortex's cache)` : ''}${skipSummary ? `; ${skipSummary}` : ''}.`];\n  // D-N8: one line when the budget stopped new jobs.\n  if (e.budget?.hit) lines.push(`Enrichment budget reached (D-N8): ${e.budget.budget_s} s; ${e.budget.used_s} s used, ${e.budget.skipped} analyzer run(s) not started.`);\n  const fails = (fs) => fs.map((f) => `${f.analyzer}: ${f.class}${f.attempts ? ` after ${f.attempts} call(s)` : ''}${f.job_id ? `, job ${f.job_id}` : ''}`).join('; ');\n  const skips = (ss) => (ss ?? []).map((s) => `${s.analyzer}: skipped (${s.reason})`).join('; ');\n  for (const o of e.observables) {\n    const name = `${o.dataType} ${o.data}`;\n    if (o.status === 'enriched') {\n      const runs = o.results.map((r) => `${r.analyzer}: ${r.verdict}, ${r.taxonomies.join('; ') || 'no taxonomy'}, job ${r.job_id}${r.from_cache ? ' (cached)' : ''}`).join(' | ');\n      const te = o.tag_error;\n      lines.push(`Enriched: ${name}: verdict ${o.verdict} (${runs}); ` + (o.tagged\n        ? `tagged ${o.add_tags.join(', ')}${o.ioc ? ', marked IOC' : ''}.`\n        : `verdict NOT written to TheHive (${te.class}${te.attempts ? ` after ${te.attempts} call(s)` : ''}).`));\n      if (o.failed.length > 0) lines.push(`  Also failed for ${name}: ${fails(o.failed)}.`);\n      if (o.skipped?.length > 0) lines.push(`  Skipped for ${name}: ${skips(o.skipped)}.`);\n    } else if (o.status === 'failed') {\n      lines.push(`Enrichment failed: ${name}: ${fails(o.failed)}.`);\n      if (o.skipped?.length > 0) lines.push(`  Skipped for ${name}: ${skips(o.skipped)}.`);\n    } else {\n      lines.push(`Not enriched: ${name}: ${[...o.reasons, skips(o.skipped)].filter(Boolean).join('; ')}.`);\n    }\n  }\n  for (const wmsg of e.warnings ?? []) lines.push(`Enrichment warning: ${wmsg}.`);\n  return lines;\n}\n// Warninglist section (C10, N8N-2.11): a summary, then one line per match. On\n// a duplicate the check ran (it comes before the upsert) but wrote no tags.\nfunction warninglistLines(u) {\n  const w = $('Warninglists (lib-misp-warninglist)').first().json;\n  // On Error = continue: an unexpected failure inside the lib arrives as {error}.\n  if (typeof w.ok !== 'boolean') return [`Warninglist check (MISP, C10): not done (unexpected error in lib-misp-warninglist: ${w.error ?? 'no result'}); alert unaffected.`];\n  if (!w.ok) return [`Warninglist check (MISP, C10): not done (${w.class}); alert unaffected.`];\n  if (!w.checked) return [w.skip_reason === 'disabled'\n    ? 'Warninglist check (MISP, C10): not run (disabled in lib-config).'\n    : 'Warninglists (MISP, C10): nothing to check (no eligible value), no MISP call.'];\n  const k = w.counts;\n  const lines = [`Warninglists (MISP, C10): ${k.matched} of ${k.checked} checked value(s) on a warninglist`\n    + (k.matched > 0 ? '; a match means common, not safe: severity and status unchanged.' : '.')\n    + (u.duplicate && k.matched > 0 ? ' Checked, tags not written (alert already existed).' : '')];\n  const SHOWN = 10;\n  for (const m of w.matches) {\n    const names = m.lists.slice(0, SHOWN).join('; ') + (m.lists.length > SHOWN ? `; +${m.lists.length - SHOWN} more` : '');\n    lines.push(`On warninglist: ${m.dataType} ${m.data}: ${names}` + (u.duplicate ? '.' : `; tagged ${m.add_tags.join(', ')}.`));\n  }\n  return lines;\n}\nconst c = $('Context').first().json;\nconst u = $('Upsert (lib-thehive-upsert-alert)').first().json;\nconst actions = [];\nconst r = c.route;\nif (r) {\n  actions.push(`Route: ${r.route_id} (${r.matched_by}): playbook ${r.playbook}, case template ${r.case_template}.`);\n  if (r.fallback) actions.push(`Playbook fallback: the route names ${r.fallback.wanted}, not built yet; ${r.playbook} ran.`);\n  for (const pm of r.proposed_match) actions.push(`Proposed route matched, not active yet (X-04, W1.3): ${pm.id} (${pm.matched_by}).`);\n} else {\n  actions.push('Route: none (playbook called without lib-route-alert): default case template.');\n}\nif (u.duplicate) {\n  actions.push(`TheHive alert already existed for Wazuh alert ${u.wazuh_alert_id} (duplicate sourceRef): nothing created.`);\n  if (u.after_retry) actions.push('The create call was retried (timeout or TheHive error): the alert may have been created by the first call.');\n  if (repair) {\n    actions.push('Completed an interrupted run: the alert existed without a writeback (n8n stopped before writing it, N8N-1.4); enrichment ran now for the observables not enriched before.');\n    const already = $('Repair enrich input').first().json.already_enriched;\n    if (already.length > 0) actions.push(`Already enriched before the interruption (not sent again): ${already.join(', ')}.`);\n  } else if ($('Alert state (lib-thehive-alert-state)').isExecuted && $('Alert state (lib-thehive-alert-state)').first().json.ok !== true) {\n    const st = $('Alert state (lib-thehive-alert-state)').first().json;\n    actions.push(`Writeback check before a repair failed (${st.stage ?? st.error ?? 'unexpected error'}): no repair attempted.`);\n  }\n} else {\n  actions.push(`TheHive alert created: source ${u.source}, severity ${u.severity}, case template requested ${u.case_template}, observables: ${u.observables.join(', ') || 'none'}.`);\n  for (const s of u.skipped_observables) actions.push(`Observable not sent: ${s.dataType} ${s.data} (${s.reason}).`);\n  for (const wmsg of u.warnings) actions.push(`Warning: ${wmsg}.`);\n}\nactions.push(...warninglistLines(u));\nactions.push(...enrichmentLines(u));\n// SSH correlation (N8N-4.2): related alerts from the same source address, this\n// alert's campaign tag, the escalation of itself or of the related brute-force\n// alerts, and the recommended response. Failures are reported, never parked.\nconst esc = $('Escalation result').isExecuted ? $('Escalation result').first().json : null;\nfunction writeLine(t) {\n  if (!t) return null;\n  if (t.skipped) return t.skipped;\n  if (!t.patch.ok) return `update failed (${t.patch.class}${t.patch.attempts ? ` after ${t.patch.attempts} call(s)` : ''})`;\n  return null;\n}\nfunction commentLine(t) {\n  if (!t.comment) return t.patch.ok ? 'escalation comment not written' : 'escalation comment not attempted';\n  if (!t.comment.ok) return `escalation comment failed (${t.comment.class}${t.comment.attempts ? ` after ${t.comment.attempts} call(s)` : ''})`;\n  return t.comment.written ? 'escalation comment written' : 'escalation comment already there';\n}\nfunction correlationLines(u) {\n  if (!$('Correlate (lib-ssh-correlate)').isExecuted) {\n    return [u.duplicate && !repair ? 'SSH correlation: not run (duplicate: done when the alert was created).' : 'SSH correlation: not run.'];\n  }\n  const cr = $('Correlate (lib-ssh-correlate)').first().json;\n  // On Error = continue: an unexpected failure inside the lib arrives as {error}.\n  if (typeof cr.status !== 'string') return [`SSH correlation: failed (unexpected error in lib-ssh-correlate: ${cr.error ?? 'no result'}); alert unaffected.`];\n  if (cr.status === 'skipped') return [`SSH correlation: skipped (${cr.reason}).`];\n  const sc = c.config.ssh_correlation;\n  const span = cr.window_s % 3600 === 0 ? `${cr.window_s / 3600} h` : `${cr.window_s} s`;\n  const iso = (ms) => new Date(ms).toISOString();\n  const lines = [];\n  if (cr.status === 'failed') {\n    lines.push(`SSH correlation (same source within ${span}): failed (${cr.class}${cr.attempts ? ` after ${cr.attempts} call(s)` : ''}); related alerts not looked at, nothing escalated.`);\n  } else {\n    const shown = cr.listed.length < cr.related_total ? `; the ${cr.listed.length} nearest in time shown` : '';\n    const cut = cr.truncated ? `; the query's limit (${sc.query_limit}) was reached, so more may exist` : '';\n    lines.push(`Related (same source within ${span}): ${cr.related_total} alert(s) from ${cr.srcip} (case templates ${sc.templates.join(', ')}; ${cr.window_s} s either side of this alert's event time)${shown}${cut}.`);\n    for (const r of cr.listed) {\n      lines.push(`  Wazuh ${r.wazuh_alert_id}: rule ${r.rule_id ?? 'unknown'} at ${r.date_iso} (TheHive ${r.thehive_alert_id}, ${r.case_template}, severity ${r.severity})`);\n    }\n  }\n  const self = esc?.self ?? null;\n  const campaign = `${sc.tags.campaign_prefix}${cr.srcip}`;\n  if (cr.plan?.self) {\n    const fail = writeLine(self);\n    lines.push(cr.plan.self.add_tags.includes(campaign)\n      ? (fail ? `Tag ${campaign} not written: ${fail}.` : `Tagged this alert ${campaign}.`)\n      : `Already tagged ${campaign}.`);\n  }\n  if (self?.escalation) {\n    const e = self.escalation;\n    const fail = writeLine(self);\n    lines.push(`Escalated this alert (${sc.tags.escalated}): rule ${e.by_rule_id} alert ${e.marker_alert_id} (TheHive ${e.by_thehive_alert_id}, at ${iso(e.by_date_ms)}) shows a successful login from ${cr.srcip}; `\n      + (fail ? `${fail}.` : `${self.severity_to !== null ? `severity ${self.severity_from} → ${self.severity_to}` : `severity unchanged (${self.severity_from})`}, ${commentLine(self)}.`));\n  }\n  if (cr.role === 'login' && cr.status === 'done') {\n    const rel = esc?.related ?? [];\n    lines.push(rel.length === 0\n      ? `Escalation (${sc.tags.escalated}): no related ${sc.bruteforce_template} alert to escalate.`\n      : `Escalation (${sc.tags.escalated}) of ${rel.length} related ${sc.bruteforce_template} alert(s):`);\n    for (const t of rel) {\n      const fail = writeLine(t);\n      lines.push(`  Escalated: TheHive ${t.thehive_alert_id} (Wazuh ${t.wazuh_alert_id}, rule ${t.rule_id ?? 'unknown'} at ${iso(t.date_ms)}): `\n        + (fail ? `${fail}.` : `severity ${t.severity_from} → ${t.severity_final}${t.severity_to === null ? ' (unchanged)' : ''}, `\n          + `${t.add_tags.length > 0 ? `tagged ${t.add_tags.join(', ')}` : 'tag already there'}, ${commentLine(t)}; `\n          + `${t.metrics_result ? `asox-metrics severity: ${t.metrics_result.line}` : 'asox-metrics not updated'}.`));\n    }\n  }\n  lines.push(`Recommended: block ${cr.srcip} (response actions, C9, Phase 2); nothing was changed.`);\n  return lines;\n}\nactions.push(...correlationLines(u));\nactions.push('Systems changed: TheHive (this alert, and the related alerts it escalates), and the Wazuh indexer (asox-metrics documents, C11).');\n// C11 (N8N-2.9): the asox-metrics document, written by lib-thehive-writeback\n// before its comment. Created (or repaired: the earlier run stopped before\n// its writeback, so before the document): every creation field; t_event = the\n// Wazuh alert's timestamp, t_alert = TheHive's _createdAt (never n8n's clock),\n// both written only when missing. Duplicate: n8n_execution_id only.\nconst canonical = $('Normalize (lib-normalize-wazuh-alert)').first().json.canonical;\nconst mc = c.config.metrics;\nconst run = (canonical.full_log ?? '').match(new RegExp(mc.attack_start.run_pattern));\nconst executionId = String(c.context.n8n_execution_id);\nconst metrics = u.duplicate && !repair\n  ? { mode: 'update', alert_id: u.wazuh_alert_id, source: u.source, fields: { n8n_execution_id: executionId } }\n  : { mode: 'create', alert_id: u.wazuh_alert_id, source: u.source, attack_run_id: run ? run[1] : null,\n    fields: {\n      thehive_alert_id: u.thehive_alert_id, rule_id: canonical.rule.id, rule_level: canonical.rule.level,\n      // The final severity: raised by this run's own escalation (N8N-4.2) when\n      // that update succeeded.\n      severity: esc?.self?.patch?.ok && esc.self.severity_to !== null ? esc.self.severity_to : u.severity,\n      playbook: c.context.playbook, n8n_execution_id: executionId,\n      outcome: 'none', auto_promoted: false, t_event: canonical.date_ms, t_alert: u.created_at,\n    } };\nreturn [{ json: {\n  thehive_alert_id: u.thehive_alert_id, wazuh_alert_id: u.wazuh_alert_id,\n  config: c.config, context: c.context, actions, metrics,\n} }];"
+        "jsCode": "// Actions taken, as written to TheHive (lib-thehive-writeback): lib-alert-base's\n// sections (route, TheHive alert, warninglists, enrichment), then the SSH\n// correlation and this playbook's \"Systems changed\" line.\nconst c = $('Context').first().json;\nconst b = $('Alert base (lib-alert-base)').first().json;\nconst u = b.upsert;\n// repair: the alert existed without a writeback and this run completed it (N8N-1.4).\nconst repair = b.outcome === 'repaired';\nconst actions = [...b.writeback.sections];\n// SSH correlation (N8N-4.2): related alerts from the same source address, this\n// alert's campaign tag, the escalation of itself or of the related brute-force\n// alerts, and the recommended response. Failures are reported, never parked.\nconst esc = $('Escalation result').isExecuted ? $('Escalation result').first().json : null;\nfunction writeLine(t) {\n  if (!t) return null;\n  if (t.skipped) return t.skipped;\n  if (!t.patch.ok) return `update failed (${t.patch.class}${t.patch.attempts ? ` after ${t.patch.attempts} call(s)` : ''})`;\n  return null;\n}\nfunction commentLine(t) {\n  if (!t.comment) return t.patch.ok ? 'escalation comment not written' : 'escalation comment not attempted';\n  if (!t.comment.ok) return `escalation comment failed (${t.comment.class}${t.comment.attempts ? ` after ${t.comment.attempts} call(s)` : ''})`;\n  return t.comment.written ? 'escalation comment written' : 'escalation comment already there';\n}\nfunction correlationLines(u) {\n  if (!$('Correlate (lib-ssh-correlate)').isExecuted) {\n    return [u.duplicate && !repair ? 'SSH correlation: not run (duplicate: done when the alert was created).' : 'SSH correlation: not run.'];\n  }\n  const cr = $('Correlate (lib-ssh-correlate)').first().json;\n  // On Error = continue: an unexpected failure inside the lib arrives as {error}.\n  if (typeof cr.status !== 'string') return [`SSH correlation: failed (unexpected error in lib-ssh-correlate: ${cr.error ?? 'no result'}); alert unaffected.`];\n  if (cr.status === 'skipped') return [`SSH correlation: skipped (${cr.reason}).`];\n  const sc = c.config.ssh_correlation;\n  const span = cr.window_s % 3600 === 0 ? `${cr.window_s / 3600} h` : `${cr.window_s} s`;\n  const iso = (ms) => new Date(ms).toISOString();\n  const lines = [];\n  if (cr.status === 'failed') {\n    lines.push(`SSH correlation (same source within ${span}): failed (${cr.class}${cr.attempts ? ` after ${cr.attempts} call(s)` : ''}); related alerts not looked at, nothing escalated.`);\n  } else {\n    const shown = cr.listed.length < cr.related_total ? `; the ${cr.listed.length} nearest in time shown` : '';\n    const cut = cr.truncated ? `; the query's limit (${sc.query_limit}) was reached, so more may exist` : '';\n    lines.push(`Related (same source within ${span}): ${cr.related_total} alert(s) from ${cr.srcip} (case templates ${sc.templates.join(', ')}; ${cr.window_s} s either side of this alert's event time)${shown}${cut}.`);\n    for (const r of cr.listed) {\n      lines.push(`  Wazuh ${r.wazuh_alert_id}: rule ${r.rule_id ?? 'unknown'} at ${r.date_iso} (TheHive ${r.thehive_alert_id}, ${r.case_template}, severity ${r.severity})`);\n    }\n  }\n  const self = esc?.self ?? null;\n  const campaign = `${sc.tags.campaign_prefix}${cr.srcip}`;\n  if (cr.plan?.self) {\n    const fail = writeLine(self);\n    lines.push(cr.plan.self.add_tags.includes(campaign)\n      ? (fail ? `Tag ${campaign} not written: ${fail}.` : `Tagged this alert ${campaign}.`)\n      : `Already tagged ${campaign}.`);\n  }\n  if (self?.escalation) {\n    const e = self.escalation;\n    const fail = writeLine(self);\n    lines.push(`Escalated this alert (${sc.tags.escalated}): rule ${e.by_rule_id} alert ${e.marker_alert_id} (TheHive ${e.by_thehive_alert_id}, at ${iso(e.by_date_ms)}) shows a successful login from ${cr.srcip}; `\n      + (fail ? `${fail}.` : `${self.severity_to !== null ? `severity ${self.severity_from} → ${self.severity_to}` : `severity unchanged (${self.severity_from})`}, ${commentLine(self)}.`));\n  }\n  if (cr.role === 'login' && cr.status === 'done') {\n    const rel = esc?.related ?? [];\n    lines.push(rel.length === 0\n      ? `Escalation (${sc.tags.escalated}): no related ${sc.bruteforce_template} alert to escalate.`\n      : `Escalation (${sc.tags.escalated}) of ${rel.length} related ${sc.bruteforce_template} alert(s):`);\n    for (const t of rel) {\n      const fail = writeLine(t);\n      lines.push(`  Escalated: TheHive ${t.thehive_alert_id} (Wazuh ${t.wazuh_alert_id}, rule ${t.rule_id ?? 'unknown'} at ${iso(t.date_ms)}): `\n        + (fail ? `${fail}.` : `severity ${t.severity_from} → ${t.severity_final}${t.severity_to === null ? ' (unchanged)' : ''}, `\n          + `${t.add_tags.length > 0 ? `tagged ${t.add_tags.join(', ')}` : 'tag already there'}, ${commentLine(t)}; `\n          + `${t.metrics_result ? `asox-metrics severity: ${t.metrics_result.line}` : 'asox-metrics not updated'}.`));\n    }\n  }\n  lines.push(`Recommended: block ${cr.srcip} (response actions, C9, Phase 2); nothing was changed.`);\n  return lines;\n}\nactions.push(...correlationLines(u));\nactions.push('Systems changed: TheHive (this alert, and the related alerts it escalates), and the Wazuh indexer (asox-metrics documents, C11).');\n// C11 (N8N-2.9): lib-alert-base's document plan, with the final severity when\n// this run's own escalation raised it (N8N-4.2) and that update succeeded.\nconst m = b.writeback.metrics;\nconst metrics = m.mode === 'create' && esc?.self?.patch?.ok && esc.self.severity_to !== null\n  ? { ...m, fields: { ...m.fields, severity: esc.self.severity_to } } : m;\nreturn [{ json: {\n  thehive_alert_id: b.thehive_alert_id, wazuh_alert_id: b.wazuh_alert_id,\n  config: c.config, context: c.context, actions, metrics,\n} }];\n"
       },
       "id": "c64474f0-c895-508e-a8b1-cc240a3ba9e6",
       "name": "Writeback input",
@@ -216,7 +101,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const u = $('Upsert (lib-thehive-upsert-alert)').first().json;\nconst r = $('Writeback (lib-thehive-writeback)').first().json;\nreturn [{ json: {\n  // repaired: duplicate whose earlier run stopped before its writeback (N8N-1.4).\n  outcome: u.duplicate ? ($('Repair enrich input').isExecuted ? 'repaired' : 'duplicate') : 'created',\n  after_retry: u.after_retry === true, // duplicate found by a retried create (N8N-6.2)\n  wazuh_alert_id: u.wazuh_alert_id,\n  thehive_alert_id: u.thehive_alert_id,\n  // N8N-2.4: counts, `not run (duplicate)` or `failed` (unexpected; never parks).\n  enrichment: u.duplicate && !$('Repair enrich input').isExecuted ? 'not run (duplicate)'\n    : ($('Enrich (lib-enrich-observable)').first().json.ok === true ? $('Enrich (lib-enrich-observable)').first().json.counts : 'failed'),\n  writeback: r.ok ? (r.written ? 'written' : 'already written') : 'failed (parked by lib-error)',\n  // C11 (N8N-2.9): metrics: ok | skipped (<why>) | failed (<class>).\n  metrics: r.metrics ?? null,\n  // N8N-4.2 follow-up: this alert's document re-synced to TheHive's severity\n  // after the writeback (the comment is already posted, so only here). null\n  // when not run (duplicate, or no document written).\n  metrics_resync: (() => {\n    if (!$('Severity re-sync plan').isExecuted) return null;\n    const p = $('Severity re-sync plan').first().json;\n    if (p.status === 'failed') return p.line;\n    if (p.status === 'unchanged') return `metrics: severity unchanged (${p.to})`;\n    const m = $('Re-sync (lib-metrics-upsert)').first().json;\n    if (m.ok === true && !m.skipped) return `metrics: severity re-synced ${p.from} -> ${p.to}`;\n    return `metrics: severity re-sync ${p.from} -> ${p.to} failed (${m.skipped ? `skipped: ${m.skipped}` : (m.class ?? 'unexpected')})`;\n  })(),\n  // N8N-4.2: done / skipped / failed, the related alerts found and the alerts\n  // escalated (this one included); `not run` on a duplicate.\n  correlation: (() => {\n    if (!$('Correlate (lib-ssh-correlate)').isExecuted) return 'not run';\n    const cr = $('Correlate (lib-ssh-correlate)').first().json;\n    if (typeof cr.status !== 'string') return 'failed (unexpected)';\n    const esc = $('Escalation result').isExecuted ? $('Escalation result').first().json : null;\n    const escalated = [...(esc?.self?.escalation ? [esc.self] : []), ...(esc?.related ?? [])]\n      .filter((t) => t.patch?.ok).map((t) => t.thehive_alert_id);\n    return { status: cr.status, reason: cr.reason ?? cr.class ?? null, srcip: cr.srcip, related: cr.related_total ?? 0, escalated };\n  })(),\n  playbook: $workflow.name,\n  route_id: $('Context').first().json.route?.route_id ?? null,\n} }];\n"
+        "jsCode": "const b = $('Alert base (lib-alert-base)').first().json;\nconst r = $('Writeback (lib-thehive-writeback)').first().json;\nreturn [{ json: {\n  // repaired: duplicate whose earlier run stopped before its writeback (N8N-1.4).\n  outcome: b.outcome,\n  after_retry: b.upsert.after_retry === true, // duplicate found by a retried create (N8N-6.2)\n  wazuh_alert_id: b.wazuh_alert_id,\n  thehive_alert_id: b.thehive_alert_id,\n  // N8N-2.4: counts, `not run (duplicate)` or `failed` (unexpected; never parks).\n  enrichment: b.enrichment_summary,\n  writeback: r.ok ? (r.written ? 'written' : 'already written') : 'failed (parked by lib-error)',\n  // C11 (N8N-2.9): metrics: ok | skipped (<why>) | failed (<class>).\n  metrics: r.metrics ?? null,\n  // N8N-4.2 follow-up: this alert's document re-synced to TheHive's severity\n  // after the writeback (the comment is already posted, so only here). null\n  // when not run (duplicate, or no document written).\n  metrics_resync: (() => {\n    if (!$('Severity re-sync plan').isExecuted) return null;\n    const p = $('Severity re-sync plan').first().json;\n    if (p.status === 'failed') return p.line;\n    if (p.status === 'unchanged') return `metrics: severity unchanged (${p.to})`;\n    const m = $('Re-sync (lib-metrics-upsert)').first().json;\n    if (m.ok === true && !m.skipped) return `metrics: severity re-synced ${p.from} -> ${p.to}`;\n    return `metrics: severity re-sync ${p.from} -> ${p.to} failed (${m.skipped ? `skipped: ${m.skipped}` : (m.class ?? 'unexpected')})`;\n  })(),\n  // N8N-4.2: done / skipped / failed, the related alerts found and the alerts\n  // escalated (this one included); `not run` on a duplicate.\n  correlation: (() => {\n    if (!$('Correlate (lib-ssh-correlate)').isExecuted) return 'not run';\n    const cr = $('Correlate (lib-ssh-correlate)').first().json;\n    if (typeof cr.status !== 'string') return 'failed (unexpected)';\n    const esc = $('Escalation result').isExecuted ? $('Escalation result').first().json : null;\n    const escalated = [...(esc?.self?.escalation ? [esc.self] : []), ...(esc?.related ?? [])]\n      .filter((t) => t.patch?.ok).map((t) => t.thehive_alert_id);\n    return { status: cr.status, reason: cr.reason ?? cr.class ?? null, srcip: cr.srcip, related: cr.related_total ?? 0, escalated };\n  })(),\n  playbook: $workflow.name,\n  route_id: $('Context').first().json.route?.route_id ?? null,\n} }];\n"
       },
       "id": "b1b9a8ca-405f-5726-86bd-817a9bba6cd2",
       "name": "Outcome",
@@ -229,14 +114,14 @@
     },
     {
       "parameters": {
-        "jsCode": "// Normalize or upsert handed the alert to lib-error, which parked it.\nconst r = $input.first().json;\nconst alert = $('Context').first().json.alert;\nreturn [{ json: {\n  outcome: 'parked',\n  wazuh_alert_id: r.wazuh_alert_id ?? (typeof alert?.id === 'string' ? alert.id : null),\n  error: r.error_class ?? r.stage ?? null,\n  message: r.message ?? null,\n  playbook: $workflow.name,\n  route_id: $('Context').first().json.route?.route_id ?? null,\n} }];\n"
+        "jsCode": "// lib-alert-base parked the alert (normalize or upsert handed it to lib-error).\nconst b = $input.first().json;\nreturn [{ json: {\n  outcome: 'parked',\n  wazuh_alert_id: b.wazuh_alert_id,\n  error: b.error,\n  message: b.message,\n  playbook: $workflow.name,\n  route_id: $('Context').first().json.route?.route_id ?? null,\n} }];\n"
       },
       "id": "3eca93d3-9f86-5104-b165-04e0db1222d1",
       "name": "Parked outcome",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        3380,
+        1300,
         120
       ]
     },
@@ -252,7 +137,7 @@
           "conditions": [
             {
               "id": "d4d76dd1-0739-5ae0-857c-74afe731ce4e",
-              "leftValue": "={{ $json.skipped !== true }}",
+              "leftValue": "={{ $json.outcome !== 'skipped' }}",
               "rightValue": "",
               "operator": {
                 "type": "boolean",
@@ -270,57 +155,25 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        2860,
-        -100
+        780,
+        0
       ]
     },
     {
       "parameters": {
-        "jsCode": "// lib-config: THEHIVE_ENABLED=false (no cases node on this machine). Recorded,\n// not parked: there is nothing to retry.\nconst u = $input.first().json;\nreturn [{ json: {\n  outcome: 'skipped',\n  status: 'skipped: TheHive not configured',\n  wazuh_alert_id: u.wazuh_alert_id,\n  playbook: $workflow.name,\n  route_id: $('Context').first().json.route?.route_id ?? null,\n} }];\n"
+        "jsCode": "// lib-config: THEHIVE_ENABLED=false (no cases node on this machine). Recorded,\n// not parked: there is nothing to retry.\nconst b = $input.first().json;\nreturn [{ json: {\n  outcome: 'skipped',\n  status: b.status,\n  wazuh_alert_id: b.wazuh_alert_id,\n  playbook: $workflow.name,\n  route_id: $('Context').first().json.route?.route_id ?? null,\n} }];\n"
       },
       "id": "72429164-569c-5456-8b33-136f6c9e9794",
       "name": "Skipped outcome",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        3120,
+        1040,
         -400
       ]
     },
     {
       "parameters": {
-        "jsCode": "const c = $('Context').first().json;\nreturn [{ json: { canonical: $input.first().json.canonical, config: c.config } }];\n"
-      },
-      "id": "1ae40485-6fea-569d-b50f-6579698441c8",
-      "name": "Extract input",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        1300,
-        -100
-      ]
-    },
-    {
-      "parameters": {
-        "workflowId": {
-          "__rl": true,
-          "mode": "id",
-          "value": "asoxLibExtract01",
-          "cachedResultName": "lib-extract-observables"
-        },
-        "options": {}
-      },
-      "id": "0daeeede-e4e4-538f-befc-19bf716b9584",
-      "name": "Extract observables (lib-extract-observables)",
-      "type": "n8n-nodes-base.executeWorkflow",
-      "typeVersion": 1.2,
-      "position": [
-        1560,
-        -100
-      ]
-    },
-    {
-      "parameters": {
         "conditions": {
           "options": {
             "caseSensitive": true,
@@ -330,8 +183,8 @@
           },
           "conditions": [
             {
-              "id": "3d3bf666-d3ae-581a-9fec-51a9fc1deb74",
-              "leftValue": "={{ $json.duplicate !== true }}",
+              "id": "e43ad290-d77e-55f0-a537-cfac76e53f25",
+              "leftValue": "={{ $json.ok === true }}",
               "rightValue": "",
               "operator": {
                 "type": "boolean",
@@ -344,170 +197,18 @@
         },
         "options": {}
       },
-      "id": "6d3ce237-0281-52d6-9ec9-a90220f4490a",
-      "name": "Created?",
+      "id": "810ac407-52a0-5449-b3be-7d96baa788d6",
+      "name": "In TheHive?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        3380,
-        -200
-      ]
-    },
-    {
-      "parameters": {
-        "jsCode": "// Only a newly created alert is enriched (a duplicate was enriched when it was\n// created). TLP / PAP are the alert's (lib-config), checked against each\n// analyzer's max by lib-enrich-observable. severity: as sent to TheHive (D-N7,\n// VirusTotal's severe path); enrichment_started_ms: the budget's start (D-N8).\nconst c = $('Context').first().json;\nconst u = $input.first().json;\nconst ex = $('Extract observables (lib-extract-observables)').first().json;\n// Observables as tagged by lib-misp-warninglist (C10); the extraction's own when\n// the lib failed unexpectedly (On Error = continue: its item is then {error}).\nconst wl = $('Warninglists (lib-misp-warninglist)').first().json;\nconst observables = Array.isArray(wl.observables) ? wl.observables : ex.observables;\nreturn [{ json: {\n  thehive_alert_id: u.thehive_alert_id, wazuh_alert_id: u.wazuh_alert_id,\n  observables, tlp: c.config.tlp, pap: c.config.pap,\n  severity: u.severity, enrichment_started_ms: Date.now(),\n  config: c.config, context: c.context,\n} }];"
-      },
-      "id": "da7ae6e6-a2bd-5ec2-b533-14a5b2e7ea50",
-      "name": "Enrich input",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        3640,
-        -340
-      ]
-    },
-    {
-      "parameters": {
-        "workflowId": {
-          "__rl": true,
-          "mode": "id",
-          "value": "asoxLibEnrichObs",
-          "cachedResultName": "lib-enrich-observable"
-        },
-        "options": {
-          "waitForSubWorkflow": true
-        }
-      },
-      "id": "66d4a445-e97c-5880-bc4b-f0ef45cfc1f4",
-      "name": "Enrich (lib-enrich-observable)",
-      "type": "n8n-nodes-base.executeWorkflow",
-      "typeVersion": 1.2,
-      "position": [
-        3900,
-        -340
-      ],
-      "onError": "continueRegularOutput"
-    },
-    {
-      "parameters": {
-        "jsCode": "// The TheHive alert already existed (duplicate sourceRef). Does it have its\n// writeback? If not, an earlier run stopped before writing it (n8n crashed or\n// restarted, N8N-1.4): this run completes it.\nconst c = $('Context').first().json;\nconst u = $input.first().json;\nreturn [{ json: { thehive_alert_id: u.thehive_alert_id, wazuh_alert_id: u.wazuh_alert_id, config: c.config } }];\n"
-      },
-      "id": "c09f5f62-63e5-50b8-8df3-d56d2627f565",
-      "name": "Alert state input",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        3640,
-        -40
-      ]
-    },
-    {
-      "parameters": {
-        "workflowId": {
-          "__rl": true,
-          "mode": "id",
-          "value": "asoxLibThAlState",
-          "cachedResultName": "lib-thehive-alert-state"
-        },
-        "options": {
-          "waitForSubWorkflow": true
-        }
-      },
-      "id": "30b761e9-c0b7-5c46-a5c1-7e746aab59d3",
-      "name": "Alert state (lib-thehive-alert-state)",
-      "type": "n8n-nodes-base.executeWorkflow",
-      "typeVersion": 1.2,
-      "position": [
-        3880,
-        -40
-      ],
-      "onError": "continueRegularOutput"
-    },
-    {
-      "parameters": {
-        "conditions": {
-          "options": {
-            "caseSensitive": true,
-            "leftValue": "",
-            "typeValidation": "strict",
-            "version": 2
-          },
-          "conditions": [
-            {
-              "id": "c49d10ac-3801-510e-bc62-78b04c7e002e",
-              "leftValue": "={{ $json.ok === true && $json.writeback_exists === false }}",
-              "rightValue": "",
-              "operator": {
-                "type": "boolean",
-                "operation": "true",
-                "singleValue": true
-              }
-            }
-          ],
-          "combinator": "and"
-        },
-        "options": {}
-      },
-      "id": "50ad0397-2455-5c2c-9639-a413530b250d",
-      "name": "Interrupted run?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2.2,
-      "position": [
-        4120,
-        -40
-      ]
-    },
-    {
-      "parameters": {
-        "jsCode": "// Completing an interrupted run (N8N-1.4): observables already enriched before\n// the interruption (a tag with the analyzer prefix on the TheHive observable)\n// are not sent again; the others go through the same policy as a new alert,\n// with the alert's severity as TheHive has it (D-N7) and a budget counted from\n// this call (D-N8: the interrupted run's start isn't stored).\nconst c = $('Context').first().json;\nconst u = $('Upsert (lib-thehive-upsert-alert)').first().json;\nconst st = $input.first().json;\nconst ex = $('Extract observables (lib-extract-observables)').first().json;\n// Observables as tagged by lib-misp-warninglist (C10); the extraction's own when\n// the lib failed unexpectedly (On Error = continue: its item is then {error}).\nconst wl = $('Warninglists (lib-misp-warninglist)').first().json;\nconst observables = Array.isArray(wl.observables) ? wl.observables : ex.observables;\nconst prefix = c.config.enrichment.tags.analyzer_prefix;\nconst key = (o) => `${o.dataType}:${o.data}`;\nconst done = new Set(st.observables.filter((o) => o.tags.some((t) => t.startsWith(prefix))).map(key));\nreturn [{ json: {\n  thehive_alert_id: u.thehive_alert_id, wazuh_alert_id: u.wazuh_alert_id,\n  observables: observables.filter((o) => !done.has(key(o))),\n  already_enriched: observables.filter((o) => done.has(key(o))).map((o) => `${o.dataType} ${o.data}`),\n  tlp: c.config.tlp, pap: c.config.pap, severity: u.severity, enrichment_started_ms: Date.now(),\n  config: c.config, context: c.context,\n} }];"
-      },
-      "id": "dc3a0f55-5065-5b8d-a593-2eb84082e486",
-      "name": "Repair enrich input",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        4360,
-        -140
-      ]
-    },
-    {
-      "parameters": {
-        "jsCode": "// C10 (N8N-2.11): one MISP warninglist call for the alert's observables, before\n// the TheHive alert is created, so the tags travel in its body.\nconst c = $('Context').first().json;\nreturn [{ json: { observables: $input.first().json.observables, config: c.config, context: c.context } }];\n"
-      },
-      "id": "1c576cba-8c35-5056-9335-e6907f46a6a1",
-      "name": "Warninglist input",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        1820,
+        1040,
         -100
       ]
     },
     {
       "parameters": {
-        "workflowId": {
-          "__rl": true,
-          "mode": "id",
-          "value": "asoxLibMispWl001",
-          "cachedResultName": "lib-misp-warninglist"
-        },
-        "options": {
-          "waitForSubWorkflow": true
-        }
-      },
-      "id": "1a1a7097-f364-5776-8a40-4b769c8bc41c",
-      "name": "Warninglists (lib-misp-warninglist)",
-      "type": "n8n-nodes-base.executeWorkflow",
-      "typeVersion": 1.2,
-      "position": [
-        2080,
-        -100
-      ],
-      "onError": "continueRegularOutput"
-    },
-    {
-      "parameters": {
-        "jsCode": "// N8N-4.2: related alerts from the same source address (lib-ssh-correlate,\n// read-only, one bounded TheHive query). After the enrichment, so an alert\n// processed in parallel by the other queue slot has had the most time to\n// appear in TheHive. Created or repaired alerts only (a duplicate with its\n// writeback was correlated when it was created).\nconst c = $('Context').first().json;\nconst u = $('Upsert (lib-thehive-upsert-alert)').first().json;\nconst ex = $('Extract observables (lib-extract-observables)').first().json;\n// Observables as tagged by lib-misp-warninglist (C10); the extraction's own when\n// the lib failed unexpectedly (On Error = continue: its item is then {error}).\nconst wl = $('Warninglists (lib-misp-warninglist)').first().json;\nconst observables = Array.isArray(wl.observables) ? wl.observables : ex.observables;\nreturn [{ json: {\n  canonical: $('Normalize (lib-normalize-wazuh-alert)').first().json.canonical,\n  thehive_alert_id: u.thehive_alert_id, severity: u.severity, tags: u.tags, source: u.source,\n  route: c.route, observables, config: c.config,\n} }];\n"
+        "jsCode": "// N8N-4.2: related alerts from the same source address (lib-ssh-correlate,\n// read-only, one bounded TheHive query). After the enrichment, so an alert\n// processed in parallel by the other queue slot has had the most time to\n// appear in TheHive. Created or repaired alerts only (a duplicate with its\n// writeback was correlated when it was created).\nconst c = $('Context').first().json;\nconst b = $('Alert base (lib-alert-base)').first().json;\nconst u = b.upsert;\nreturn [{ json: {\n  canonical: b.canonical,\n  thehive_alert_id: u.thehive_alert_id, severity: u.severity, tags: u.tags, source: u.source,\n  route: c.route, observables: b.observables, config: c.config,\n} }];\n"
       },
       "id": "e8f725b9-d661-5060-902d-f6574abfe295",
       "name": "Correlate input",
@@ -542,7 +243,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// N8N-4.2: the TheHive writes of the correlation, one item per TheHive alert\n// (this alert first): tags added (never removed), severity raised (never\n// lowered, D12), the escalation comment, and for related alerts their\n// asox-metrics severity (lib-metrics-upsert, mode update). Nothing to write\n// (correlation skipped, failed unexpectedly, or every tag already there) ->\n// one `nothing_to_write` item.\nconst cr = $('Correlate (lib-ssh-correlate)').first().json;\nconst c = $('Context').first().json;\nconst canonical = $('Normalize (lib-normalize-wazuh-alert)').first().json.canonical;\nconst plan = cr && typeof cr.status === 'string' ? cr.plan : null;\nconst items = [];\nif (plan) {\n  const s = plan.self;\n  const escalation = s.escalation\n    ? { marker_alert_id: s.escalation.by_wazuh_alert_id, by_thehive_alert_id: s.escalation.by_thehive_alert_id,\n      by_rule_id: s.escalation.by_rule_id, by_date_ms: s.escalation.by_date_ms }\n    : null;\n  if (s.add_tags.length > 0 || s.severity_to !== null || escalation) {\n    items.push({ role: 'self', thehive_alert_id: s.thehive_alert_id, wazuh_alert_id: s.wazuh_alert_id, rule_id: s.rule_id,\n      add_tags: s.add_tags, severity_from: s.severity_from, severity_to: s.severity_to,\n      severity_final: s.severity_to ?? s.severity_from,\n      // This alert's own document is written by its writeback, after this\n      // loop, with the final severity (Writeback input); no update here.\n      metrics: null, escalation });\n  }\n  for (const t of plan.targets) {\n    items.push({ role: 'related', thehive_alert_id: t.thehive_alert_id, wazuh_alert_id: t.wazuh_alert_id, rule_id: t.rule_id,\n      date_ms: t.date_ms, add_tags: t.add_tags, severity_from: t.severity_from, severity_to: t.severity_to,\n      severity_final: t.severity_final,\n      metrics: { mode: 'update', alert_id: t.wazuh_alert_id, source: t.source, fields: { severity: t.severity_final } },\n      escalation: { marker_alert_id: canonical.wazuh_alert_id, by_thehive_alert_id: s.thehive_alert_id,\n        by_rule_id: canonical.rule.id, by_date_ms: canonical.date_ms } });\n  }\n}\nif (items.length === 0) return [{ json: { nothing_to_write: true } }];\nreturn items.map((t) => ({ json: { t: { ...t,\n  patch_body: { ...(t.add_tags.length > 0 ? { addTags: t.add_tags } : {}), ...(t.severity_to !== null ? { severity: t.severity_to } : {}) },\n  srcip: cr.srcip, campaign_tag: `${c.config.ssh_correlation.tags.campaign_prefix}${cr.srcip}` } } }));\n"
+        "jsCode": "// N8N-4.2: the TheHive writes of the correlation, one item per TheHive alert\n// (this alert first): tags added (never removed), severity raised (never\n// lowered, D12), the escalation comment, and for related alerts their\n// asox-metrics severity (lib-metrics-upsert, mode update). Nothing to write\n// (correlation skipped, failed unexpectedly, or every tag already there) ->\n// one `nothing_to_write` item.\nconst cr = $('Correlate (lib-ssh-correlate)').first().json;\nconst c = $('Context').first().json;\nconst canonical = $('Alert base (lib-alert-base)').first().json.canonical;\nconst plan = cr && typeof cr.status === 'string' ? cr.plan : null;\nconst items = [];\nif (plan) {\n  const s = plan.self;\n  const escalation = s.escalation\n    ? { marker_alert_id: s.escalation.by_wazuh_alert_id, by_thehive_alert_id: s.escalation.by_thehive_alert_id,\n      by_rule_id: s.escalation.by_rule_id, by_date_ms: s.escalation.by_date_ms }\n    : null;\n  if (s.add_tags.length > 0 || s.severity_to !== null || escalation) {\n    items.push({ role: 'self', thehive_alert_id: s.thehive_alert_id, wazuh_alert_id: s.wazuh_alert_id, rule_id: s.rule_id,\n      add_tags: s.add_tags, severity_from: s.severity_from, severity_to: s.severity_to,\n      severity_final: s.severity_to ?? s.severity_from,\n      // This alert's own document is written by its writeback, after this\n      // loop, with the final severity (Writeback input); no update here.\n      metrics: null, escalation });\n  }\n  for (const t of plan.targets) {\n    items.push({ role: 'related', thehive_alert_id: t.thehive_alert_id, wazuh_alert_id: t.wazuh_alert_id, rule_id: t.rule_id,\n      date_ms: t.date_ms, add_tags: t.add_tags, severity_from: t.severity_from, severity_to: t.severity_to,\n      severity_final: t.severity_final,\n      metrics: { mode: 'update', alert_id: t.wazuh_alert_id, source: t.source, fields: { severity: t.severity_final } },\n      escalation: { marker_alert_id: canonical.wazuh_alert_id, by_thehive_alert_id: s.thehive_alert_id,\n        by_rule_id: canonical.rule.id, by_date_ms: canonical.date_ms } });\n  }\n}\nif (items.length === 0) return [{ json: { nothing_to_write: true } }];\nreturn items.map((t) => ({ json: { t: { ...t,\n  patch_body: { ...(t.add_tags.length > 0 ? { addTags: t.add_tags } : {}), ...(t.severity_to !== null ? { severity: t.severity_to } : {}) },\n  srcip: cr.srcip, campaign_tag: `${c.config.ssh_correlation.tags.campaign_prefix}${cr.srcip}` } } }));\n"
       },
       "id": "47dd5b60-5ec8-5738-8e71-7a8d9afa0922",
       "name": "Escalation plan",
@@ -1396,6 +1097,40 @@
         -300
       ],
       "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "e6d0a6a3-47dd-5946-a384-e70d201915ef",
+              "leftValue": "={{ $json.outcome === 'created' || $json.outcome === 'repaired' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "6e5a4a4c-be81-5042-b30e-735d6ff138c5",
+      "name": "Correlate?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1300,
+        -300
+      ]
     }
   ],
   "connections": {
@@ -1414,58 +1149,7 @@
       "main": [
         [
           {
-            "node": "Normalize input",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Normalize input": {
-      "main": [
-        [
-          {
-            "node": "Normalize (lib-normalize-wazuh-alert)",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Normalize (lib-normalize-wazuh-alert)": {
-      "main": [
-        [
-          {
-            "node": "Normalized?",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Normalized?": {
-      "main": [
-        [
-          {
-            "node": "Extract input",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Parked outcome",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Upsert input": {
-      "main": [
-        [
-          {
-            "node": "Upsert (lib-thehive-upsert-alert)",
+            "node": "Alert base (lib-alert-base)",
             "type": "main",
             "index": 0
           }
@@ -1476,7 +1160,7 @@
       "main": [
         [
           {
-            "node": "Created?",
+            "node": "Correlate?",
             "type": "main",
             "index": 0
           }
@@ -1512,17 +1196,6 @@
         ]
       ]
     },
-    "Upsert (lib-thehive-upsert-alert)": {
-      "main": [
-        [
-          {
-            "node": "TheHive configured?",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
     "TheHive configured?": {
       "main": [
         [
@@ -1535,141 +1208,6 @@
         [
           {
             "node": "Skipped outcome",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Extract input": {
-      "main": [
-        [
-          {
-            "node": "Extract observables (lib-extract-observables)",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Extract observables (lib-extract-observables)": {
-      "main": [
-        [
-          {
-            "node": "Warninglist input",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Created?": {
-      "main": [
-        [
-          {
-            "node": "Enrich input",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Alert state input",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Enrich input": {
-      "main": [
-        [
-          {
-            "node": "Enrich (lib-enrich-observable)",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Enrich (lib-enrich-observable)": {
-      "main": [
-        [
-          {
-            "node": "Correlate input",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Alert state input": {
-      "main": [
-        [
-          {
-            "node": "Alert state (lib-thehive-alert-state)",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Alert state (lib-thehive-alert-state)": {
-      "main": [
-        [
-          {
-            "node": "Interrupted run?",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Interrupted run?": {
-      "main": [
-        [
-          {
-            "node": "Repair enrich input",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Writeback input",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Repair enrich input": {
-      "main": [
-        [
-          {
-            "node": "Enrich (lib-enrich-observable)",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Warninglist input": {
-      "main": [
-        [
-          {
-            "node": "Warninglists (lib-misp-warninglist)",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Warninglists (lib-misp-warninglist)": {
-      "main": [
-        [
-          {
-            "node": "Upsert input",
             "type": "main",
             "index": 0
           }
@@ -2233,6 +1771,35 @@
         [
           {
             "node": "Outcome",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Alert base (lib-alert-base)": {
+      "main": [
+        [
+          {
+            "node": "TheHive configured?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Correlate?": {
+      "main": [
+        [
+          {
+            "node": "Correlate input",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Writeback input",
             "type": "main",
             "index": 0
           }
