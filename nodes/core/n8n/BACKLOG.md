@@ -191,7 +191,7 @@ Also built ahead of v1.2: N8N-1.4 (concurrency part), 1.7, 1.8, 1.9, 2.9 (C11, e
 
 **2026-10-21 (after checkpoint 1):** N8N-4.2 built (`pb-ssh-bruteforce`, `lib-ssh-correlate`, routing `2026-10-21`; 27 workflows), N8N-0.6's per-playbook tests started (`fixtures/tests/pb-ssh-bruteforce.sh`). The new TheHive tags, escalation comment and severity raise wait for TheHive's acknowledgement (`docs/ALERT-TO-THEHIVE.md` §10).
 
-**2026-10-21 (later):** X-44 built (N8N-2.3: `uri_path` with its 512-character cap, FIM title, `fim:` tags, deleted-hash description; N8N-1.3: `web-attack` and `file-integrity` active, routing `2026-10-21.2`, config `2026-10-21.3`) and N8N-2.4's gate fix (VirusTotal `severe path only` when Cortex's list fails). Still 27 workflows.
+**2026-10-21 (later):** X-44 built (N8N-2.3: `uri_path` with its 512-character cap, FIM title, `fim:` tags, deleted-hash description; N8N-1.3: `web-attack` and `file-integrity` active, routing `2026-10-21.2`, config `2026-10-21.3`) and N8N-2.4's gate fix (VirusTotal `severe path only` when Cortex's list fails). Still 27 workflows. Follow-ups the same day: FIM title without the path twice (100300–100302), `data.url` typed as AF §5 says (`<scheme>://<host>` → `url`, online analyzers still http(s) only, reason `url not http(s)`).
 
 ## Suggested milestones
 
