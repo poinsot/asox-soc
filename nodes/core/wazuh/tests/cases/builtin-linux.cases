@@ -65,3 +65,13 @@ log 2026/10/23 01:42:50 active-response/bin/firewall-drop: {"version":1,"origin"
 case active response: host unblocked after the timeout
 expect rule=652 level=3 groups=active_response decoder=ar_log_json
 log 2026/10/23 01:43:52 active-response/bin/firewall-drop: {"version":1,"origin":{"name":null,"module":"wazuh-execd"},"command":"delete","parameters":{"extra_args":[],"alert":{"data":{"srcip":"192.0.2.88"}},"program":"active-response/bin/firewall-drop"}}
+
+# A real wrong SSH password logs sshd's line and PAM's line. One brute force
+# must give one brute-force alert, 5763, not PAM's 5551 too (109020).
+case real SSH brute force with PAM lines: PAM's 5551 is silenced
+expect rule=109020 level=0
+repeat 8 Oct 23 10:02:10 victim sshd[3301]: pam_unix(sshd:auth): authentication failure; logname= uid=0 euid=0 tty=ssh ruser= rhost=203.0.113.212  user=root
+
+case PAM brute force on another service still fires
+expect rule=5551 level=10
+repeat 8 Oct 23 10:03:10 victim su[4401]: pam_unix(su:auth): authentication failure; logname=labuser uid=1000 euid=0 tty=/dev/pts/0 ruser=labuser rhost=203.0.113.213  user=root

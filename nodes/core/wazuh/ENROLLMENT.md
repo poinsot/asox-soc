@@ -26,7 +26,7 @@ n8n can block an attacker's address on an agent (`firewall-drop`, removed by the
 1. Linux with `iptables` (`sudo apt install iptables`), active response not disabled in its `ossec.conf` (the default).
 2. Enrolled with both groups: `WAZUH_AGENT_GROUP='linux-servers,asox-response'`. Or, on the manager, **early on the day and not right before the demo** (a group change reloads the agent, and a command sent meanwhile is lost):
    `docker exec <instance>-core-wazuh-manager-1 /var/ossec/bin/agent_groups -a -i <agent id> -g asox-response -q`
-3. Never a SOC host, the gateway or the DNS server (the manager's `<white_list>` and n8n's protected list).
+3. Never a SOC host, the gateway or the DNS server. **n8n's `protected_cidrs` is the only guard**: the manager's `<white_list>` doesn't apply to commands sent through the API (tested 2026-10-22).
 
 Check: on the manager, `/var/ossec/bin/agent_groups -s -i <agent id>` lists `asox-response`; after a block, `sudo iptables -L INPUT -n` on the victim shows a `DROP` for the address until the timeout. The lab agent enrolls into both groups by default and is the target of `contracts-check.sh --only C9` (passed 2026-10-22).
 

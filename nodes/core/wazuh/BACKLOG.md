@@ -160,7 +160,7 @@ A Suricata sensor watches the lab traffic and its alerts arrive in Wazuh through
   - Done when: `scripts/mem-report.sh` in mode `core` on your profile; Suricata's limit sized with the D40 formula; `core` on `low` still fits a 6 GB WSL allocation.
   - With: Inigo, if a limit changes
   - Refs: R-07, D39
-- [ ] **W3.7** Hand the IDS fields to n8n, TheHive and Grafana (by 2026-11-03) *(in progress)* · P2, C1, C8
+- [x] **W3.7** Hand the IDS fields to n8n, TheHive and Grafana (by 2026-11-03) · P2, C1, C8
   - Done when: Inigo (`pb-ids-alert`, N8N-4.4), Park (T3.6, ALERT-FORMAT.md §3, `ids-network-alert` template) and Jesus (GRAF-2.3) have the rule groups (`suricata`, `ids`), rule 86601 and your custom IDs, and the fields `data.alert.signature`, `data.alert.severity`, `data.src_ip`, `data.dest_ip`, `data.dest_port`, all in the W2.5 catalog.
   - With: Inigo (n8n), Park (TheHive), Jesus (Grafana)
   - Refs: X-23, X-34
@@ -170,6 +170,7 @@ A Suricata sensor watches the lab traffic and its alerts arrive in Wazuh through
 Syslog from network devices is decoded and classified, ready for the real devices of Phase 2.
 
   - **2026-10-22:** `docs/handoff-ids-fields-w37-2026-10-22.md` (rules and levels, fields confirmed on new alerts, who the attacker is, grouping per source, lab vs physical sensor). Done when the three acknowledge.
+  - **Done:** delivered with PR #45; n8n built `pb-ids-alert` on it (N8N-4.4, PR #46). X-45 (`signature-id` custom field) is TheHive's and n8n's.
 - [ ] **W4.1** Collect sample logs *(in progress)* · P1
   - Done when: Sanitized samples in `tests/samples/`: OPNsense `filterlog`, OPNsense web GUI and SSH logins, configuration changes, and the router's logs. Router vendor and model confirmed with the team.
   - Files: `nodes/core/wazuh/tests/samples/`
@@ -270,17 +271,18 @@ Everything merged into `main`, tested end to end and ready to show one day early
 
 Not part of the 1 December delivery. C9 as decided in D44 (useful once Phase 2 brings real endpoints), Suricata on a dedicated sensor, custom response scripts.
 
-- [ ] **W7.1** Build C9 with the n8n owner (D44) · P3, C2, C9
+- [x] **W7.1** Build C9 with the n8n owner (D44) · P3, C2, C9
   - Done when: Separate Wazuh API user and role `n8n-response` (`active-response:command` plus `agent:read`, limited to actionable agent groups, never the SOC's own hosts), created by Inigo in `scripts/lib/wazuh.sh` (R-17); `n8n-api` stays read-only, so C2 still passes. Catalog v1 = built-in `firewall-drop`, `host-deny`, `disable-account`, each with a timeout; Wazuh's `<white_list>` matches n8n's allowlist of protected hosts.
   - With: Inigo (n8n owner and integrator)
   - Refs: X-20, X-21, R-17, D44, D12
   - **2026-10-22 (C9 v0 for the live demo, Inigo):** manager `<active-response>` blocks `firewall-drop60` / `firewall-drop300` (rules_id 100999, no rule), `<white_list>` 192.168.1.1, group `groups/asox-response`; `analysisd -t` clean, `ar.conf` entries confirmed; `contracts-check.sh --only C9` passes.
-- [ ] **W7.2** Active response in the lab · P3, C9
+- [x] **W7.2** Active response in the lab · P3, C9
   - Done when: `<active-response>` blocks prepared; the lab image can run `firewall-drop` (iptables, `NET_ADMIN`); C9's check `chk-wazuh-response` passes: `firewall-drop` of `192.0.2.1` on the lab agent with a 60 s timeout succeeds, and a non-AR call as `n8n-response` gets 403.
   - Files: `nodes/core/wazuh/config/ossec.conf`, `nodes/lab/Dockerfile`, `nodes/lab/docker-compose.yml`
   - Refs: X-22
   - **2026-10-22:** lab agent has `iptables` and `NET_ADMIN`, enrolls into `linux-servers,asox-response`; firewall-drop60 via the API as n8n-response blocked 192.0.2.77 and the agent removed it after ~60 s; agent 000 refused (403).
   - **2026-10-22 later:** tested on an Ubuntu 24.04 agent with systemd (victim stand-in): the block logs built-in 651 and its removal 652 (level 3, pinned in builtin-linux.cases). Found and fixed: `linux-servers` read `auth.log` and the journal, so every SSH event was two alerts; the group now reads the journal only (the installer adds it on systemd hosts). 5763, 5901/5902, 100211, 100302 confirmed through the journal.
+  - **Done for v0.** `<white_list>` tested for API commands: it does **not** apply (192.168.1.1 blocked), so n8n's `protected_cidrs` is the only guard; README C9 row. Left for after the delivery: `host-deny`, `disable-account`, isolation (X-21, W7.4).
 - [ ] **W7.3** Suricata on a dedicated sensor · P3
   - Done when: Guide and test for Suricata plus a Wazuh agent (`network-sensors`) on its own machine, fed by a mirror (SPAN) port of the router, as planned for Phase 2.
   - Files: `nodes/core/wazuh/ENROLLMENT.md`

@@ -4,7 +4,7 @@
 **From:** Daniel (@dmelgar1110), Wazuh owner
 **Date:** 2026-10-22
 **Refs:** W3.3–W3.7, X-23, X-34, D49; `nodes/core/n8n/docs/WAZUH-FIELDS.md` "Suricata"; `rules/1010-suricata.xml`, `rules/1080-misp-ioc.xml`
-**Status:** draft
+**Status:** delivered (PR #45, 2026-10-22); `pb-ids-alert` built on it (n8n PR #46)
 
 The fields in n8n's `WAZUH-FIELDS.md` ("Suricata", seen 2026-10-15) are **confirmed unchanged** on new alerts from `ids-test` and `ids-scan` (2026-10-22). This note adds what only the Wazuh side knows: which rules fire, what reaches n8n, and what changes with the physical sensor on Monday.
 
