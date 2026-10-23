@@ -26,7 +26,7 @@ n8n can block an attacker's address on an agent (`firewall-drop`, removed by the
 1. Linux with `iptables` (`sudo apt install iptables`), active response not disabled in its `ossec.conf` (the default).
 2. Enrolled with both groups: `WAZUH_AGENT_GROUP='linux-servers,asox-response'`. Or, on the manager, **early on the day and not right before the demo** (a group change reloads the agent, and a command sent meanwhile is lost):
    `docker exec <instance>-core-wazuh-manager-1 /var/ossec/bin/agent_groups -a -i <agent id> -g asox-response -q`
-3. Never a SOC host, the gateway or the DNS server (the manager's `<white_list>` and n8n's protected list).
+3. Never a SOC host, the gateway or the DNS server. **n8n's `protected_cidrs` is the only guard**: the manager's `<white_list>` doesn't apply to commands sent through the API (tested 2026-10-22).
 
 Check: on the manager, `/var/ossec/bin/agent_groups -s -i <agent id>` lists `asox-response`; after a block, `sudo iptables -L INPUT -n` on the victim shows a `DROP` for the address until the timeout. The lab agent enrolls into both groups by default and is the target of `contracts-check.sh --only C9` (passed 2026-10-22).
 
@@ -59,7 +59,7 @@ apt-mark hold wazuh-agent              # stays at the manager's version
 systemctl daemon-reload && systemctl enable --now wazuh-agent
 ```
 
-- **What the group adds:** `auth.log` and journald, plus real-time integrity checks on `/etc/passwd`, `/etc/shadow`, `/etc/group`, sudoers, SSH keys, cron and systemd units (`groups/linux-servers/agent.conf`).
+- **What the group adds:** the journal (logins, sudo, users and groups; not `auth.log` too, which doubled every alert on Ubuntu 24.04), nginx and Apache access logs, plus real-time integrity checks on `/etc/passwd`, `/etc/shadow`, `/etc/group`, sudoers, SSH keys, cron and systemd units (`groups/linux-servers/agent.conf`).
 - **How to check it:**
   1. `id=$(nodes/lab/trigger.sh --scenario persistence)` shows what the alerts look like on the lab agent.
   2. On the new server, `sudo touch /etc/sudoers.d/zz-test` gives rule 100300 within seconds.
@@ -103,7 +103,7 @@ In `/etc/suricata/suricata.yaml`:
 
 | Setting | Value |
 |---|---|
-| `vars.address-groups.HOME_NET` | the protected lab network, e.g. `"[192.168.10.0/24]"` (the LAN behind OPNsense). Not every private range: ET SCAN rules only fire for traffic from `EXTERNAL_NET` into `HOME_NET` |
+| `vars.address-groups.HOME_NET` | the hosts Suricata protects: **in the live lab, the victim only**, e.g. `"[192.168.1.50]"`. ET SCAN rules only fire for traffic from `EXTERNAL_NET` (everything outside `HOME_NET`) into `HOME_NET`, so an attacker inside `HOME_NET` (Kali on the same `/24`) is never seen as a scanner. In a real deployment: the LAN behind OPNsense, with attackers outside it |
 | `af-packet` | `interface: <adapter 2 name>` |
 | `outputs` → `eve-log` → `types` | keep only `- alert` (as in `nodes/lab/suricata/asox.yaml`) |
 

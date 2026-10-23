@@ -91,3 +91,22 @@
   </rule>
 
 </group>
+
+<!--
+  C9 demo prep (2026-10-22): on a real Ubuntu host every wrong SSH password
+  logs two lines, sshd's "Failed password" (5760) and PAM's
+  "pam_unix(sshd:auth): authentication failure" (5503). One brute force then
+  raised two alerts: 5763 (route ssh-bruteforce: correlation and the C9
+  proposal) and PAM's 5551 (route login-bruteforce, uncorrelated). For sshd
+  the 5763 is the alert, so 5551 is silenced when its line is sshd's own.
+  PAM brute force on other services (su, login, vsftpd...) still fires.
+-->
+<group name="pam,">
+
+  <rule id="109020" level="0">
+    <if_sid>5551</if_sid>
+    <match>(sshd:auth)</match>
+    <description>ASOX tuning: PAM brute force on sshd, already 5763 (silenced)</description>
+  </rule>
+
+</group>
