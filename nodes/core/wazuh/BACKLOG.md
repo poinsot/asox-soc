@@ -280,6 +280,7 @@ Not part of the 1 December delivery. C9 as decided in D44 (useful once Phase 2 b
   - Files: `nodes/core/wazuh/config/ossec.conf`, `nodes/lab/Dockerfile`, `nodes/lab/docker-compose.yml`
   - Refs: X-22
   - **2026-10-22:** lab agent has `iptables` and `NET_ADMIN`, enrolls into `linux-servers,asox-response`; firewall-drop60 via the API as n8n-response blocked 192.0.2.77 and the agent removed it after ~60 s; agent 000 refused (403).
+  - **2026-10-22 later:** tested on an Ubuntu 24.04 agent with systemd (victim stand-in): the block logs built-in 651 and its removal 652 (level 3, pinned in builtin-linux.cases). Found and fixed: `linux-servers` read `auth.log` and the journal, so every SSH event was two alerts; the group now reads the journal only (the installer adds it on systemd hosts). 5763, 5901/5902, 100211, 100302 confirmed through the journal.
 - [ ] **W7.3** Suricata on a dedicated sensor · P3
   - Done when: Guide and test for Suricata plus a Wazuh agent (`network-sensors`) on its own machine, fed by a mirror (SPAN) port of the router, as planned for Phase 2.
   - Files: `nodes/core/wazuh/ENROLLMENT.md`

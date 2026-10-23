@@ -45,6 +45,8 @@ Rules in bold are ASOX's own, or the built-ins the story relies on. All of them 
 
 **The closing line:** in n8n, every alert of level 7 or higher became an execution of `recv-wazuh-alert` (contract C1). From there n8n enriches it and creates the TheHive alert (the next part of the demo).
 
+**If C9 (active response) is part of the demo:** after the analyst approves in TheHive, the victim's agent logs **651 "Host Blocked by firewall-drop"** (level 3) and, 300 s later, **652 "Host Unblocked"**: search `rule.id: 651 OR 652` in Grafana's Recent alerts. Do it last: the block stops Kali's next attacks for 5 minutes.
+
 ## Points that usually come up
 
 - **Why levels matter:** 7 and above goes to n8n; 12 and above is critical, and is reserved for precise detections (README "Alert levels").

@@ -59,7 +59,7 @@ apt-mark hold wazuh-agent              # stays at the manager's version
 systemctl daemon-reload && systemctl enable --now wazuh-agent
 ```
 
-- **What the group adds:** `auth.log` and journald, plus real-time integrity checks on `/etc/passwd`, `/etc/shadow`, `/etc/group`, sudoers, SSH keys, cron and systemd units (`groups/linux-servers/agent.conf`).
+- **What the group adds:** the journal (logins, sudo, users and groups; not `auth.log` too, which doubled every alert on Ubuntu 24.04), nginx and Apache access logs, plus real-time integrity checks on `/etc/passwd`, `/etc/shadow`, `/etc/group`, sudoers, SSH keys, cron and systemd units (`groups/linux-servers/agent.conf`).
 - **How to check it:**
   1. `id=$(nodes/lab/trigger.sh --scenario persistence)` shows what the alerts look like on the lab agent.
   2. On the new server, `sudo touch /etc/sudoers.d/zz-test` gives rule 100300 within seconds.

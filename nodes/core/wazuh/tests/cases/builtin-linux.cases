@@ -53,3 +53,15 @@ log 198.51.100.7 - - [15/Oct/2026:19:20:02 +0000] "GET /index.php?id=1%27%20unio
 case SQL injection, 10 tries from one address (lab scenario web-attack)
 expect rule=31152 level=10 decoder=web-accesslog
 repeat 10 198.51.100.30 - - [19/Oct/2026:10:00:01 +0000] "GET /products.php?id=1%27%20UNION%20SELECT%20username,password%20FROM%20users-- HTTP/1.1" 500 312 "-" "sqlmap/1.8.4#stable (https://sqlmap.org) asox_run=abc-123"
+
+# Active response (C9): the agent logs each firewall-drop in
+# /var/ossec/logs/active-responses.log (read by its default config), so a
+# block and its timed removal show up as alerts. Captured 2026-10-22 on an
+# Ubuntu 24.04 agent, through the API as n8n-response.
+case active response: host blocked by firewall-drop
+expect rule=651 level=3 groups=active_response decoder=ar_log_json
+log 2026/10/23 01:42:50 active-response/bin/firewall-drop: {"version":1,"origin":{"name":null,"module":"wazuh-execd"},"command":"add","parameters":{"extra_args":[],"alert":{"data":{"srcip":"192.0.2.88"}},"program":"active-response/bin/firewall-drop"}}
+
+case active response: host unblocked after the timeout
+expect rule=652 level=3 groups=active_response decoder=ar_log_json
+log 2026/10/23 01:43:52 active-response/bin/firewall-drop: {"version":1,"origin":{"name":null,"module":"wazuh-execd"},"command":"delete","parameters":{"extra_args":[],"alert":{"data":{"srcip":"192.0.2.88"}},"program":"active-response/bin/firewall-drop"}}

@@ -146,6 +146,7 @@ Every custom rule, the alert it produces and how to fire it. Built-in rules the 
 | 31103 (built-in) | Wazuh `0245-web_rules.xml` | 7 | `web`, `accesslog`, `attack`, `sql_injection` | T1190 | SQL injection pattern in the URL of a web access log line (decoder `web-accesslog`: `data.srcip`, `data.url`, `data.protocol`, `data.id`) | `web-attack` | `web-attack` |
 | 31152 (built-in) | Wazuh `0245-web_rules.xml` | 10 | `web`, `accesslog`, `attack`, `sql_injection` | T1055 (Wazuh's mapping) | 8 SQL injection attempts from one address in 120 s | `web-attack` | `web-attack` |
 | 4724 | `1090-tuning.xml` | 5 | `cisco_ios`, `authentication_failed` | — | Built-in "Cisco IOS: failed login", lowered from 9 so one mistyped password doesn't reach n8n (102000 counts them) | `router-bruteforce` | — (not forwarded) |
+| 651 / 652 (built-in) | Wazuh `0015-ossec_rules.xml` | 3 | `ossec`, `active_response` | — | Host blocked / unblocked by `firewall-drop` (C9): the agent's `active-responses.log`, `data.srcip` = the blocked address. Indexed, not forwarded (n8n started it). Shows the block and its removal on Grafana's timeline | C9 approval in TheHive | — (not forwarded) |
 | 19004, 19007 | `1090-tuning.xml` | 5 | `sca` | (SCA's own) | Built-in SCA, lowered (W2.7) | re-enrolling an agent | — (not forwarded) |
 
 Decoder `asox-usermod` (`decoders/1002-linux-auth.xml`) gives `data.dstuser` (the account) and `data.group`, the same names as the built-in gpasswd decoder.
