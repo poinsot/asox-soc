@@ -100,10 +100,10 @@ scenario() {
           "VirusTotal: Alert - /tmp/eicar.com - 60 engines detected this file" \
           lab-agent T1204 \
           '[{"dataType":"hash","data":"275a021bbfb6489e54d471899f7db9d1663fc695ec2fe2a2c4538aabf651fd0f","tags":["sha256"],"message":"EICAR test file","ioc":true},{"dataType":"filename","data":"/tmp/eicar.com","tags":["path"]},{"dataType":"hostname","data":"lab-agent","tags":["agent"]}]' ;;
-    ids) printf '%s\n' ids-network-alert 86601 10 \
-          "Suricata: Alert - ET SCAN Nmap Scripting Engine User-Agent Detected" \
+    ids) printf '%s\n' ids-network-alert 101010 10 \
+          "ASOX IDS scan: ET SCAN NMAP -sS window 1024 from 198.51.100.23" \
           lab-agent T1046 \
-          '[{"dataType":"ip","data":"198.51.100.23","tags":["src"],"message":"data.src_ip (scanner)"},{"dataType":"ip","data":"192.168.1.20","tags":["dst"],"message":"data.dest_ip, data.dest_port 80"},{"dataType":"user-agent","data":"Mozilla/5.00 (Nmap Scripting Engine)"},{"dataType":"hostname","data":"lab-agent","tags":["agent"]}]' ;;
+          '[{"dataType":"ip","data":"198.51.100.23","tags":["src"],"message":"data.src_ip (scanner)"},{"dataType":"ip","data":"192.168.1.20","tags":["dst"],"message":"data.dest_ip, data.dest_port 80"},{"dataType":"hostname","data":"lab-agent","tags":["agent"]}]' ;;
     generic) printf '%s\n' wazuh-generic 31151 10 \
           "Multiple web server 400 error codes from same source ip." \
           lab-agent T1595 \
@@ -186,7 +186,8 @@ for s in "${wanted[@]}"; do
         {name: "wazuh-agent-name", value: $agent},
         {name: "asset-criticality", value: $crit},
         {name: "playbook", value: "manual-test"}
-      ] + (if $mitre == "" then [] else [{name: "mitre-technique", value: $mitre}] end)),
+      ] + (if $mitre == "" then [] else [{name: "mitre-technique", value: $mitre}] end)
+        + (if $tpl == "ids-network-alert" then [{name: "signature-id", value: 2009582}] else [] end)),
       observables: $obs
     }')
   r=$(as_n8n POST /api/v1/alert "$body")

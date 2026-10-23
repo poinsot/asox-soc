@@ -52,10 +52,12 @@ Runs on the instance that hosts `full` for the demo, after Daniel's `demo.sh` / 
 | 2 | Open the 40112 alert: description table, tags (`rule:`, `agent:`, `attack.`, `ssh:login-after-bruteforce` on the brute-force alerts), custom fields | Everything the analyst needs without opening Wazuh; the brute force was raised to Critical because a login followed |
 | 3 | Observables: the attacker IP with `asox:verdict=…` (and `warninglist` if any) | Enrichment at intake (C6); the analyst decides if it's an IOC |
 | 4 | n8n's writeback comment `[asox-n8n writeback] …` with **"Proposed: firewall-drop `<ip>` on `<agent>` for 300 s"** | The playbook proposes blocking the attacker; nothing runs without the analyst |
-| 5 | Check the IP (it's the `src`, not a SOC host), then add the tag **`approve:firewall-drop`** | Human approval, recorded in TheHive (TRIAGE.md, "Interim for the physical-lab demo") |
+| 5 | Check the IP (it's the `src`, not a SOC host), then add the tag **`approve:firewall-drop`** to the **40112** alert only (the 5763 carries a proposal too) | Human approval, recorded in TheHive (TRIAGE.md, "Interim for the physical-lab demo") |
 | 6 | n8n's comment `[asox-n8n response] firewall-drop … (live): sent`, the tag `asox:response=firewall-drop`, `containment-action` = `ip-blocked` | Wazuh blocks the IP on the attacked host for 5 minutes and removes the block by itself |
 | 7 | Create case from the 40112 alert (template "Successful login after failures"), merge the brute-force alerts into it (R4), close a task with a log | One attacker, one case; the template is the procedure |
 | 8 | Close the case: summary, True Positive; hand over to Grafana (MTTA / MTTR) | The resolution and times feed the metrics (C11) |
+
+Wait at least 60 s between two SSH tests (rules 5763 / 5712 stay quiet for 60 s), and log in within 4 minutes of the failures, or no 40112 is raised (n8n's `asox-lab-test-guide.md` §1.3, §3.3).
 
 Before the demo: `thehive-import.sh` on that instance (templates current), `thehive-test-alert.sh --cleanup` (no leftover test alerts), the analyst login ready (never shown on screen), and one dry run of steps 1–6 with n8n and Wazuh. Ask whether n8n runs in `live` or `dry_run`: in `dry_run` step 6 says `not sent (dry_run)` and nothing is blocked.
 
@@ -73,4 +75,4 @@ Keep these in a folder outside the repo (screenshots can show hostnames); put on
 - [ ] Terminal output: `thehive-import.sh` (all unchanged), `thehive-test-alert.sh all --promote` (all PASS), `thehive-export.sh` + `git status` (no diff)
 - [ ] Terminal output: `scripts/healthcheck.sh cases` and `scripts/contracts-check.sh --only C5`
 - [ ] `thehive-fp-report.sh` output (from the end-to-end run, TD.3)
-- [ ] README: the templates and fields tables are current (12 templates, 9 fields)
+- [ ] README: the templates and fields tables are current (12 templates, 10 fields)

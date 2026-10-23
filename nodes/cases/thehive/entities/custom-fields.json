@@ -53,6 +53,14 @@
     "mandatory": false
   },
   {
+    "name": "signature-id",
+    "displayName": "IDS signature ID",
+    "group": "ids",
+    "description": "Suricata signature that fired (data.alert.signature_id, cast to integer); filled by n8n on IDS alerts. Lets the IDS playbook find related alerts by signature (X-row of 2026-10-23).",
+    "type": "integer",
+    "mandatory": false
+  },
+  {
     "name": "wazuh-agent-name",
     "displayName": "Wazuh agent",
     "group": "wazuh",
