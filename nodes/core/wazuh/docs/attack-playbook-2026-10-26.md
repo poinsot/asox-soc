@@ -8,6 +8,8 @@ same events locally). Use `demo.sh` as the fallback if a device fails on the day
 > Run these only against the lab's own victim and network equipment, on the lab LAN, with
 > the team present. Nothing here reaches outside that network.
 
+**First connect and check every machine:** `docs/lab-day-checklist.md` (switch, SOC, victim, OPNsense, Suricata sensor, Kali; one check each).
+
 ## Lab addresses (fill in on the day)
 
 | Host | Address | Role |
