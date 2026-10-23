@@ -123,7 +123,7 @@
       {
         "title": "Check the hash",
         "group": "Investigation",
-        "description": "Run the Cortex analyzers on the hash observable (fim:modified / fim:added: the new content; fim:deleted: the last known content). A known-malicious hash raises the severity to High.",
+        "description": "Run the Cortex analyzers on the hash observable (fim:modified / fim:added: the new content; fim:deleted: the last known content). A known-malicious hash is Critical: n8n's malware playbook raises it and tags the alert asox:verdict=malicious; check its \"Same hash on other alerts\" list.",
         "order": 2,
         "mandatory": false
       },
@@ -374,7 +374,7 @@
   {
     "name": "login-bruteforce",
     "displayName": "Login brute force (non-SSH)",
-    "titlePrefix": "[LOGIN]",
+    "titlePrefix": "[BRUTE]",
     "description": "Many failed logins against a service that isn't SSH: a firewall or router admin login (e.g. OPNsense / pfSense web GUI, rule 103011), a web application, a VPN. Wazuh MITRE T1110 without the `sshd` group. Main risk: a later successful login, which would give admin access to a network device. Triage procedure: nodes/cases/thehive/docs/TRIAGE.md.",
     "severity": 3,
     "tlp": 2,

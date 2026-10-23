@@ -67,12 +67,15 @@ Your machine runs the `cases` mode, licensed and backed up, before you change an
   - Files: `topology.env`
 - [x] **T0.4** Activate the Community license and back it up · P1, X-19
   - Done when: `soc.sh info cases` shows Community, valid until 2027-09-29; `backup.sh cases --with-secrets` done right after; `healthcheck.sh` shows no webhook warning.
-- [ ] **T0.5** Verify the baseline you own · P1, C5, X-19
+- [x] **T0.5** Verify the baseline you own · P1, C5, X-19
+  - **Done 2026-10-22:** on Park's machine (`cases`, `standard`): `contracts-check.sh --only C5` PASS (Cortex 4.1.0-1); `healthcheck.sh cases` all PASS (the MISP analyzer image `ghcr.io/thehive-project/misp:2`, missing since `init`, pulled by hand with `docker pull`). C3/C4 checked on the build instance (X-19).
   - Done when: `contracts-check.sh --only C5` passes in `cases`; C3 and **C4 against this Community license** checked once in `full` or on the integrator's run. C4 on a Community license: **resolved 2026-09-30** (X-19, Inigo captured 20 real C4 events); left: `contracts-check.sh --only C5` on your machine.
-- [ ] **T0.6** Read the contracts and the TheHive chapter · P2
+- [x] **T0.6** Read the contracts and the TheHive chapter · P2
+  - **Done 2026-10-22:** contracts and TheHive chapter read; `scripts/ci-checks.sh all` passes on Park's machine (compose, shellcheck, JSON, XML, n8n lint, gitleaks).
   - Done when: Read PROJECT.md 5, 6.4, 11, `nodes/cases/thehive/README.md`, CONTRIBUTING.md; run `scripts/ci-checks.sh all` once.
   - Files: `PROJECT.md`, `CONTRIBUTING.md`, `nodes/cases/thehive/README.md`
-- [ ] **T0.7** Tell the integrator your RAM and Windows version · P3
+- [x] **T0.7** Tell the integrator your RAM and Windows version · P3
+  - **Done 2026-10-21:** 64 GB, Windows 11, WSL 16 GB, `cases` / `standard` (`docs/reply-n8n-2026-10-21.md`).
   - Done when: Inigo has PROJECT.md 16 questions 1 and 3 (64 GB, Windows 11). The license result (X-19) is already recorded in the register.
   - With: Inigo (integrator)
 ## M1 · Configuration as code and tools (target: 2026-10-09)
@@ -85,7 +88,9 @@ Everything built in the UI reaches git, and alerts can be tested without Wazuh.
 - [x] **T1.2** Test alert generator · P1, C3
   - Done when: `thehive-test-alert.sh [SCENARIO...|all] [--critical-asset] [--promote]` creates realistic Wazuh-style alerts through n8n's own account, one scenario per template (ssh, malware, ids, generic, login, sudo, newuser, ioc, portscan); `--promote` turns each into a case as n8n would; `--cleanup` deletes test alerts and test cases; `shellcheck` clean.
   - Files: `nodes/cases/thehive/scripts/thehive-test-alert.sh`
-- [ ] **T1.3** Run the starter configuration on the real instance · P1, X-03, X-15
+- [x] **T1.3** Run the starter configuration on the real instance · P1, X-03, X-15
+  - **Done 2026-10-22:** on Park's own instance: `thehive-import.sh` (9 fields, 17 observable types, 12 templates, then all unchanged); `thehive-test-alert.sh all --promote` 24 PASS, each case with its template's tasks, promoted with n8n's key (X-15); `--cleanup` removed 12 alerts and 12 cases. Also on the build instance since 2026-10-06 (X-03).
+  - Note (2026-10-22): `bootstrap.sh cases` now runs `thehive-import.sh` itself (A102, R-35), so new instances get `entities/` automatically; the test-alert round on your own instance is still the check.
   - Done when: `thehive-import.sh` creates 9 fields, 1 observable type, 12 templates; `thehive-test-alert.sh all --promote` creates 12 alerts and promotes each **with n8n's key** (`POST /api/v1/alert/<id>/case`, D-N4's auto-promotion: X-15), each case getting its template's tasks; `thehive-export.sh` then shows no diff. Tell Inigo, so X-03 and X-15 can be marked provided.
   - Status (2026-10-06): **done on the build instance**: Inigo ran `thehive-import.sh` (after `backup.sh cases --with-secrets`): 9 fields, 9 templates, `user-account`; `caseTemplate` and custom fields now kept on n8n's alerts. Left: the same run on your own machine, then tick.
   - Earlier (2026-09-30): Inigo measured that the **build instance** had no `entities/` loaded (templates and fields silently dropped, `user-account` alerts refused). Run `thehive-import.sh` there too, before 2026-10-20. n8n's account promoting an alert (HTTP 201) is already confirmed by him.
@@ -142,10 +147,12 @@ Analysts can work every alert type from queue to closed case.
   - Done when: For each scenario of `thehive-test-alert.sh`: triage, promote or merge or ignore, work the tasks, close with a summary and resolution status. Screenshots kept for the delivery; gaps fixed in the templates or TRIAGE.md.
   - How: step by step in `docs/DEMO.md`, "Practice run (T3.4)".
   - Also (2026-10-08): with `full` mode, real Wazuh alerts are available from `nodes/lab/trigger.sh --scenario NAME` (ssh-bruteforce, ssh-success-after-fail, sudo-fail, new-user, root-login, ioc-ip), which go Wazuh → n8n → TheHive end to end; use them after the `thehive-test-alert.sh` round.
-- [ ] **T3.5** Templates for the new detections · P2, X-12
+- [x] **T3.5** Templates for the new detections · P2, X-12
   - Done when: A template (or a documented choice of `wazuh-generic`) for each detection Daniel adds: login success after failures, sudo failure / privilege escalation, new user, IOC match (W6.4), pfSense port scan (W4.3). Exported, and routed in ALERT-FORMAT.md §3.
   - Files: `nodes/cases/thehive/entities/case-templates.json`, `nodes/cases/thehive/docs/ALERT-FORMAT.md`
-  - Status (2026-10-20): + `web-attack` (groups `web` + `attack`: 31103, 31152) and `file-integrity` (group `syscheck`: 550, 553, 554, 100302) for Daniel's new `web-attack` and `fim-tamper` scenarios, proposed until n8n checks them against the fixtures (X-44); test scenarios `web` and `fim`.
+  - **Checked 2026-10-22** on Park's instance: all 12 templates through `thehive-test-alert.sh all --promote` (T1.3).
+  - Status (2026-10-22): `web-attack` and `file-integrity` **active** in n8n (X-44 built, groups confirmed by the fixtures; 100301 → `file-integrity`, 100300 → `privilege-escalation`, Cisco 102000/102001 → `login-bruteforce`). Left: the full `all --promote` run on your instance (T1.3).
+  - Earlier (2026-10-20): + `web-attack` (groups `web` + `attack`: 31103, 31152) and `file-integrity` (group `syscheck`: 550, 553, 554, 100302) for Daniel's new `web-attack` and `fim-tamper` scenarios, proposed until n8n checks them against the fixtures (X-44); test scenarios `web` and `fim`.
   - Earlier (2026-10-14): + `login-bruteforce` (non-SSH brute force: 103011, 40111, 2502), agreed and routed by n8n; `fwlogin` test scenario passes on the real instance. Test IOC is now `101.99.75.184` (X-36); `ioc` uses rule 108000, `portscan` 103000.
   - Earlier (2026-10-08): 5 templates written, loaded on the build instance, and routed in §3 with Daniel's confirmed groups and rules (all rows active). Descriptions name the real rules (40112, 100200, 5404, 5901/5902, 100211/100212; ranges 103xxx, 108xxx). Left: import + export on your machine; `ioc-match` and `network-scan` get real rules with C14 and W4.3.
   - With: Daniel (W2.2, W4.3, W6.4)
@@ -244,6 +251,7 @@ Not part of the 1 December delivery.
 - [ ] **T7.3** Playbook pages · P3
   - Done when: A knowledge-base page per template: how to investigate, useful Wazuh queries.
 - [ ] **T7.4** Approvals for C9 response actions · P3, C9
+  - Status (2026-10-22): demo-only interim agreed with n8n for the 2026-10-23 physical lab: approval by the alert tag `approve:firewall-drop` (TRIAGE.md, "Interim for the physical-lab demo"); one action, `firewall-drop` 300 s. The approval task of T4.3 replaces it with E7.
   - Done when: T4.3's approval task drives real Wazuh active response through n8n as the separate user `n8n-response` (D44; Daniel's W7.1–W7.2), and the playbook sets `containment-action`.
   - With: Inigo, Daniel
 - [ ] **T7.5** Storage hardening: Cassandra authentication and a dedicated Elasticsearch user · P3, A52

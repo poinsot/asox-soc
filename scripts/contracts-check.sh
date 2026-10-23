@@ -335,11 +335,13 @@ check_C2() {
 #                  manager, in no group (403 expected)
 #   ar_status, ar_affected  HTTP status and affected agents of firewall-drop
 #                  of <srcip> on <agent> (200 and [agent_id] expected)
+#   details        what went wrong, as a list (empty on PASS); a FAIL line
+#                  prints it
 # The API's 200 only means "sent to the agent", so the check then reads the
-# lab agent's active-responses.log for the command (read-only). Whether
-# iptables ran is reported, not required: the lab image has neither iptables
-# nor NET_ADMIN until the Wazuh owner's W7.2. SKIP on 404 (workflow not
-# deployed) or when the lab agent isn't running here.
+# lab agent's active-responses.log for the command (read-only) and reports
+# any error firewall-drop logged there (e.g. iptables missing); the rule
+# itself isn't checked (it goes away after the 60 s timeout). SKIP on 404
+# (workflow not deployed) or when the lab agent isn't running here.
 C9_WORKFLOW=chk-wazuh-response
 C9_SRCIP=192.0.2.1   # documentation range (RFC 5737)
 C9_TIMEOUT=60
@@ -347,8 +349,11 @@ C9_AR_LOG=/var/ossec/logs/active-responses.log
 c9_ar_lines() {
   compose lab exec -T lab-agent grep -c "firewall-drop: .*\"command\":\"add\".*\"$C9_SRCIP\"" "$C9_AR_LOG" 2>/dev/null || true
 }
+c9_details() {   # the check's details, "; "-joined, or "no details"
+  jq -r '(.details // []) | if length > 0 then join("; ") else "no details" end' 2>/dev/null <<<"$1" || echo "no details"
+}
 check_C9() {
-  local c="C9 n8n -> Wazuh active response" agent r code resp before after deadline tail note
+  local c="C9 n8n -> Wazuh active response" agent r code resp before after deadline tail note rules
   if ! compose lab ps --status running --services 2>/dev/null | grep -qx lab-agent; then
     skip "$c: not checked: the lab agent isn't running on this machine"
     return
@@ -365,20 +370,21 @@ check_C9() {
     return
   fi
   if ! jq -e '.authenticated == true' >/dev/null 2>&1 <<<"$resp"; then
-    fail "$c: check workflow $C9_WORKFLOW failed (HTTP $code; active? credential \"Wazuh API (n8n-response)\"?): ${resp:0:200}"
+    if jq -e '.details | type == "array"' >/dev/null 2>&1 <<<"$resp"; then note=$(c9_details "$resp"); else note=${resp:0:200}; fi
+    fail "$c: check workflow $C9_WORKFLOW failed (HTTP $code; active? credential \"Wazuh API (n8n-response)\"?): $note"
     return
   fi
   if [[ $(jq -r '.outside_group' <<<"$resp") != 0 ]]; then
-    fail "$c: n8n-response lists $(jq -r '.outside_group' <<<"$resp") agent(s) outside its group (run scripts/bootstrap.sh core)"
+    fail "$c: n8n-response lists $(jq -r '.outside_group' <<<"$resp") agent(s) outside its group (run scripts/bootstrap.sh core): $(c9_details "$resp")"
     return
   fi
   if [[ $(jq -r '.write_status' <<<"$resp") != 403 || $(jq -r '.ar_outside_status' <<<"$resp") != 403 ]]; then
-    fail "$c: n8n-response not limited: non-AR write HTTP $(jq -r '.write_status' <<<"$resp"), active response on agent 000 HTTP $(jq -r '.ar_outside_status' <<<"$resp") (403 expected for both)"
+    fail "$c: n8n-response not limited: non-AR write HTTP $(jq -r '.write_status' <<<"$resp"), active response on agent 000 HTTP $(jq -r '.ar_outside_status' <<<"$resp") (403 expected for both): $(c9_details "$resp")"
     return
   fi
   if [[ $(jq -r '.ar_status' <<<"$resp") != 200 ]] \
      || ! jq -e '.agent_id as $i | $i != null and ((.ar_affected // []) | index($i)) != null' >/dev/null 2>&1 <<<"$resp"; then
-    fail "$c: firewall-drop of $C9_SRCIP on $agent not accepted (HTTP $(jq -r '.ar_status' <<<"$resp"), affected $(jq -c '.ar_affected' <<<"$resp"); is $agent in group $(core_env WAZUH_RESPONSE_AGENT_GROUP)?)"
+    fail "$c: firewall-drop of $C9_SRCIP on $agent not accepted (HTTP $(jq -r '.ar_status' <<<"$resp"), affected $(jq -c '.ar_affected' <<<"$resp")): $(c9_details "$resp")"
     return
   fi
   deadline=$(( SECONDS + 30 ))
@@ -393,7 +399,11 @@ check_C9() {
   fi
   tail=$(compose lab exec -T lab-agent tail -n 5 "$C9_AR_LOG" 2>/dev/null || true)
   if grep -q "iptables' is not accessible" <<<"$tail"; then note="iptables missing on the agent (W7.2)"
-  else note="see $C9_AR_LOG on the agent for iptables' result"; fi
+  else
+    rules=$(grep 'firewall-drop: ' <<<"$tail" | grep -v -e 'firewall-drop: Starting' -e 'firewall-drop: Ended' -e 'firewall-drop: {' | tail -n 1 || true)
+    if [[ -n $rules ]]; then note="firewall-drop on the agent: ${rules#*firewall-drop: }"
+    else note="firewall-drop logged no iptables error on the agent ($C9_AR_LOG)"; fi
+  fi
   pass "$c: n8n-response lists only its group, a non-AR write and active response on agent 000 are refused (HTTP 403); firewall-drop of $C9_SRCIP accepted and run on $agent (agent $(jq -r '.agent_id' <<<"$resp")); $note"
 }
 
