@@ -70,11 +70,12 @@ Until n8n's approval tasks (E7) exist, **only for the demo**, the SSH playbook (
 
 1. **Read the proposal** in n8n's writeback comment on the alert: *Proposed: firewall-drop `<ip>` on `<agent>` for 300 s (`live` or `dry_run`). Approve by adding the tag approve:firewall-drop to this alert within 1 h.*, followed by the line `[asox-n8n response-proposal] <agent id> <ip> firewall-drop 300`. Without a proposal the writeback says `Recommended: block <ip> … (no proposal: <reason>)` and nothing can be approved.
 2. **Check before approving:** the IP is the attacker in this alert (`src`), it is **not** a SOC host, gateway, DNS or the manager, and the agent is the attacked host.
-3. **Approve:** add the tag **`approve:firewall-drop`** to that alert, from **your own analyst account**, within 1 h. To reject, don't add it and write the reason in a comment.
+3. **Approve:** add the tag **`approve:firewall-drop`** to that alert, from **your own analyst account**, within 1 h. A brute force followed by a login gives two alerts with a proposal (the 5763 and the 40112): approve **one**, the 40112. To reject, don't add it and write the reason in a comment.
 4. **Check n8n's answer**, a comment on the alert:
    - `[asox-n8n response] firewall-drop <ip> on <agent> (live): sent`: Wazuh accepted it and sent it to the agent (not yet proof that the packet filter changed). n8n tags the alert `asox:response=firewall-drop` and sets `containment-action` = `ip-blocked`; the comment says when the automatic revert happens (about 300 s). If it says **NO automatic revert**, unblock by hand as it explains.
    - `… (dry_run): not sent (dry_run)`: test mode, nothing was blocked.
-   - `[asox-n8n response-refused] <code>`: nothing ran, e.g. `expired` (more than 1 h), `already-executed`, `protected` (protected host), `agent_not_in_group` (agent not in `asox-response`).
+   - `[asox-n8n response-refused] <code>`: nothing ran, e.g. `expired` (more than 1 h), `already-executed` (one block per alert), `protected` / `protected_unset` (protected host, or the protected list not set for `live`), `agent_not_in_group` (agent not in `asox-response`), `agent_not_active`, `agent_address` (the IP is a Wazuh agent), `rate_cap` (10 live blocks an hour), `disabled`. After the cause is fixed, remove the tag and add it again.
+   - On the attacked host, `sudo iptables -S INPUT | grep <ip>` shows the DROP rule; it disappears by itself after 300 s.
 5. If the alert is already in a case, set `containment-action` = `ip-blocked` on the case too (n8n sets it on the alert only) and add a log saying who approved.
 
 No tag, no action. This interim is replaced by the approval task above as soon as E7 is built; it is not part of the delivery procedure unless the team decides so after the demo.
