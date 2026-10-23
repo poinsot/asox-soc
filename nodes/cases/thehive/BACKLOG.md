@@ -91,7 +91,7 @@ Everything built in the UI reaches git, and alerts can be tested without Wazuh.
 - [x] **T1.3** Run the starter configuration on the real instance · P1, X-03, X-15
   - **Done 2026-10-22:** on Park's own instance: `thehive-import.sh` (9 fields, 17 observable types, 12 templates, then all unchanged); `thehive-test-alert.sh all --promote` 24 PASS, each case with its template's tasks, promoted with n8n's key (X-15); `--cleanup` removed 12 alerts and 12 cases. Also on the build instance since 2026-10-06 (X-03).
   - Note (2026-10-22): `bootstrap.sh cases` now runs `thehive-import.sh` itself (A102, R-35), so new instances get `entities/` automatically; the test-alert round on your own instance is still the check.
-  - Done when: `thehive-import.sh` creates 9 fields, 1 observable type, 12 templates; `thehive-test-alert.sh all --promote` creates 12 alerts and promotes each **with n8n's key** (`POST /api/v1/alert/<id>/case`, D-N4's auto-promotion: X-15), each case getting its template's tasks; `thehive-export.sh` then shows no diff. Tell Inigo, so X-03 and X-15 can be marked provided.
+  - Done when: `thehive-import.sh` creates 10 fields, 1 observable type, 12 templates; `thehive-test-alert.sh all --promote` creates 12 alerts and promotes each **with n8n's key** (`POST /api/v1/alert/<id>/case`, D-N4's auto-promotion: X-15), each case getting its template's tasks; `thehive-export.sh` then shows no diff. Tell Inigo, so X-03 and X-15 can be marked provided.
   - Status (2026-10-06): **done on the build instance**: Inigo ran `thehive-import.sh` (after `backup.sh cases --with-secrets`): 9 fields, 9 templates, `user-account`; `caseTemplate` and custom fields now kept on n8n's alerts. Left: the same run on your own machine, then tick.
   - Earlier (2026-09-30): Inigo measured that the **build instance** had no `entities/` loaded (templates and fields silently dropped, `user-account` alerts refused). Run `thehive-import.sh` there too, before 2026-10-20. n8n's account promoting an alert (HTTP 201) is already confirmed by him.
 ## M2 · Data model and alert format v1 (target: 2026-10-20)
@@ -99,6 +99,7 @@ Everything built in the UI reaches git, and alerts can be tested without Wazuh.
 The data every other component relies on, agreed and merged at checkpoint 1 (milestone tag `v1.1-detections`).
 
 - [x] **T2.1** Custom fields · P1, X-03
+  - Added 2026-10-23: `signature-id` (integer, group `ids`) on `ids-network-alert`, at n8n's request for `pb-ids-alert` (W3.7).
   - Done when: 9 fields in `entities/custom-fields.json`: `wazuh-alert-id`, `wazuh-rule-id`, `wazuh-rule-level`, `wazuh-agent-name`, `mitre-technique`, `asset-criticality`, `containment-action`, `playbook`, `n8n-execution-id`.
   - Files: `nodes/cases/thehive/entities/custom-fields.json`
 - [x] **T2.2** Case templates v1 · P1, X-12

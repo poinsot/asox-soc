@@ -193,7 +193,7 @@
     "name": "ids-network-alert",
     "displayName": "IDS network alert",
     "titlePrefix": "[IDS]",
-    "description": "Network intrusion detection alert from the Suricata sensor (D49), read by a Wazuh agent from Suricata's EVE JSON: built-in rule 86601 \"Suricata: Alert - <signature>\", rule groups `suricata` / `ids`. Suricata severity 1 → Wazuh level 12, 2 → 10 (Wazuh W3.5). Triage procedure: nodes/cases/thehive/docs/TRIAGE.md.",
+    "description": "Network intrusion detection alert from the Suricata sensor (D49), read by a Wazuh agent from Suricata's EVE JSON: built-in rule 101000 / 101001 / 101010 \"Suricata: Alert - <signature>\", rule groups `suricata` / `ids`. Suricata severity 1 → Wazuh level 12, 2 → 10 (Wazuh W3.5). Triage procedure: nodes/cases/thehive/docs/TRIAGE.md.",
     "severity": 2,
     "tlp": 2,
     "pap": 2,
@@ -277,6 +277,10 @@
       {
         "name": "n8n-execution-id",
         "order": 8
+      },
+      {
+        "name": "signature-id",
+        "order": 9
       }
     ]
   },

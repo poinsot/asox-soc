@@ -73,4 +73,4 @@ Keep these in a folder outside the repo (screenshots can show hostnames); put on
 - [ ] Terminal output: `thehive-import.sh` (all unchanged), `thehive-test-alert.sh all --promote` (all PASS), `thehive-export.sh` + `git status` (no diff)
 - [ ] Terminal output: `scripts/healthcheck.sh cases` and `scripts/contracts-check.sh --only C5`
 - [ ] `thehive-fp-report.sh` output (from the end-to-end run, TD.3)
-- [ ] README: the templates and fields tables are current (12 templates, 9 fields)
+- [ ] README: the templates and fields tables are current (12 templates, 10 fields)
