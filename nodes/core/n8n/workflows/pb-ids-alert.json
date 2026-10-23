@@ -1,0 +1,856 @@
+{
+  "id": "asoxPbIdsAlert01",
+  "name": "pb-ids-alert",
+  "active": true,
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## pb-ids-alert (N8N-4.4)\n**Trigger:** called by lib-alert-queue-drain through Execute Workflow (waited for; by recv-wazuh-alert, not waited for, only when the queue is unavailable), when lib-route-alert routes the alert here: row `ids-network-alert` (groups suricata or ids: 101000, 101001, 101010 `ET SCAN`, which wins over network-scan) of lib-config `routing`.\n**Inputs:** `{alert: <raw Wazuh alert>, config: <lib-config>, recv_execution_id, route: <lib-route-alert route>}`, as pb-generic.\n**Actions taken:** **lib-alert-base** (the shared chain: normalize -> extract observables (ip for data.src_ip / data.dest_ip, tagged src / dst) -> warninglists -> TheHive alert -> created: enrichment through Cortex (C6); duplicate: the repair check; custom field and metrics `playbook` = pb-ids-alert) -> created or repaired only: **remote party and verdict**: of the alert's ip observables tagged src / dst, the one tagged neither range:internal nor agent (the source first; both internal, a LAN attack: the source, unless it is the agent's own address; documentation ranges count as remote); no such address: no remote party, said in the writeback, nothing below. Its verdict from the enrichment (on a repair, from its asox:verdict= tag): suspicious or malicious -> the alert gets the tag `asox:verdict=<verdict>`; malicious -> its severity raised to lib-config `ids.escalate_severity` (4) if lower, before the writeback, so the asox-metrics document is created with it; otherwise nothing. One `PATCH /api/v1/alert/<id>` (TheHive retry pattern N8N-6.2; a failure is reported, never parked) -> **related IDS alerts** (read-only): one bounded TheHive query (`POST /api/v1/query?name=ids-related`, retry pattern, at most `ids.query_limit` 50) for other alerts tagged suricata, dated within `ids.correlation_window_s` (3600 s) of this alert's event time either way, not this alert, whose Suricata EVE line (the description's log block) has the remote address as src_ip / dest_ip or the same signature_id (TheHive's token search on the description pre-filters, the EVE line is checked exactly); no tags or writes on them; a failed query is reported, never parked -> lib-thehive-writeback (lib-alert-base's sections, then the IDS facts (signature, signature_id, category, Suricata severity, protocol, src_ip:src_port -> dest_ip:dest_port, sensor), the remote party and its verdict, the tag and severity lines, \"Related IDS alerts (1 h)\": the total, how many share the remote address and the signature, up to `ids.max_listed` (10) with TheHive id, Wazuh id, signature, remote, host and time, and `Recommended: review the remote address; blocking needs response on the attacked host (C9 scope: SSH playbook only); nothing was changed.`). Never suppresses, closes, merges or lowers anything (D12); creates no case; no response action (C9).\n**Systems changed:** TheHive (this alert: alert, comments, observable tags and IOC flag, the alert's verdict tag and a severity raise) and the Wazuh indexer (the alert's asox-metrics document, C11); Cortex and MISP run read-only lookups.\n**Approval:** not needed: SOC bookkeeping only (TheHive tags, comments, severity raise; asox-metrics), no system changes.\n**Owner:** n8n.\nResult: pb-generic's (`outcome`, `metrics`, `enrichment`, ...) plus `remote_verdict` (remote, side, verdict, tag, severity from/to, update) and `related` (status, total, same_remote, same_signature, listed). Error workflow: recv-n8n-error.",
+        "height": 760,
+        "width": 560
+      },
+      "id": "4d64881b-9bf7-5422-84bf-d2fef6cb9532",
+      "name": "About this workflow",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -40,
+        -880
+      ]
+    },
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "id": "94c8b17e-ae58-51f3-8f3b-9e51edc8f9ce",
+      "name": "Called by a workflow",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Everything this execution needs: the pb's own execution id goes to the\n// TheHive custom field and the writeback (sub-workflows have their own ids).\nconst input = $input.first().json;\nif (!input.config || !input.config.writeback) throw new Error(`${$workflow.name} needs the lib-config output as \\`config\\``);\nreturn [{ json: {\n  alert: input.alert,\n  config: input.config,\n  context: { playbook: $workflow.name, n8n_execution_id: $execution.id, recv_execution_id: input.recv_execution_id ?? null },\n  // From lib-route-alert (N8N-1.3); null when called without a route.\n  route: input.route ?? null,\n} }];\n"
+      },
+      "id": "5a0be09d-2741-598c-98d3-612d7dec1ee9",
+      "name": "Context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        260,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "asoxLibAlertBase",
+          "cachedResultName": "lib-alert-base"
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "edeff7cb-9bd8-57a7-911b-8c32fb036ac0",
+      "name": "Alert base (lib-alert-base)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        520,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "bfef80a9-f3f1-5c67-8923-cdf34862c23c",
+              "leftValue": "={{ $json.outcome !== 'skipped' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "d97f8a61-cd26-53bb-b19d-e15ba8c81865",
+      "name": "TheHive configured?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        780,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "1f09418e-4898-5241-9c7a-81a9b79d0139",
+              "leftValue": "={{ $json.ok === true }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "2e1b93b7-1ae4-552c-8f1b-bf3ef6e2ca2d",
+      "name": "In TheHive?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1040,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// lib-config: THEHIVE_ENABLED=false (no cases node on this machine). Recorded,\n// not parked: there is nothing to retry.\nconst b = $input.first().json;\nreturn [{ json: {\n  outcome: 'skipped',\n  status: b.status,\n  wazuh_alert_id: b.wazuh_alert_id,\n  playbook: $workflow.name,\n  route_id: $('Context').first().json.route?.route_id ?? null,\n} }];\n"
+      },
+      "id": "64095ce8-1075-5683-9485-2f493c14ec3f",
+      "name": "Skipped outcome",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1040,
+        -400
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// lib-alert-base parked the alert (normalize or upsert handed it to lib-error).\nconst b = $input.first().json;\nreturn [{ json: {\n  outcome: 'parked',\n  wazuh_alert_id: b.wazuh_alert_id,\n  error: b.error,\n  message: b.message,\n  playbook: $workflow.name,\n  route_id: $('Context').first().json.route?.route_id ?? null,\n} }];\n"
+      },
+      "id": "048481d2-304c-535d-871c-e06e4cc98dac",
+      "name": "Parked outcome",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1300,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Actions taken, as written to TheHive (lib-thehive-writeback): lib-alert-base's\n// sections (route, TheHive alert, warninglists, enrichment), then the IDS\n// section (N8N-4.4): the Suricata facts, the remote party and its verdict,\n// the tag and severity lines, the related IDS alerts, the recommendation,\n// and this playbook's \"Systems changed\" line.\nconst c = $('Context').first().json;\nconst b = $('Alert base (lib-alert-base)').first().json;\nconst ic = c.config.ids;\nconst actions = [...b.writeback.sections];\nconst plan = $('IDS plan').isExecuted ? $('IDS plan').first().json : null;\nconst upd = $('Updated').isExecuted ? $('Updated').first().json : null;\nconst rel = $('Related IDS result').isExecuted ? $('Related IDS result').first().json : null;\nconst fail = upd && !upd.ok ? `update failed (${upd.class}${upd.attempts ? ` after ${upd.attempts} call(s)` : ''})` : null;\nconst val = (v) => v ?? 'unknown';\nconst span = ic.correlation_window_s % 3600 === 0 ? `${ic.correlation_window_s / 3600} h` : `${ic.correlation_window_s} s`;\nfunction idsLines() {\n  if (!plan) return [b.outcome === 'duplicate' ? 'IDS alert (N8N-4.4): not run (duplicate: done when the alert was created).' : 'IDS alert (N8N-4.4): not run.'];\n  const f = plan.facts;\n  const lines = [`IDS alert (N8N-4.4): ${val(f.signature)} (signature_id ${val(f.signature_id)}), category ${val(f.category)}, `\n    + `Suricata severity ${val(f.severity)}, ${val(f.proto)} ${val(f.src_ip)}:${val(f.src_port)} → ${val(f.dest_ip)}:${val(f.dest_port)}, sensor ${val(f.sensor)}.`];\n  if (!plan.remote) {\n    lines.push(`Remote party: none (${plan.remote_why}); its verdict and the related IDS alerts were not looked up.`);\n    return lines;\n  }\n  const v = plan.verdict === null ? `no verdict (${plan.verdict_note})`\n    : `verdict ${plan.verdict}${plan.verdict_source === 'before the interruption' ? ' (enriched before the interruption)' : ''}`;\n  lines.push(`Remote party: ${plan.remote} (${plan.remote_side}; ${plan.remote_why}): ${v}.`);\n  if (!plan.tag) {\n    lines.push(\"Nothing changed on the alert (the remote address isn't suspicious or malicious).\");\n    return lines;\n  }\n  lines.push(plan.add_tags.length === 0 ? `Already tagged ${plan.tag}.` : (fail ? `Tag ${plan.tag} not written: ${fail}.` : `Tagged this alert ${plan.tag}.`));\n  if (ic.escalate_verdicts.includes(plan.verdict)) {\n    lines.push(plan.severity_to === null\n      ? `Severity unchanged (${plan.severity_from}): already at least ${ic.escalate_severity}.`\n      : (fail ? `Severity not raised (${plan.severity_from} → ${plan.severity_to} wanted): ${fail}.`\n        : `Severity raised ${plan.severity_from} → ${plan.severity_to} (malicious remote address; never lowered).`));\n  }\n  return lines;\n}\nfunction relatedLines() {\n  if (!plan || !plan.remote) return [];\n  const head = `Related IDS alerts (${span})`;\n  if (rel.status === 'skipped') return [`${head}: not looked up (${rel.reason}).`];\n  if (rel.status === 'failed') {\n    return [`${head}: lookup failed (${rel.class}${rel.attempts ? ` after ${rel.attempts} call(s)` : ''}); nothing else affected.`];\n  }\n  const sig = plan.facts.signature_id ? `, ${rel.same_signature} with the same signature_id ${plan.facts.signature_id}` : '';\n  const shown = rel.listed.length < rel.total ? `; the ${rel.listed.length} nearest in time shown` : '';\n  const cut = rel.truncated ? `; the query's limit (${ic.query_limit}) was reached, so more may exist` : '';\n  const lines = [`${head}: ${rel.total} alert(s) (${rel.same_remote} with the remote address ${plan.remote}${sig})${shown}${cut}.`];\n  for (const a of rel.listed) {\n    const by = [a.same_remote ? 'same remote' : null, a.same_signature ? 'same signature' : null].filter(Boolean).join(', ');\n    lines.push(`  TheHive ${a.thehive_alert_id} (Wazuh ${a.wazuh_alert_id}): ${val(a.signature)} (${val(a.signature_id)}), `\n      + `remote ${val(a.remote)}, host ${val(a.host)} at ${a.date_iso} (${by})`);\n  }\n  return lines;\n}\nactions.push(...idsLines());\nactions.push(...relatedLines());\nif (plan?.remote) {\n  actions.push('Recommended: review the remote address; blocking needs response on the attacked host (C9 scope: SSH playbook only); nothing was changed.');\n}\nactions.push('Systems changed: TheHive (this alert: its verdict tag and, on a malicious remote address, its severity), and the Wazuh indexer (asox-metrics document, C11).');\n// C11: lib-alert-base's document plan, with the raised severity when this\n// run's update succeeded (the document is created after it).\nconst m = b.writeback.metrics;\nconst metrics = m.mode === 'create' && upd?.ok && plan.severity_to !== null\n  ? { ...m, fields: { ...m.fields, severity: plan.severity_to } } : m;\nreturn [{ json: {\n  thehive_alert_id: b.thehive_alert_id, wazuh_alert_id: b.wazuh_alert_id,\n  config: c.config, context: c.context, actions, metrics,\n} }];\n"
+      },
+      "id": "54ecb364-084a-53fe-8fe8-cdd38952fe81",
+      "name": "Writeback input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4160,
+        -200
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "asoxLibThWriteBk",
+          "cachedResultName": "lib-thehive-writeback"
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "66a1953c-7c6e-5538-8dd5-d9a2800d245a",
+      "name": "Writeback (lib-thehive-writeback)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        4420,
+        -200
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const b = $('Alert base (lib-alert-base)').first().json;\nconst r = $input.first().json;\nconst plan = $('IDS plan').isExecuted ? $('IDS plan').first().json : null;\nconst upd = $('Updated').isExecuted ? $('Updated').first().json : null;\nconst rel = $('Related IDS result').isExecuted ? $('Related IDS result').first().json : null;\nreturn [{ json: {\n  // repaired: duplicate whose earlier run stopped before its writeback (N8N-1.4).\n  outcome: b.outcome,\n  after_retry: b.upsert.after_retry === true, // duplicate found by a retried create (N8N-6.2)\n  wazuh_alert_id: b.wazuh_alert_id,\n  thehive_alert_id: b.thehive_alert_id,\n  // N8N-2.4: counts, `not run (duplicate)` or `failed` (unexpected; never parks).\n  enrichment: b.enrichment_summary,\n  writeback: r.ok ? (r.written ? 'written' : 'already written') : 'failed (parked by lib-error)',\n  // C11 (N8N-2.9): metrics: ok | skipped (<why>) | failed (<class>).\n  metrics: r.metrics ?? null,\n  // N8N-4.4: the remote party, its verdict and what was written; `not run` on a duplicate.\n  remote_verdict: plan ? { remote: plan.remote, side: plan.remote_side, why: plan.remote_why, verdict: plan.verdict,\n    tag: plan.tag, severity_from: plan.severity_from, severity_to: plan.severity_to,\n    update: upd ? (upd.ok ? 'ok' : `failed (${upd.class})`) : 'not needed' } : 'not run',\n  related: rel ? { status: rel.status, total: rel.total ?? null, same_remote: rel.same_remote ?? null,\n    same_signature: rel.same_signature ?? null, listed: rel.listed?.length ?? null, reason: rel.reason ?? rel.class ?? null } : 'not run',\n  playbook: $workflow.name,\n  route_id: $('Context').first().json.route?.route_id ?? null,\n} }];\n"
+      },
+      "id": "4aa21422-a096-593f-a311-0a3bc83e356a",
+      "name": "Outcome",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4680,
+        -200
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "51a6d134-c2ae-5b0c-95b5-e75ee180324d",
+              "leftValue": "={{ $json.outcome === 'created' || $json.outcome === 'repaired' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a3437d69-1ff2-5cde-ae53-cfd79a0cbb84",
+      "name": "IDS step?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1300,
+        -300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// N8N-4.4: the alert's remote party, its verdict, what to write and the\n// related-alerts query. Pure.\n//  - IDS facts: the Suricata fields of W3.7 (all strings), for the writeback.\n//  - remote party (lib-config ids): of the alert's `ip` observables tagged src\n//    / dst, the one tagged neither ids.internal_tag nor ids.agent_tag, the\n//    source first when both are; both internal (a LAN attack): the source,\n//    or the destination when the source is the agent's own address.\n//    Documentation ranges count as remote (lab). No such observable: no\n//    remote party, and nothing below is done.\n//  - verdict: the remote address's, from lib-alert-base's enrichment (this\n//    run's; on a repair, an address enriched before the interruption counts\n//    with its asox:verdict= tag).\n//  - tag asox:verdict=<verdict> on the alert for ids.tag_verdicts (suspicious,\n//    malicious), unless it already has it; severity raised to\n//    ids.escalate_severity for ids.escalate_verdicts (malicious) when lower:\n//    never lowered (D12).\n//  - the bounded related-alerts query: other alerts tagged ids.group_tag,\n//    TheHive date (= the Wazuh timestamp) within ids.correlation_window_s of\n//    this alert's event time either way, not this alert, whose description\n//    mentions the remote address or the signature_id, at most\n//    ids.query_limit. TheHive 5.7.6 can't filter alerts on their observables\n//    together with other fields, and signature_id is neither a tag nor a\n//    custom field, so both come from the alert's Suricata EVE line (full_log,\n//    the description's log block), where the ip observables come from too\n//    (data.src_ip / data.dest_ip). TheHive's `_like` matches tokens, so it is\n//    only a pre-filter: Related IDS result checks the EVE line exactly.\nconst c = $('Context').first().json;\nconst b = $('Alert base (lib-alert-base)').first().json;\nconst ic = c.config.ids;\nconst vp = c.config.enrichment.tags.verdict_prefix;\nconst d = c.alert?.data ?? {};\nconst s = d.alert ?? {};\nconst str = (v) => (v === undefined || v === null || v === '' ? null : String(v));\nconst facts = {\n  signature: str(s.signature), signature_id: str(s.signature_id), category: str(s.category), severity: str(s.severity),\n  proto: str(d.proto), src_ip: str(d.src_ip), src_port: str(d.src_port), dest_ip: str(d.dest_ip), dest_port: str(d.dest_port),\n  sensor: str(c.alert?.agent?.name),\n};\nconst tagged = (o, t) => Boolean(o) && (o.tags ?? []).includes(t);\nconst ips = b.observables.filter((o) => o.dataType === 'ip');\nconst src = ips.find((o) => tagged(o, 'src')) ?? null;\nconst dst = ips.find((o) => tagged(o, 'dst')) ?? null;\nconst outside = (o) => Boolean(o) && !tagged(o, ic.internal_tag) && !tagged(o, ic.agent_tag);\nconst kind = (o) => (tagged(o, ic.agent_tag) ? \"the agent's own address\" : tagged(o, ic.internal_tag) ? 'internal' : 'outside the internal ranges');\nlet remote = null;\nlet side = null;\nlet why;\nif (!src && !dst) {\n  why = 'no source or destination address on the alert';\n} else if (src && src === dst) {\n  if (outside(src) || !tagged(src, ic.agent_tag)) { remote = src; side = 'source and destination'; why = 'the same address'; }\n  else why = \"only the agent's own address\";\n} else if (outside(src)) {\n  remote = src; side = 'source';\n  why = !dst ? 'no destination address' : outside(dst) ? 'both outside the internal ranges' : `the destination is ${kind(dst)}`;\n} else if (outside(dst)) {\n  remote = dst; side = 'destination'; why = !src ? 'no source address' : `the source is ${kind(src)}`;\n} else if (src && !tagged(src, ic.agent_tag)) {\n  remote = src; side = 'source'; why = dst ? 'both internal (a LAN attack)' : 'internal; no destination address';\n} else if (dst && !tagged(dst, ic.agent_tag)) {\n  remote = dst; side = 'destination'; why = src ? \"both internal; the source is the agent's own address\" : 'internal; no source address';\n} else {\n  why = \"only the agent's own address\";\n}\nlet verdict = null;\nlet verdictSource = null;\nlet verdictNote = null;\nif (remote) {\n  const e = (Array.isArray(b.enrichment?.observables) ? b.enrichment.observables : [])\n    .find((o) => o.dataType === 'ip' && o.data === remote.data);\n  if (e?.status === 'enriched') {\n    verdict = e.verdict; verdictSource = 'this run';\n  } else {\n    const t = (b.alert_state?.observables ?? []).find((o) => o.dataType === 'ip' && o.data === remote.data)\n      ?.tags?.find((x) => typeof x === 'string' && x.startsWith(vp));\n    if (t) { verdict = t.slice(vp.length); verdictSource = 'before the interruption'; }\n    else if (e) verdictNote = e.status === 'failed' ? 'enrichment failed' : `not enriched: ${(e.reasons ?? []).join('; ') || 'skipped'}`;\n    else verdictNote = b.enrichment ? 'not enriched' : 'enrichment not run';\n  }\n}\nconst tag = ic.tag_verdicts.includes(verdict) ? `${vp}${verdict}` : null;\nconst addTags = tag && !(b.upsert.tags ?? []).includes(tag) ? [tag] : [];\nconst severityFrom = Number.isInteger(b.upsert.severity) ? b.upsert.severity : null;\nconst severityTo = ic.escalate_verdicts.includes(verdict) && severityFrom !== null && severityFrom < ic.escalate_severity\n  ? ic.escalate_severity : null;\nconst patch = addTags.length > 0 || severityTo !== null\n  ? { ...(addTags.length > 0 ? { addTags } : {}), ...(severityTo !== null ? { severity: severityTo } : {}) } : null;\nconst eventMs = b.canonical.date_ms;\nlet query = null;\nif (remote && Number.isFinite(eventMs)) {\n  const w = ic.correlation_window_s * 1000;\n  const terms = [remote.data, ...(facts.signature_id ? [facts.signature_id] : [])];\n  query = { from_ms: eventMs - w, to_ms: eventMs + w, body: { query: [\n    { _name: 'listAlert' },\n    { _name: 'filter', _and: [\n      { _in: { _field: 'tags', _values: [ic.group_tag] } },\n      { _gte: { _field: 'date', _value: eventMs - w } },\n      { _lte: { _field: 'date', _value: eventMs + w } },\n      { _not: { _field: '_id', _value: b.thehive_alert_id } },\n      { _or: terms.map((t) => ({ _like: { _field: 'description', _value: `*${t}*` } })) },\n    ] },\n    { _name: 'sort', _fields: [{ date: 'desc' }] },\n    { _name: 'page', from: 0, to: ic.query_limit },\n  ] } };\n}\nreturn [{ json: {\n  thehive_alert_id: b.thehive_alert_id, event_ms: eventMs, facts,\n  remote: remote ? remote.data : null, remote_side: side, remote_why: why, remote_tags: remote ? remote.tags ?? [] : [],\n  verdict, verdict_source: verdictSource, verdict_note: verdictNote, tag, add_tags: addTags,\n  severity_from: severityFrom, severity_to: severityTo, patch_body: patch, query,\n} }];\n"
+      },
+      "id": "93200484-5899-564e-93b6-f06799f7a321",
+      "name": "IDS plan",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1560,
+        -400
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "a099c9c5-8309-543e-bfb0-79ad2cb1e849",
+              "leftValue": "={{ $json.patch_body !== null }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "ff1f412a-b997-5d67-a91d-97a38a312e47",
+      "name": "Update alert?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1820,
+        -400
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $env.THEHIVE_URL }}/api/v1/alert/{{ encodeURIComponent($('IDS plan').first().json.thehive_alert_id) }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "theHiveProjectApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($('IDS plan').first().json.patch_body) }}",
+        "options": {
+          "timeout": "={{ $('Context').first().json.config.thehive_http.timeout_ms }}",
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "4493532f-7398-5370-bd4d-5d519d3b7777",
+      "name": "Update TheHive alert",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2080,
+        -600
+      ],
+      "credentials": {
+        "theHiveProjectApi": {
+          "id": "asoxTheHiveApi01",
+          "name": "TheHive API (n8n)"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Retry policy for TheHive calls (N8N-6.2; lib-config thehive_http): a\n// connection error, a timeout or HTTP 5xx -> wait and call again; anything\n// else (2xx, and 4xx, which a retry never fixes) -> passed on. This node runs\n// once per call, so $runIndex counts the attempts. Never parks: the last\n// failure goes into the result.\nconst r = $input.first().json;\nconst policy = $('Context').first().json.config.thehive_http;\nconst NODE = 'Update TheHive alert';\nconst attempt = $runIndex + 1;\nconst status = typeof r.statusCode === 'number' ? r.statusCode : null;\nconst thrown = r.error !== undefined && status === null; // HTTP node error output\nconst NETWORK = /ECONNREFUSED|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|ECONNRESET|EHOSTUNREACH|ENETUNREACH|ECONNABORTED|timeout|timed out|socket hang up|connection cannot be established/i;\nconst transient = thrown ? NETWORK.test(JSON.stringify(r)) : status >= 500;\nconst calls = policy.retry_waits_s.length + 1;\nif (transient && attempt < calls) {\n  return [{ json: { decision: 'retry', stage: NODE, attempt, wait_s: policy.retry_waits_s[attempt - 1],\n    reason: thrown ? 'connection error or timeout' : `HTTP ${status}` } }];\n}\nif (thrown || transient) {\n  const e = r.error;\n  const detail = thrown\n    ? (typeof e === 'string' ? e : [e?.message, e?.description].filter(Boolean).join(': ') || JSON.stringify(r))\n    : `HTTP ${status}: ${typeof r.body === 'string' ? r.body : JSON.stringify(r.body)}`;\n  return [{ json: { decision: 'error', stage: NODE, attempts: attempt, retry_exhausted: transient, http_status: status,\n    message: `${detail}`.slice(0, 500) + (transient ? ` (${attempt} calls)` : '') } }];\n}\nreturn [{ json: { decision: 'response', stage: NODE, attempts: attempt, statusCode: status, body: r.body } }];\n"
+      },
+      "id": "34b46bad-c621-5d8d-a0ee-d12b42e16e04",
+      "name": "Assess: Update TheHive alert",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2320,
+        -600
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "944a62bc-5ee3-5a57-96a4-23f00109aab2",
+              "leftValue": "={{ $json.decision === 'retry' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "d1f77557-cd1e-5487-a46e-4941e776b9d8",
+      "name": "Retry: Update TheHive alert?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2560,
+        -600
+      ]
+    },
+    {
+      "parameters": {
+        "resume": "timeInterval",
+        "amount": "={{ $json.wait_s }}",
+        "unit": "seconds"
+      },
+      "id": "935926c4-6127-5ca1-a46f-70488085c396",
+      "name": "Wait before retry: Update TheHive alert",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        2560,
+        -800
+      ],
+      "webhookId": "379a7924-0e56-594a-b2f8-a25ac99b7544"
+    },
+    {
+      "parameters": {
+        "jsCode": "// The alert's verdict tag and severity raise (N8N-4.4): written or not. A\n// failure is reported in the writeback, never parked.\nconst j = $input.first().json;\nif (j.decision === 'error') {\n  return [{ json: { ok: false, class: j.retry_exhausted ? 'thehive_unreachable' : 'thehive_error', attempts: j.attempts, message: j.message } }];\n}\nif (j.statusCode >= 200 && j.statusCode < 300) return [{ json: { ok: true, attempts: j.attempts } }];\nreturn [{ json: { ok: false, class: j.statusCode >= 400 && j.statusCode < 500 ? 'thehive_4xx' : `http_${j.statusCode}`, attempts: j.attempts,\n  message: `HTTP ${j.statusCode}: ${typeof j.body === 'string' ? j.body : JSON.stringify(j.body)}`.slice(0, 500) } }];\n"
+      },
+      "id": "7a6f313c-e35f-52bd-9c5b-265e771c94ea",
+      "name": "Updated",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2800,
+        -500
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "f5b32deb-f2af-5546-b9f0-8dbc5bc300b5",
+              "leftValue": "={{ $('IDS plan').first().json.query !== null }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "67fdc7e2-12cb-5c2f-9692-23a68e6ff339",
+      "name": "Related query?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        3040,
+        -400
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.THEHIVE_URL }}/api/v1/query?name=ids-related",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "theHiveProjectApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($('IDS plan').first().json.query.body) }}",
+        "options": {
+          "timeout": "={{ $('Context').first().json.config.thehive_http.timeout_ms }}",
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "143513b0-ea8c-52a5-9dea-00e49c18a3e2",
+      "name": "Find related IDS alerts",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3280,
+        -600
+      ],
+      "credentials": {
+        "theHiveProjectApi": {
+          "id": "asoxTheHiveApi01",
+          "name": "TheHive API (n8n)"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Retry policy for TheHive calls (N8N-6.2; lib-config thehive_http): a\n// connection error, a timeout or HTTP 5xx -> wait and call again; anything\n// else (2xx, and 4xx, which a retry never fixes) -> passed on. This node runs\n// once per call, so $runIndex counts the attempts. Never parks: the last\n// failure goes into the result.\nconst r = $input.first().json;\nconst policy = $('Context').first().json.config.thehive_http;\nconst NODE = 'Find related IDS alerts';\nconst attempt = $runIndex + 1;\nconst status = typeof r.statusCode === 'number' ? r.statusCode : null;\nconst thrown = r.error !== undefined && status === null; // HTTP node error output\nconst NETWORK = /ECONNREFUSED|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|ECONNRESET|EHOSTUNREACH|ENETUNREACH|ECONNABORTED|timeout|timed out|socket hang up|connection cannot be established/i;\nconst transient = thrown ? NETWORK.test(JSON.stringify(r)) : status >= 500;\nconst calls = policy.retry_waits_s.length + 1;\nif (transient && attempt < calls) {\n  return [{ json: { decision: 'retry', stage: NODE, attempt, wait_s: policy.retry_waits_s[attempt - 1],\n    reason: thrown ? 'connection error or timeout' : `HTTP ${status}` } }];\n}\nif (thrown || transient) {\n  const e = r.error;\n  const detail = thrown\n    ? (typeof e === 'string' ? e : [e?.message, e?.description].filter(Boolean).join(': ') || JSON.stringify(r))\n    : `HTTP ${status}: ${typeof r.body === 'string' ? r.body : JSON.stringify(r.body)}`;\n  return [{ json: { decision: 'error', stage: NODE, attempts: attempt, retry_exhausted: transient, http_status: status,\n    message: `${detail}`.slice(0, 500) + (transient ? ` (${attempt} calls)` : '') } }];\n}\nreturn [{ json: { decision: 'response', stage: NODE, attempts: attempt, statusCode: status, body: r.body } }];\n"
+      },
+      "id": "7d235cdd-080d-5a8e-9ebe-dbd3c067316b",
+      "name": "Assess: Find related IDS alerts",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3520,
+        -600
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "b0bd24b4-58f6-5862-aa78-3350c99fc407",
+              "leftValue": "={{ $json.decision === 'retry' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "60b6a902-1e53-5407-9607-8977b357f957",
+      "name": "Retry: Find related IDS alerts?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        3760,
+        -600
+      ]
+    },
+    {
+      "parameters": {
+        "resume": "timeInterval",
+        "amount": "={{ $json.wait_s }}",
+        "unit": "seconds"
+      },
+      "id": "2acac066-414b-5949-81b1-84e94d6372ae",
+      "name": "Wait before retry: Find related IDS alerts",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        3760,
+        -800
+      ],
+      "webhookId": "4a5e56ff-b257-5a1d-8bab-b070033cd28c"
+    },
+    {
+      "parameters": {
+        "jsCode": "// N8N-4.4: the related-alerts answer -> the other IDS alerts, read-only.\n// Reached by the answer, the query failing for good, or no query (no remote\n// party, no event time). Each answered alert's Suricata EVE line (the last\n// log block of its description, Wazuh's full_log) is checked exactly: the\n// remote address as src_ip or dest_ip, or the same signature_id; the token\n// pre-filter's other hits, self, duplicates and dates outside the window are\n// dropped. listed: the ids.max_listed nearest in time, in date order. Host\n// from the alert's agent: tag; the other alert's remote party from its EVE\n// line with lib-config observable_ranges' internal ranges (its observables\n// aren't in the answer), the source first.\nconst cfg = $('Context').first().json.config;\nconst ic = cfg.ids;\nconst p = $('IDS plan').first().json;\nif (!p.query) return [{ json: { status: 'skipped', reason: p.remote ? 'no event time' : 'no remote party' } }];\nconst r = $input.first().json;\nconst calls = r.attempts ?? null;\nif (r.decision === 'error') return [{ json: { status: 'failed', class: r.retry_exhausted ? 'thehive_unreachable' : 'thehive_error', attempts: calls, message: r.message } }];\nif (r.statusCode !== 200) return [{ json: { status: 'failed', class: r.statusCode >= 400 && r.statusCode < 500 ? 'thehive_4xx' : `http_${r.statusCode}`, attempts: calls,\n  message: `HTTP ${r.statusCode}: ${typeof r.body === 'string' ? r.body : JSON.stringify(r.body)}`.slice(0, 500) } }];\nif (!Array.isArray(r.body)) return [{ json: { status: 'failed', class: 'bad_answer', attempts: calls } }];\n\n// IPv4 / IPv6 in the internal ranges (lib-extract-observables' parsing).\nconst parseV4 = (x) => {\n  const m = /^(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})$/.exec(x);\n  if (!m) return null;\n  const o = m.slice(1).map((y) => (y.length > 1 && y.startsWith('0') ? NaN : Number(y)));\n  if (o.some((y) => !(y >= 0 && y <= 255))) return null;\n  return o.reduce((acc, y) => (acc << 8n) + BigInt(y), 0n);\n};\nconst parseV6 = (x) => {\n  let t = x.toLowerCase().replace(/%.*$/, '');\n  const v4 = /(\\d{1,3}(?:\\.\\d{1,3}){3})$/.exec(t);\n  if (v4) {\n    const n = parseV4(v4[1]);\n    if (n === null) return null;\n    t = t.slice(0, -v4[1].length) + [Number(n >> 16n), Number(n & 0xffffn)].map((y) => y.toString(16)).join(':');\n  }\n  const halves = t.split('::');\n  if (halves.length > 2) return null;\n  const part = (h) => (h === '' ? [] : h.split(':'));\n  const head = part(halves[0]);\n  const rest = halves.length === 2 ? part(halves[1]) : [];\n  const fill = 8 - head.length - rest.length;\n  if (halves.length === 2 ? fill < 1 : fill !== 0) return null;\n  const groups = [...head, ...Array(halves.length === 2 ? fill : 0).fill('0'), ...rest];\n  if (groups.length !== 8 || groups.some((g) => !/^[0-9a-f]{1,4}$/.test(g))) return null;\n  return groups.reduce((acc, g) => (acc << 16n) + BigInt(parseInt(g, 16)), 0n);\n};\nconst parseIp = (x) => {\n  const v4 = parseV4(x);\n  if (v4 !== null) return { family: 4, big: v4 };\n  if (!x.includes(':')) return null;\n  const v6 = parseV6(x);\n  if (v6 === null) return null;\n  if (v6 >> 32n === 0xffffn) return { family: 4, big: v6 & 0xffffffffn };\n  return { family: 6, big: v6 };\n};\nconst internal = cfg.observable_ranges.classes.internal.map((cidr) => {\n  const [addr, len] = cidr.split('/');\n  const ip = parseIp(addr);\n  const bits = ip.family === 4 ? 32 : 128;\n  const l = BigInt(len ?? bits);\n  const mask = ((1n << BigInt(bits)) - 1n) ^ ((1n << (BigInt(bits) - l)) - 1n);\n  return { family: ip.family, net: ip.big & mask, mask };\n});\nconst isInternal = (x) => {\n  const ip = typeof x === 'string' ? parseIp(x) : null;\n  return ip !== null && internal.some((n) => n.family === ip.family && (ip.big & n.mask) === n.net);\n};\nconst remoteOf = (e) => {\n  const a = e.src_ip == null ? null : String(e.src_ip);\n  const z = e.dest_ip == null ? null : String(e.dest_ip);\n  if (a && !isInternal(a)) return a;\n  if (z && !isInternal(z)) return z;\n  return a ?? z;\n};\n// The description's last code block that parses as a Suricata EVE alert.\nconst eveOf = (desc) => {\n  if (typeof desc !== 'string') return null;\n  const blocks = [...desc.matchAll(/(`{3,})\\n([\\s\\S]*?)\\n\\1/g)].reverse();\n  for (const m of blocks) {\n    try {\n      const j = JSON.parse(m[2]);\n      if (j && typeof j === 'object' && j.alert && typeof j.alert === 'object') return j;\n    } catch (err) { /* not JSON: an older or another log line */ }\n  }\n  return null;\n};\nconst tagValue = (tags, prefix) => {\n  const t = (Array.isArray(tags) ? tags : []).find((x) => typeof x === 'string' && x.startsWith(prefix));\n  return t ? t.slice(prefix.length) : null;\n};\nconst sid = p.facts.signature_id;\nconst seen = new Set();\nconst others = [];\nlet unmatched = 0;\nfor (const a of r.body) {\n  if (!a || typeof a._id !== 'string' || a._id === p.thehive_alert_id || seen.has(a._id)) continue;\n  if (!Number.isFinite(a.date) || a.date < p.query.from_ms || a.date > p.query.to_ms) continue;\n  seen.add(a._id);\n  const e = eveOf(a.description);\n  const sameRemote = e !== null && [e.src_ip, e.dest_ip].some((x) => x != null && String(x) === p.remote);\n  const sameSignature = e !== null && sid !== null && e.alert.signature_id != null && String(e.alert.signature_id) === sid;\n  if (!sameRemote && !sameSignature) { unmatched += 1; continue; }\n  others.push({ thehive_alert_id: a._id, wazuh_alert_id: a.sourceRef ?? null, signature: e.alert.signature ?? null,\n    signature_id: e.alert.signature_id == null ? null : String(e.alert.signature_id), remote: remoteOf(e),\n    host: tagValue(a.tags, 'agent:'), rule_id: tagValue(a.tags, 'rule:'), date_ms: a.date, date_iso: new Date(a.date).toISOString(),\n    same_remote: sameRemote, same_signature: sameSignature, severity: a.severity ?? null });\n}\nconst listed = [...others]\n  .sort((x, y) => Math.abs(x.date_ms - p.event_ms) - Math.abs(y.date_ms - p.event_ms) || x.date_ms - y.date_ms)\n  .slice(0, ic.max_listed)\n  .sort((x, y) => x.date_ms - y.date_ms);\nreturn [{ json: { status: 'done', attempts: calls, total: others.length,\n  same_remote: others.filter((o) => o.same_remote).length, same_signature: others.filter((o) => o.same_signature).length,\n  unmatched, truncated: r.body.length >= ic.query_limit, listed } }];\n"
+      },
+      "id": "fda4e611-eccb-5040-9894-7e0f52bee21d",
+      "name": "Related IDS result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3920,
+        -400
+      ]
+    }
+  ],
+  "connections": {
+    "Called by a workflow": {
+      "main": [
+        [
+          {
+            "node": "Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Context": {
+      "main": [
+        [
+          {
+            "node": "Alert base (lib-alert-base)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Alert base (lib-alert-base)": {
+      "main": [
+        [
+          {
+            "node": "TheHive configured?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "TheHive configured?": {
+      "main": [
+        [
+          {
+            "node": "In TheHive?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Skipped outcome",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "In TheHive?": {
+      "main": [
+        [
+          {
+            "node": "IDS step?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Parked outcome",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IDS step?": {
+      "main": [
+        [
+          {
+            "node": "IDS plan",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Writeback input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IDS plan": {
+      "main": [
+        [
+          {
+            "node": "Update alert?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update alert?": {
+      "main": [
+        [
+          {
+            "node": "Update TheHive alert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Related query?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update TheHive alert": {
+      "main": [
+        [
+          {
+            "node": "Assess: Update TheHive alert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Assess: Update TheHive alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Assess: Update TheHive alert": {
+      "main": [
+        [
+          {
+            "node": "Retry: Update TheHive alert?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Retry: Update TheHive alert?": {
+      "main": [
+        [
+          {
+            "node": "Wait before retry: Update TheHive alert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Updated",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait before retry: Update TheHive alert": {
+      "main": [
+        [
+          {
+            "node": "Update TheHive alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Updated": {
+      "main": [
+        [
+          {
+            "node": "Related query?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Related query?": {
+      "main": [
+        [
+          {
+            "node": "Find related IDS alerts",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Related IDS result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find related IDS alerts": {
+      "main": [
+        [
+          {
+            "node": "Assess: Find related IDS alerts",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Assess: Find related IDS alerts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Assess: Find related IDS alerts": {
+      "main": [
+        [
+          {
+            "node": "Retry: Find related IDS alerts?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Retry: Find related IDS alerts?": {
+      "main": [
+        [
+          {
+            "node": "Wait before retry: Find related IDS alerts",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Related IDS result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait before retry: Find related IDS alerts": {
+      "main": [
+        [
+          {
+            "node": "Find related IDS alerts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Related IDS result": {
+      "main": [
+        [
+          {
+            "node": "Writeback input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Writeback input": {
+      "main": [
+        [
+          {
+            "node": "Writeback (lib-thehive-writeback)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Writeback (lib-thehive-writeback)": {
+      "main": [
+        [
+          {
+            "node": "Outcome",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataSuccessExecution": "all",
+    "saveDataErrorExecution": "all",
+    "saveManualExecutions": true,
+    "errorWorkflow": "asoxRecvN8nError"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "nodeGroups": [],
+  "tags": [],
+  "pinData": {}
+}
