@@ -65,6 +65,13 @@ services:
       # of parking every alert (non-secret; rendered by render-env.sh once the
       # integrator adds it, R-18; unset = true, the previous behaviour).
       THEHIVE_ENABLED: ${THEHIVE_ENABLED:-true}
+      # C9 response mode and protected addresses, per machine (non-secret;
+      # rendered by render-env.sh from topology.env RESPONSE_MODE and
+      # RESPONSE_PROTECTED_CIDRS, docs/decisions.md A106). lib-config reads
+      # them: anything but 'live' or 'dry_run' is dry_run, loopback is always
+      # protected. Unset = dry_run, nothing beyond loopback.
+      ASOX_RESPONSE_MODE: ${ASOX_RESPONSE_MODE:-dry_run}
+      ASOX_RESPONSE_PROTECTED_CIDRS: ${ASOX_RESPONSE_PROTECTED_CIDRS:-}
       # Also n8n's own setting: base URL of its webhooks (what other nodes call).
       N8N_WEBHOOK_URL: ${N8N_WEBHOOK_URL}
       # PostgreSQL instead of SQLite (profile "pg"): uncomment together with
