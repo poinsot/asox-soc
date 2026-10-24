@@ -24,45 +24,64 @@ usage() { print_usage "$0"; }
 
 load_topology
 
-# SYSLOG_ALLOWED_IPS (R-06): extra syslog sources for the Wazuh manager,
-# rendered into core's WAZUH_SYSLOG_ALLOWED_IPS. Empty is valid (the manager
-# then allows only its own Docker networks). Checked before any file is
-# written, so an invalid value changes nothing.
-check_syslog_allowed_ips() {
-  local list=$1 entry o
+# Optional address lists in topology.env, checked before any file is
+# written, so an invalid value changes nothing. Empty is valid.
+#   SYSLOG_ALLOWED_IPS (R-06): extra syslog sources for the Wazuh manager,
+#     rendered into core's WAZUH_SYSLOG_ALLOWED_IPS (empty: the manager then
+#     allows only its own Docker networks).
+#   RESPONSE_PROTECTED_CIDRS (C9): addresses n8n never blocks, rendered into
+#     core's ASOX_RESPONSE_PROTECTED_CIDRS.
+# check_ipv4_list NAME LIST ALL_MSG: ALL_MSG says why a /0 is refused.
+check_ipv4_list() {
+  local name=$1 list=$2 all_msg=$3 entry o
   local -a entries
   [[ -n $list ]] || return 0
   local hint="comma-separated IPv4 addresses or CIDRs without spaces, e.g. 192.168.1.1,10.0.5.0/24"
   [[ $list != *[[:space:]]* ]] \
-    || die "topology.env: SYSLOG_ALLOWED_IPS contains a space ('$list'); use $hint"
+    || die "topology.env: $name contains a space ('$list'); use $hint"
   [[ $list != ,* && $list != *, && $list != *,,* ]] \
-    || die "topology.env: SYSLOG_ALLOWED_IPS has an empty entry ('$list'); use $hint"
+    || die "topology.env: $name has an empty entry ('$list'); use $hint"
   IFS=, read -ra entries <<< "$list"
   for entry in "${entries[@]}"; do
     [[ $entry =~ ^([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})(/([0-9]{1,2}))?$ ]] \
-      || die "topology.env: SYSLOG_ALLOWED_IPS entry '$entry' is not a.b.c.d or a.b.c.d/n; use $hint"
+      || die "topology.env: $name entry '$entry' is not a.b.c.d or a.b.c.d/n; use $hint"
     for o in 1 2 3 4; do
       [[ ${BASH_REMATCH[o]} != 0?* ]] \
-        || die "topology.env: SYSLOG_ALLOWED_IPS entry '$entry': octet ${BASH_REMATCH[o]}: leading zeros are ambiguous (octal)"
+        || die "topology.env: $name entry '$entry': octet ${BASH_REMATCH[o]}: leading zeros are ambiguous (octal)"
       (( 10#${BASH_REMATCH[o]} <= 255 )) \
-        || die "topology.env: SYSLOG_ALLOWED_IPS entry '$entry': octet ${BASH_REMATCH[o]} is above 255"
+        || die "topology.env: $name entry '$entry': octet ${BASH_REMATCH[o]} is above 255"
     done
     if [[ -n ${BASH_REMATCH[6]} ]]; then
       (( 10#${BASH_REMATCH[6]} <= 32 )) \
-        || die "topology.env: SYSLOG_ALLOWED_IPS entry '$entry': prefix /${BASH_REMATCH[6]} is above /32"
+        || die "topology.env: $name entry '$entry': prefix /${BASH_REMATCH[6]} is above /32"
       # 0.0.0.0/0, or any /0, matches every address.
       (( 10#${BASH_REMATCH[6]} > 0 )) \
-        || die "topology.env: SYSLOG_ALLOWED_IPS entry '$entry' accepts every source, which disables the syslog restriction; list the senders' addresses instead"
-      # /1 to /7 cover at least 2^25 addresses: more than any syslog sender list needs.
+        || die "topology.env: $name entry '$entry' $all_msg"
+      # /1 to /7 cover at least 2^25 addresses: more than any of these lists needs.
       (( 10#${BASH_REMATCH[6]} >= 8 )) \
-        || die "topology.env: SYSLOG_ALLOWED_IPS entry '$entry': prefix /${BASH_REMATCH[6]} is too broad (below /8)"
+        || die "topology.env: $name entry '$entry': prefix /${BASH_REMATCH[6]} is too broad (below /8)"
     fi
-    # 0.0.0.0/8 is "this network" (RFC 1122): never a sender's address.
+    # 0.0.0.0/8 is "this network" (RFC 1122): never a host's address.
     [[ ${BASH_REMATCH[1]} != 0 ]] \
-      || die "topology.env: SYSLOG_ALLOWED_IPS entry '$entry': 0.x.x.x is not a source address"
+      || die "topology.env: $name entry '$entry': 0.x.x.x is not a source address"
   done
 }
-check_syslog_allowed_ips "$TOPO_SYSLOG_ALLOWED_IPS"
+check_ipv4_list SYSLOG_ALLOWED_IPS "$TOPO_SYSLOG_ALLOWED_IPS" \
+  "accepts every source, which disables the syslog restriction; list the senders' addresses instead"
+
+# C9 response mode (docs/decisions.md A106): per machine, so a demo machine
+# sets live once and no workflow import resets it. Unset or empty is
+# dry_run. live needs the protected list: n8n refuses to act without it.
+TOPO_RESPONSE_MODE=${TOPO_RESPONSE_MODE:-dry_run}
+[[ $TOPO_RESPONSE_MODE == dry_run || $TOPO_RESPONSE_MODE == live ]] \
+  || die "topology.env: RESPONSE_MODE must be 'dry_run' or 'live' (got '$TOPO_RESPONSE_MODE')"
+check_ipv4_list RESPONSE_PROTECTED_CIDRS "$TOPO_RESPONSE_PROTECTED_CIDRS" \
+  "protects every address, so nothing could ever be blocked; list the SOC hosts, gateway, DNS and manager instead"
+if [[ $TOPO_RESPONSE_MODE == live ]]; then
+  [[ -n $TOPO_RESPONSE_PROTECTED_CIDRS ]] \
+    || die "topology.env: RESPONSE_MODE=live needs RESPONSE_PROTECTED_CIDRS (this network's SOC machine, gateway, DNS and Wazuh manager); n8n refuses live responses without it"
+  info "C9 response mode: live, protected: $TOPO_RESPONSE_PROTECTED_CIDRS"
+fi
 
 # Memory profiles (PROJECT.md section 8): heaps and container mem_limit.
 # Limits are sized from measured need (D40): anonymous memory peak x 1.15
@@ -151,8 +170,11 @@ derive() {
     # already rendered in this run (render_node's "rendered"), so the key
     # must come before THEHIVE_ENABLED in .env.example.
     THEHIVE_ENABLED)    [[ -n ${rendered[THEHIVE_N8N_API_KEY]:-} ]] && printf 'true' || printf 'false' ;;
-    # R-06: checked by check_syslog_allowed_ips; empty unless topology.env sets it.
+    # R-06: checked by check_ipv4_list; empty unless topology.env sets it.
     WAZUH_SYSLOG_ALLOWED_IPS) printf '%s' "$TOPO_SYSLOG_ALLOWED_IPS" ;;
+    # C9 (A106): checked above; dry_run and empty unless topology.env sets them.
+    ASOX_RESPONSE_MODE) printf '%s' "$TOPO_RESPONSE_MODE" ;;
+    ASOX_RESPONSE_PROTECTED_CIDRS) printf '%s' "$TOPO_RESPONSE_PROTECTED_CIDRS" ;;
     *)
       local v
       if [[ $TOPO_MEM_PROFILE == standard ]]; then v=${PROFILE_STANDARD[$key]:-}; else v=${PROFILE_LOW[$key]:-}; fi

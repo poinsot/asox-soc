@@ -196,6 +196,16 @@ cmd_info() {
         "$(env_get "$envf" "$uvar")" "$(env_get "$envf" "$pvar")"
       shown=$((shown + 1))
     done
+    # C9 response mode, rendered from topology.env (docs/decisions.md A106).
+    if [[ $node == core ]]; then
+      local rmode
+      rmode=$(env_get "$envf" ASOX_RESPONSE_MODE)
+      if [[ ${rmode:-dry_run} == live ]]; then
+        printf '%-11s %s\n' "C9" "response mode: live, protected: $(env_get "$envf" ASOX_RESPONSE_PROTECTED_CIDRS)"
+      else
+        printf '%-11s %s\n' "C9" "response mode: ${rmode:-dry_run} (nothing is sent)"
+      fi
+    fi
     # TheHive's license decides whether it is writable (docs/decisions.md A57).
     if [[ $node == cases ]] && grep -qx thehive <<<"$running"; then
       local lic

@@ -85,8 +85,11 @@ load_topology() {
   TOPO_INTEL_HOST=$(env_get "$TOPOLOGY_FILE" INTEL_HOST)
   # Optional (R-06); validated by render-env.sh, which renders it.
   TOPO_SYSLOG_ALLOWED_IPS=$(env_get "$TOPOLOGY_FILE" SYSLOG_ALLOWED_IPS)
+  # Optional (C9, A106); validated by render-env.sh, which renders them.
+  TOPO_RESPONSE_MODE=$(env_get "$TOPOLOGY_FILE" RESPONSE_MODE)
+  TOPO_RESPONSE_PROTECTED_CIDRS=$(env_get "$TOPOLOGY_FILE" RESPONSE_PROTECTED_CIDRS)
   export TOPO_DEPLOY_MODE TOPO_MEM_PROFILE TOPO_SOC_INSTANCE TOPO_CORE_HOST TOPO_CASES_HOST TOPO_INTEL_HOST \
-    TOPO_SYSLOG_ALLOWED_IPS
+    TOPO_SYSLOG_ALLOWED_IPS TOPO_RESPONSE_MODE TOPO_RESPONSE_PROTECTED_CIDRS
 
   [[ $TOPO_DEPLOY_MODE == single || $TOPO_DEPLOY_MODE == distributed ]] \
     || die "topology.env: DEPLOY_MODE must be 'single' or 'distributed' (got '$TOPO_DEPLOY_MODE')"
