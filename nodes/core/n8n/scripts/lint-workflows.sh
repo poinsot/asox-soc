@@ -71,7 +71,7 @@ STICKY = "n8n-nodes-base.stickyNote"
 ERROR_WORKFLOW = "recv-n8n-error"
 # Documented $env variables (README "Credentials, URLs and secrets").
 URL_VARS = {"WAZUH_API_URL", "THEHIVE_URL", "CORTEX_URL", "MISP_URL", "WAZUH_INDEXER_URL", "N8N_WEBHOOK_URL"}
-ENV_VARS = URL_VARS | {"WAZUH_ALERT_MIN_LEVEL", "THEHIVE_ENABLED"}
+ENV_VARS = URL_VARS | {"WAZUH_ALERT_MIN_LEVEL", "THEHIVE_ENABLED", "ASOX_RESPONSE_MODE", "ASOX_RESPONSE_PROTECTED_CIDRS"}
 WEBHOOK_CREDS = {"asoxWebhookToken", "asoxWebhookBear1"}
 BEARER_WEBHOOKS = {"recv-thehive-event"}  # TheHive can't send X-ASOX-Token (D43)
 MISP_CRED, INDEXER_CRED = "asoxMispApi00001", "asoxIndexerN8n01"
